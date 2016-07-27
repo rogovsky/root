@@ -15,7 +15,7 @@
 #endif
 
 extern "C" {
-   R__DLLEXPORT void usedToIdentifyRootClingByDlSym() {};
+   R__DLLEXPORT void usedToIdentifyRootClingByDlSym() {}
 }
 
 const char *shortHelp =
@@ -4197,7 +4197,10 @@ int RootCling(int argc,
 
    // cling-only arguments
    clingArgs.push_back(TMetaUtils::GetInterpreterExtraIncludePath(buildingROOT));
-   clingArgs.push_back("-D__ROOTCLING__");
+   // We do not want __ROOTCLING__ in the pch!
+   if (!onepcm) {
+      clingArgs.push_back("-D__ROOTCLING__");
+   }
    clingArgs.push_back("-fsyntax-only");
    clingArgs.push_back("-Xclang");
    clingArgs.push_back("-main-file-name");
@@ -5522,7 +5525,7 @@ int GenReflex(int argc, char **argv)
       "      In order for ROOT to pick up the information in the rootmaps, they\n"
       "      have to be located in the library path and have the .rootmap extension.\n"
       "      An example rootmap file could be:\n"
-      "      { decl }\n"
+      "      { decls }\n"
       "      template <class T> class A;\n"
       "      [ libMyLib.so ]\n"
       "      class A<double>\n"

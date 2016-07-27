@@ -6,26 +6,51 @@
 # LICENSE.TXT for details.
 #------------------------------------------------------------------------------
 
-set( LLVM_LINK_COMPONENTS
-  bitwriter
-  mcjit
-  orcjit
-  native
-  option
-  ipo
-  instrumentation
-  objcarcopts
+set(LIBS
+  clangDriver
+  clangFrontend
+  clangParse
+  clangSema
+  clangAST
+  clangLex
+  clangSerialization
+  clangCodeGen
+  clangBasic
+
+  clingUtils
 )
 
-add_cling_library(clingInterpreter
+find_library(DL_LIBRARY_PATH dl)
+if (DL_LIBRARY_PATH)
+  list(APPEND LIBS dl)
+endif()
+
+
+set( LLVM_LINK_COMPONENTS
+  analysis
+  core
+  executionengine
+  ipo
+  mc
+  native
+  nativecodegen
+  object
+  option
+  orcjit
+  runtimedyld
+  support
+  target
+)
+
+add_cling_library(clingInterpreter OBJECT
   AutoSynthesizer.cpp
   AutoloadCallback.cpp
-  ASTImportSource.cpp
   ASTTransformer.cpp
   BackendPasses.cpp
   CheckEmptyTransactionTransformer.cpp
   CIFactory.cpp
   ClangInternalState.cpp
+  ClingCodeCompleteConsumer.cpp
   ClingPragmas.cpp
   DeclCollector.cpp
   DeclExtractor.cpp
@@ -35,6 +60,7 @@ add_cling_library(clingInterpreter
   DynamicExprInfo.cpp
   Exception.cpp
   ExceptionRTTI.cpp
+  ExternalInterpreterSource.cpp
   ForwardDeclPrinter.cpp
   IncrementalExecutor.cpp
   IncrementalJIT.cpp
@@ -53,11 +79,8 @@ add_cling_library(clingInterpreter
   ValuePrinterSynthesizer.cpp
 
   LINK_LIBS
-  clangBasic
-  clangAST
-  )
-
-add_dependencies(clingInterpreter clangBasic clangAST LLVMCore)
+  ${LIBS}
+)
 
 if(NOT WIN32)
 set_source_files_properties(ExceptionRTTI.cpp COMPILE_FLAGS "-fexceptions -frtti")
@@ -69,6 +92,7 @@ endif()
 # cl : Command line warning D9025: overriding '/EHc' with '/EHc-'
 # so let's change the target compiler flags instead:
 if(MSVC)
+  add_definitions(-UUNICODE -U_UNICODE)
   get_target_property(CI_COMPILE_FLAGS clingInterpreter COMPILE_FLAGS)
   if(${CI_COMPILE_FLAGS})
     string(REPLACE "/EHs-c-" "" CI_COMPILE_FLAGS ${CI_COMPILE_FLAGS})

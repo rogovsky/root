@@ -221,14 +221,16 @@ namespace cling {
                                        Value* V = 0,
                                        Transaction** T = 0);
 
-    ///\brief Decides whether the input line should be wrapped into a function
-    /// declaration that can later be executed.
+    ///\brief Worker function to code complete after all the mechanism
+    /// has been set up.
     ///
-    ///\param[in] input - The input being scanned.
+    ///\param [in] input - The input being completed.
+    ///\param [in] offset - The offset for the completion point.
     ///
-    ///\returns true if the input should be wrapped into a function declaration.
+    ///\returns Whether the operation was fully successful.
     ///
-    bool ShouldWrapInput(const std::string& input);
+    CompilationResult CodeCompleteInternal(const std::string& input,
+                                           unsigned offset);
 
     ///\brief Wraps a given input.
     ///
@@ -238,7 +240,8 @@ namespace cling {
     ///\param [out] input - The input to wrap.
     ///\param [out] fname - The wrapper function's name.
     ///
-    void WrapInput(std::string& input, std::string& fname);
+    void WrapInput(std::string& input, std::string& fnamem,
+                   CompilationOptions &CO);
 
     ///\brief Runs given wrapper function.
     ///
@@ -303,7 +306,7 @@ namespace cling {
     ///\param[in] llvmdir - ???
     ///\param[in] noRuntime - flag to control the presence of runtime universe
     ///
-    Interpreter(Interpreter &parentInterpreter,int argc, const char* const *argv,
+    Interpreter(const Interpreter &parentInterpreter,int argc, const char* const *argv,
                 const char* llvmdir = 0, bool noRuntime = true);
 
     virtual ~Interpreter();
@@ -467,6 +470,20 @@ namespace cling {
     ///
     CompilationResult parseForModule(const std::string& input);
 
+    ///\brief Code completes user input.
+    ///
+    /// The interface circumvents the most of the extra work necessary to
+    /// code complete code.
+    ///
+    /// @param[in] line - The input containing the string to be completed.
+    /// @param[in] cursor - The offset for the completion point.
+    /// @param[out] completions - The results for teh completion
+    ///
+    ///\returns Whether the operation was fully successful.
+    ///
+    CompilationResult codeComplete(const std::string& line, size_t& cursor,
+                                   std::vector<std::string>& completions) const;
+
     ///\brief Compiles input line, which doesn't contain statements.
     ///
     /// The interface circumvents the most of the extra work necessary to
@@ -586,8 +603,8 @@ namespace cling {
     //FIXME: This must be in InterpreterCallbacks.
     void installLazyFunctionCreator(void* (*fp)(const std::string&));
 
-    //FIXME: Terrible hack to let the IncrementalParser run static inits on
-    // transaction completed.
+    //FIXME: Lets the IncrementalParser run static inits on transaction
+    // completed. Find a better way.
     ExecutionResult executeTransaction(Transaction& T);
 
     ///\brief Evaluates given expression within given declaration context.

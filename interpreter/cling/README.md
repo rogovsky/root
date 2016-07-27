@@ -11,9 +11,11 @@
 ##DESCRIPTION
 Cling is an interactive C++ interpreter, built on top of Clang and LLVM compiler infrastructure. Cling realizes the [read-eval-print loop (REPL)](http://en.wikipedia.org/wiki/Read%E2%80%93eval%E2%80%93print_loop) concept, in order to leverage rapid application development. Implemented as a small extension to LLVM and Clang, the interpreter reuses their strengths such as the praised concise and expressive compiler diagnostics.
 
+See also the [cling web page](https://cdn.rawgit.com/root-mirror/cling/master/www/index.html)
+
 ### Further information & demos
   Please note that some of the resources are rather old and most of the stated limitations are outdated.
-  * https://github.com/root-mirror/cling/tree/master/www/docs/talks
+  * [talks](www/docs/talks)
   * http://blog.coldflake.com/posts/2012-08-09-On-the-fly-C++.html
   * http://solarianprogrammer.com/2012/08/14/cling-cpp-11-interpreter/
   * https://www.youtube.com/watch?v=f9Xfh8pv3Fs
@@ -22,6 +24,8 @@ Cling is an interactive C++ interpreter, built on top of Clang and LLVM compiler
   * https://www.youtube.com/watch?v=eoIuqLNvzFs
 
 ##INSTALLATION
+###Release Notes
+  See our [release notes](docs/ReleaseNotes.md) to find what's new.
 ###Binaries
   We offer binary snapshots for download at https://root.cern.ch/download/cling/
 
@@ -85,7 +89,7 @@ wget https://raw.githubusercontent.com/root-mirror/cling/master/tools/packaging/
 chmod +x cpt.py
 ```
 
-Full documentation of CPT can be found in [tools/packaging](https://github.com/root-mirror/cling/tree/master/tools/packaging).
+Full documentation of CPT can be found in [tools/packaging](tree/master/tools/packaging).
 
 ##USAGE
 ```c++
@@ -106,7 +110,7 @@ or type
 
 cling comes with a [Jupyter][6] kernel. After building cling, install Jupyter and run ```jupyter kernelspec install cling```. It requires a fairly new Jupyter. Make sure cling is in your PATH when you start jupyter!
 
-See also the [tools/Jupyter/kernel](https://github.com/root-mirror/cling/tree/master/tools/Jupyter/kernel) subdirectory.
+See also the [tools/Jupyter](tools/Jupyter) subdirectory.
 
    [6]: http://jupyter.org
 

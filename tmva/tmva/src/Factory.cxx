@@ -80,12 +80,8 @@
 #include "TMVA/ROCCurve.h"
 #include "TMVA/MsgLogger.h"
 
-#include "TMVA/VariableIdentityTransform.h"
-#include "TMVA/VariableDecorrTransform.h"
-#include "TMVA/VariableInfo.h"
-#include "TMVA/VariablePCATransform.h"
-#include "TMVA/VariableGaussTransform.h"
-#include "TMVA/VariableNormalizeTransform.h"
+
+#include "TMVA/VariableTransform.h"
 
 #include "TMVA/Results.h"
 #include "TMVA/ResultsClassification.h"
@@ -100,18 +96,15 @@
 
 const Int_t  MinNoTrainingEvents = 10;
 //const Int_t  MinNoTestEvents     = 1;
-TFile* TMVA::Factory::fgTargetFile = 0;
 
 ClassImp(TMVA::Factory)
 
-#define RECREATE_METHODS kTRUE
 #define READXML          kTRUE
 
 //number of bits for bitset
 #define VIBITS          32
 
 
-Bool_t TMVA::Factory::fSilentFile=kFALSE;
 
 ////////////////////////////////////////////////////////////////////////////////
 /// standard constructor
@@ -126,10 +119,12 @@ TMVA::Factory::Factory( TString jobName, TFile* theTargetFile, TString theOption
    fVerbose              ( kFALSE ),
    fCorrelations         ( kFALSE ),
    fROC                  ( kTRUE ),
+   fSilentFile           ( kFALSE ),
    fJobName              ( jobName ),
    fDataAssignType       ( kAssignEvents ),
    fATreeEvent           ( NULL ),
-   fAnalysisType         ( Types::kClassification )
+   fAnalysisType         ( Types::kClassification ),
+   fModelPersistence     (kTRUE)
 {
    fgTargetFile = theTargetFile;
 
@@ -160,9 +155,12 @@ TMVA::Factory::Factory( TString jobName, TFile* theTargetFile, TString theOption
    DeclareOptionRef( fCorrelations, "Correlations", "boolean to show correlation in output" );
    DeclareOptionRef( fROC, "ROC", "boolean to show ROC in output" );
    DeclareOptionRef( silent,   "Silent", "Batch mode: boolean silent flag inhibiting any output from TMVA after the creation of the factory class object (default: False)" );
-   DeclareOptionRef( fSilentFile,   "SilentFile", "Reduce the information saved in the output file (default: False)" );
+//    DeclareOptionRef( fSilentFile,   "SilentFile", "Reduce the information saved in the output file (default: False)" );
    DeclareOptionRef( drawProgressBar,
                      "DrawProgressBar", "Draw progress bar to display training, testing and evaluation schedule (default: True)" );
+   DeclareOptionRef( fModelPersistence,
+                     "ModelPersistence",
+                     "Option to save the trained model in xml file or using serialization");
 
    TString analysisType("Auto");
    DeclareOptionRef( analysisType,
@@ -191,6 +189,84 @@ TMVA::Factory::Factory( TString jobName, TFile* theTargetFile, TString theOption
    Greetings();
 }
 
+
+
+TMVA::Factory::Factory( TString jobName, TString theOption )
+: Configurable          ( theOption ),
+   fTransformations      ( "I" ),
+   fVerbose              ( kFALSE ),
+   fCorrelations         ( kFALSE ),
+   fROC                  ( kTRUE ),
+   fSilentFile           ( kTRUE ),
+   fJobName              ( jobName ),
+   fDataAssignType       ( kAssignEvents ),
+   fATreeEvent           ( NULL ),
+   fAnalysisType         ( Types::kClassification ),
+   fModelPersistence     (kTRUE)
+{
+   fgTargetFile = 0;
+
+
+   // render silent
+   if (gTools().CheckForSilentOption( GetOptions() )) Log().InhibitOutput(); // make sure is silent if wanted to
+
+
+   // init configurable
+   SetConfigDescription( "Configuration options for Factory running" );
+   SetConfigName( GetName() );
+
+   // histograms are not automatically associated with the current
+   // directory and hence don't go out of scope when closing the file
+   // TH1::AddDirectory(kFALSE);
+   Bool_t silent          = kFALSE;
+#ifdef WIN32
+   // under Windows, switch progress bar and color off by default, as the typical windows shell doesn't handle these (would need different sequences..)
+   Bool_t color           = kFALSE;
+   Bool_t drawProgressBar = kFALSE;
+#else
+   Bool_t color           = !gROOT->IsBatch();
+   Bool_t drawProgressBar = kTRUE;
+#endif
+   DeclareOptionRef( fVerbose, "V", "Verbose flag" );
+   DeclareOptionRef( color,    "Color", "Flag for coloured screen output (default: True, if in batch mode: False)" );
+   DeclareOptionRef( fTransformations, "Transformations", "List of transformations to test; formatting example: \"Transformations=I;D;P;U;G,D\", for identity, decorrelation, PCA, Uniform and Gaussianisation followed by decorrelation transformations" );
+   DeclareOptionRef( fCorrelations, "Correlations", "boolean to show correlation in output" );
+   DeclareOptionRef( fROC, "ROC", "boolean to show ROC in output" );
+   DeclareOptionRef( silent,   "Silent", "Batch mode: boolean silent flag inhibiting any output from TMVA after the creation of the factory class object (default: False)" );
+   DeclareOptionRef( drawProgressBar,
+                     "DrawProgressBar", "Draw progress bar to display training, testing and evaluation schedule (default: True)" );
+   DeclareOptionRef( fModelPersistence,
+                     "ModelPersistence",
+                     "Option to save the trained model in xml file or using serialization");
+   
+   TString analysisType("Auto");
+   DeclareOptionRef( analysisType,
+                     "AnalysisType", "Set the analysis type (Classification, Regression, Multiclass, Auto) (default: Auto)" );
+   AddPreDefVal(TString("Classification"));
+   AddPreDefVal(TString("Regression"));
+   AddPreDefVal(TString("Multiclass"));
+   AddPreDefVal(TString("Auto"));
+
+   ParseOptions();
+   CheckForUnusedOptions();
+
+   if (Verbose()) Log().SetMinType( kVERBOSE );
+
+   // global settings
+   gConfig().SetUseColor( color );
+   gConfig().SetSilent( silent );
+   gConfig().SetDrawProgressBar( drawProgressBar );
+
+   analysisType.ToLower();
+   if     ( analysisType == "classification" ) fAnalysisType = Types::kClassification;
+   else if( analysisType == "regression" )     fAnalysisType = Types::kRegression;
+   else if( analysisType == "multiclass" )     fAnalysisType = Types::kMulticlass;
+   else if( analysisType == "auto" )           fAnalysisType = Types::kNoAnalysisType;
+
+   Greetings();
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////
 /// print welcome message
 /// options are: kLogoWelcomeMsg, kIsometricWelcomeMsg, kLeanWelcomeMsg
@@ -208,6 +284,11 @@ Bool_t TMVA::Factory::IsSilentFile()
   return fSilentFile;
 }
 
+//_______________________________________________________________________
+Bool_t TMVA::Factory::IsModelPersistence()
+{
+    return fModelPersistence;
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// destructor
@@ -260,7 +341,7 @@ void TMVA::Factory::SetVerbose( Bool_t v )
 TMVA::MethodBase* TMVA::Factory::BookMethod( TMVA::DataLoader *loader, TString theMethodName, TString methodTitle, TString theOption )
 {
    // Book a classifier or regression method
-   gSystem->MakeDirectory(loader->GetName());//creating directory for DataLoader output
+   if(fModelPersistence) gSystem->MakeDirectory(loader->GetName());//creating directory for DataLoader output
 
    TString datasetname=loader->GetName();
   
@@ -300,7 +381,12 @@ TMVA::MethodBase* TMVA::Factory::BookMethod( TMVA::DataLoader *loader, TString t
                            "Number of times the classifier will be boosted" );
    conf->ParseOptions();
    delete conf;
-
+   TString fFileDir;
+   if(fModelPersistence)
+   {
+       fFileDir=loader->GetName();
+       fFileDir+="/"+gConfig().GetIONames().fWeightFileDir;
+   }
    // initialize methods
    IMethod* im;
    if (!boostNum) {
@@ -321,8 +407,13 @@ TMVA::MethodBase* TMVA::Factory::BookMethod( TMVA::DataLoader *loader, TString t
       MethodBoost* methBoost = dynamic_cast<MethodBoost*>(im); // DSMTEST divided into two lines
       if (!methBoost) // DSMTEST
          Log() << kFATAL << "Method with type kBoost cannot be casted to MethodCategory. /Factory" << Endl; // DSMTEST
+
+      if(fModelPersistence) methBoost->SetWeightFileDir(fFileDir);
+      methBoost->SetModelPersistence(fModelPersistence);
       methBoost->SetBoostedMethodName( theMethodName ); // DSMTEST divided into two lines
       methBoost->fDataSetManager = loader->fDataSetManager; // DSMTEST
+      methBoost->SetFile(fgTargetFile);
+      methBoost->SetSilentFile(IsSilentFile());
    }
 
    MethodBase *method = dynamic_cast<MethodBase*>(im);
@@ -333,7 +424,12 @@ TMVA::MethodBase* TMVA::Factory::BookMethod( TMVA::DataLoader *loader, TString t
       MethodCategory *methCat = (dynamic_cast<MethodCategory*>(im)); // DSMTEST
       if (!methCat) // DSMTEST
          Log() << kFATAL << "Method with type kCategory cannot be casted to MethodCategory. /Factory" << Endl; // DSMTEST
+      
+      if(fModelPersistence) methCat->SetWeightFileDir(fFileDir);
+      methCat->SetModelPersistence(fModelPersistence);
       methCat->fDataSetManager = loader->fDataSetManager; // DSMTEST
+      methCat->SetFile(fgTargetFile);
+      methCat->SetSilentFile(IsSilentFile());
    } // DSMTEST
 
 
@@ -355,10 +451,15 @@ TMVA::MethodBase* TMVA::Factory::BookMethod( TMVA::DataLoader *loader, TString t
    
 //    method->SetWeightFileDir(Form("%s/%s",loader->GetName(),method->GetWeightFileDir().Data()));//setting up weight file dir
    //method->fDataLoader=loader;
+   
+   if(fModelPersistence) method->SetWeightFileDir(fFileDir);
+   method->SetModelPersistence(fModelPersistence);
    method->SetAnalysisType( fAnalysisType );
    method->SetupMethod();
    method->ParseOptions();
    method->ProcessSetup();
+   method->SetFile(fgTargetFile);
+   method->SetSilentFile(IsSilentFile());
 
    // check-for-unused-options is performed; may be overridden by derived classes
    method->CheckSetup();
@@ -469,7 +570,7 @@ void TMVA::Factory::WriteDataInformation(DataSetInfo&     fDataSetInfo)
 
       Log() << kINFO << Endl;
       Log() << kINFO << "current transformation string: '" << trfS.Data() << "'" << Endl;
-      TMVA::MethodBase::CreateVariableTransforms( trfS, 
+      TMVA::CreateVariableTransforms( trfS, 
                                                   fDataSetInfo,
                                                   *(trfs.back()),
                                                   Log() );
@@ -806,10 +907,10 @@ void TMVA::Factory::TrainAllMethods()
       // of the methods (in TMVAClassificationApplication) is consistent with the results obtained
       // in the testing
       Log() << Endl;
-      if (RECREATE_METHODS) {
+      if (fModelPersistence) {
 
 	  Log() << kINFO << "=== Destroy and recreate all methods via weight files for testing ===" << Endl << Endl;
-	  RootBaseDir()->cd();
+	  if(!IsSilentFile()) RootBaseDir()->cd();
 
 	  // iterate through all booked methods
 	  for (UInt_t i=0; i<methods->size(); i++) {
@@ -837,7 +938,13 @@ void TMVA::Factory::TrainAllMethods()
 		else methCat->fDataSetManager = m->DataInfo().GetDataSetManager();
 	    }
 	    //ToDo, Do we need to fill the DataSetManager of MethodBoost here too?
-	    
+            
+            
+            TString fFileDir= m->DataInfo().GetName();
+            fFileDir+="/"+gConfig().GetIONames().fWeightFileDir;
+            m->SetWeightFileDir(fFileDir);
+            m->SetModelPersistence(fModelPersistence);
+            m->SetSilentFile(IsSilentFile());
 	    m->SetAnalysisType(fAnalysisType);
 	    m->SetupMethod();
 	    m->ReadStateFromFile();
@@ -1021,6 +1128,8 @@ void TMVA::Factory::EvaluateAllMethods( void )
 	  Event::SetIsTraining(kFALSE);
 	  MethodBase* theMethod = dynamic_cast<MethodBase*>(*itrMethod);
 	  if(theMethod==0) continue;
+	  theMethod->SetFile(fgTargetFile);
+	  theMethod->SetSilentFile(IsSilentFile());
 	  if (theMethod->GetMethodType() != Types::kCuts) methodsNoCuts.push_back( *itrMethod );
 
 	  if (theMethod->DoRegression()) {
@@ -1085,12 +1194,7 @@ void TMVA::Factory::EvaluateAllMethods( void )
 	    // perform the evaluation
 	    theMethod->TestClassification();
 	    
-	    //removing all the output of File
-	    if(IsSilentFile())
-	    {	      
-	      fgTargetFile->Delete(itrMap->first);
-	      
-	    }
+
 	    // evaluate the classifier
 	    mname[isel].push_back( theMethod->GetMethodName() );
 	    sig[isel].push_back  ( theMethod->GetSignificance() );
@@ -1583,21 +1687,6 @@ TH1F* TMVA::Factory::EvaluateImportance(DataLoader *loader,VIType vitype, Types:
   }
 }
 
-void TMVA::Factory::VIDataLoaderCopy(TMVA::DataLoader* des, TMVA::DataLoader* src)
-{
-    //Loading Dataset from DataInputHandler for subseed
-    for( std::vector<TreeInfo>::const_iterator treeinfo=src->DataInput().Sbegin();treeinfo!=src->DataInput().Send();treeinfo++)
-    {
-      des->AddSignalTree( (*treeinfo).GetTree(), (*treeinfo).GetWeight(),(*treeinfo).GetTreeType());
-    }
-
-    for( std::vector<TreeInfo>::const_iterator treeinfo=src->DataInput().Bbegin();treeinfo!=src->DataInput().Bend();treeinfo++)
-    {
-      des->AddBackgroundTree( (*treeinfo).GetTree(), (*treeinfo).GetWeight(),(*treeinfo).GetTreeType());
-    }
-}
-
-
 TH1F* TMVA::Factory::EvaluateImportanceAll(DataLoader *loader, Types::EMVA theMethod,  TString methodTitle, const char *theOption)
 {
   
@@ -1631,7 +1720,7 @@ TH1F* TMVA::Factory::EvaluateImportanceAll(DataLoader *loader, Types::EMVA theMe
       if (xbitset[index]) seedloader->AddVariable(varNames[index], 'F');
     }
     
-    VIDataLoaderCopy(seedloader,loader);
+    DataLoaderCopy(seedloader,loader);
     seedloader->PrepareTrainingAndTestTree(loader->DefaultDataSetInfo().GetCut("Signal"), loader->DefaultDataSetInfo().GetCut("Background"), loader->DefaultDataSetInfo().GetSplitOptions());
     
     //Booking Seed
@@ -1733,7 +1822,7 @@ TH1F* TMVA::Factory::EvaluateImportanceShort(DataLoader *loader, Types::EMVA the
   }
   
   //Loading Dataset
-  VIDataLoaderCopy(seedloader,loader);
+  DataLoaderCopy(seedloader,loader);
   
   //Booking Seed
   BookMethod(seedloader, theMethod, methodTitle, theOption);
@@ -1784,7 +1873,7 @@ TH1F* TMVA::Factory::EvaluateImportanceShort(DataLoader *loader, Types::EMVA the
       }
       
       //Loading Dataset
-      VIDataLoaderCopy(subseedloader,loader);
+      DataLoaderCopy(subseedloader,loader);
       
       //Booking SubSeed
       BookMethod(subseedloader, theMethod, methodTitle, theOption);
@@ -1852,7 +1941,7 @@ TH1F* TMVA::Factory::EvaluateImportanceRandom(DataLoader *loader, UInt_t nseeds,
       }
 
       //Loading Dataset
-      VIDataLoaderCopy(seedloader,loader);
+      DataLoaderCopy(seedloader,loader);
 
       //Booking Seed
       BookMethod(seedloader, theMethod, methodTitle, theOption);
@@ -1907,7 +1996,7 @@ TH1F* TMVA::Factory::EvaluateImportanceRandom(DataLoader *loader, UInt_t nseeds,
             }
 
             //Loading Dataset
-            VIDataLoaderCopy(subseedloader,loader);
+            DataLoaderCopy(subseedloader,loader);
 
             //Booking SubSeed
             BookMethod(subseedloader, theMethod, methodTitle, theOption);
@@ -2025,7 +2114,7 @@ float TMVA::Factory::CrossValidate(DataLoader * loader, Types::EMVA theMethod, T
             seedloader->AddVariable(varNames.at(index), 'F');
          }
       
-         VIDataLoaderCopy(seedloader,loader);
+         DataLoaderCopy(seedloader,loader);
       
          MethodBase* mva = BookMethod(seedloader, theMethod, methodTitle, theOption);
       
@@ -2069,7 +2158,7 @@ float TMVA::Factory::CrossValidate(DataLoader * loader, Types::EMVA theMethod, T
             seedloader->AddVariable(varNames.at(index), 'F');
          }
       
-         VIDataLoaderCopy(seedloader,loader);
+         DataLoaderCopy(seedloader,loader);
       
          BookMethod(seedloader, theMethod, methodTitle, theOption);
       

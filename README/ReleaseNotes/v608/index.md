@@ -40,9 +40,9 @@ The following people have contributed to this new version:
 
 <a name="core-libs"></a>
 
-## general
+## General
 
-* Remove many instance of new warnings issued by gcc 6.1
+* Remove many instances of new warnings issued by gcc 6.1
 * Significant update of the valgrind suppression file to hide intentional lack
 of delete of some entities at the end of the process.
 * Resolved several memory leaks.
@@ -88,9 +88,15 @@ Add a new mode for `TClass::SetCanSplit` (2) which indicates that this class and
 * Fix ROOT-7879: Prevent LinkDef files to be listed in a rootmap file and use (as the user actually expects) the header files #included in the linkdef file, if any, as the top level headers.
 * Add the *noIncludePaths* switch both for rootcling and genreflex to allow to loose track of the include paths in input to the dictionary generator.
 * Fix handling of template parameter pack in the forward declaration printer. [ROOT-8096]
+* Do not autoparse headers for classes in the pch.
+* Avoid autoparse on IsForeign() if possible.
+* Check for new-style empty pcm with key named "EMPTY" created since commit 90047b0cba6fd295f5c5722749a0d043fbc11ea5.
+* Do not insert macro definition of __ROOTCLING__ into the pch.
 
 ### Interpreter Library
 
+* llvm / clang have been updated to r274612.
+* The GCC5 ABI is now supported [ROOT-7947].
 * Exceptions are now caught in the interactive ROOT session, instead of terminating ROOT.
 * A ValuePrinter for tuple and pair has been added to visualise the content of these entities at the prompt.
 * When interpreting dereferences of invalid pointers, cling will now complain (throw, actually) instead of crash.
@@ -140,8 +146,8 @@ We added a cache specifically for the fast option of the TTreeCloner to signific
 ## Math Libraries
 
 * Improve thread safety of TMinuit constructor [ROOT-8217]
-* Vc has ben removed from the ROOT sources. If the option 'vc' is enabled, the package will be searched (by default), 
-  alternatively the source tarfile can be downloded and build with the option 'builtin_vc'. 
+* Vc has ben removed from the ROOT sources. If the option 'vc' is enabled, the package will be searched (by default),
+  alternatively the source tarfile can be downloded and build with the option 'builtin_vc'.
 
 ## RooFit Libraries
 
@@ -214,16 +220,20 @@ We added a cache specifically for the fast option of the TTreeCloner to signific
 * New optional parameter "option" in TPad::BuildLegend to set the TLegend option (Georg Troska).
 * TCandle: a new candle plot painter class. It is now used in THistPainter and THStack
   to paint candle plots (Georg Troska).
-* Fix two issues with the fill patterns in `TTextDump` (reported [here](https://sft.its.cern.ch/jira/browse/ROOT-8206)):
+* Fix two issues with the fill patterns in `TTeXDump` (reported [here](https://sft.its.cern.ch/jira/browse/ROOT-8206)):
     - The pattern number 3 was not implemented.
     - Filled area drawn with pattern where surrounded by a solid line.
+* Support custom line styles in `TTeXDump` as requested [here](https://sft.its.cern.ch/jira/browse/ROOT-8215)
 * `TColor::GetFreeColorIndex()` allows to make sure the new color is created with an
   unused color index.
+* In `TLegend::SetHeader` the new option `C` allows to center the title.
 
 ## 3D Graphics Libraries
 
 * When painting a `TH3` as 3D boxes, `TMarker3DBox` ignored the max and min values
   specified by `SetMaximum()` and `SetMinimum()`.
+* In `TMarker3DBox` when a box marker has a size equal to zero it is not painted.
+  Painting it produced a dot with the X11 backend.
 
 ## New histogram drawing options
 

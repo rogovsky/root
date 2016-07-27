@@ -11,8 +11,8 @@
 #include "ClingUtils.h"
 
 #include "cling-compiledata.h"
-#include "ASTImportSource.h"
 #include "DynamicLookup.h"
+#include "ExternalInterpreterSource.h"
 #include "ForwardDeclPrinter.h"
 #include "IncrementalExecutor.h"
 #include "IncrementalParser.h"
@@ -21,12 +21,14 @@
 
 #include "cling/Interpreter/CIFactory.h"
 #include "cling/Interpreter/ClangInternalState.h"
+#include "cling/Interpreter/ClingCodeCompleteConsumer.h"
 #include "cling/Interpreter/CompilationOptions.h"
 #include "cling/Interpreter/DynamicLibraryManager.h"
 #include "cling/Interpreter/LookupHelper.h"
 #include "cling/Interpreter/Transaction.h"
 #include "cling/Interpreter/Value.h"
 #include "cling/Utils/AST.h"
+#include "cling/Utils/SourceNormalization.h"
 #include "cling/Interpreter/AutoloadCallback.h"
 
 #include "clang/AST/ASTContext.h"
@@ -237,7 +239,7 @@ namespace cling {
   ///\brief Constructor for the child Interpreter.
   /// Passing the parent Interpreter as an argument.
   ///
-  Interpreter::Interpreter(Interpreter &parentInterpreter, int argc,
+  Interpreter::Interpreter(const Interpreter &parentInterpreter, int argc,
                            const char* const *argv,
                            const char* llvmdir /*= 0*/, bool noRuntime) :
     Interpreter(argc, argv, llvmdir, noRuntime, /* isChildInterp */ true) {
@@ -245,8 +247,8 @@ namespace cling {
     // its parent interpreter.
 
     // The "bridge" between the interpreters.
-    ASTImportSource *myExternalSource =
-      new ASTImportSource(&parentInterpreter, this);
+    ExternalInterpreterSource *myExternalSource =
+      new ExternalInterpreterSource(&parentInterpreter, this);
 
     llvm::IntrusiveRefCntPtr <ExternalASTSource>
       astContextExternalSource(myExternalSource);
@@ -255,7 +257,7 @@ namespace cling {
 
     // Inform the Translation Unit Decl of I2 that it has to search somewhere
     // else to find the declarations.
-    getCI()->getASTContext().getTranslationUnitDecl()->setHasExternalVisibleStorage();
+    getCI()->getASTContext().getTranslationUnitDecl()->setHasExternalVisibleStorage(true);
 
     // Give my IncrementalExecutor a pointer to the Incremental executor of the
     // parent Interpreter.
@@ -307,7 +309,9 @@ namespace cling {
     AddIncludePath(InclPaths);
 #endif
     llvm::SmallString<512> P(GetExecutablePath(argv0));
-    if (!P.empty()) {
+    if (!P.empty()
+        && llvm::StringRef(argv0).endswith("cling")
+        && llvm::sys::path::filename(P) == "cling") {
       // Remove /cling from foo/bin/clang
       llvm::StringRef ExeIncl = llvm::sys::path::parent_path(P);
       // Remove /bin   from foo/bin
@@ -532,7 +536,12 @@ namespace cling {
   Interpreter::CompilationResult
   Interpreter::process(const std::string& input, Value* V /* = 0 */,
                        Transaction** T /* = 0 */) {
-    if (isRawInputEnabled() || !ShouldWrapInput(input)) {
+    std::string wrapReadySource = input;
+    size_t wrapPoint = std::string::npos;
+    if (!isRawInputEnabled())
+      wrapPoint = utils::getWrapPoint(wrapReadySource, getCI()->getLangOpts());
+
+    if (isRawInputEnabled() || wrapPoint == std::string::npos) {
       CompilationOptions CO;
       CO.DeclarationExtraction = 0;
       CO.ValuePrinting = 0;
@@ -550,7 +559,7 @@ namespace cling {
     CO.DynamicScoping = isDynamicLookupEnabled();
     CO.Debug = isPrintingDebug();
     CO.CheckPointerValidity = 1;
-    if (EvaluateInternal(input, CO, V, T) == Interpreter::kFailure) {
+    if (EvaluateInternal(wrapReadySource, CO, V, T) == Interpreter::kFailure) {
       return Interpreter::kFailure;
     }
 
@@ -639,6 +648,36 @@ namespace cling {
     return Result;
   }
 
+
+  Interpreter::CompilationResult
+  Interpreter::CodeCompleteInternal(const std::string& input, unsigned offset) {
+
+    CompilationOptions CO;
+    CO.DeclarationExtraction = 0;
+    CO.ValuePrinting = 0;
+    CO.ResultEvaluation = 0;
+    CO.DynamicScoping = isDynamicLookupEnabled();
+    CO.Debug = isPrintingDebug();
+    CO.CheckPointerValidity = 0;
+    CO.CodeCompletionOffset = offset;
+
+
+    std::string wrappedInput = input;
+    std::string wrapperName;
+    size_t wrapPos = utils::getWrapPoint(wrappedInput, getCI()->getLangOpts());
+
+    if (wrapPos != std::string::npos)
+      WrapInput(wrappedInput, wrapperName, CO);
+
+    StateDebuggerRAII stateDebugger(this);
+
+    // This triggers the FileEntry to be created and the completion
+    // point to be set in clang.
+    m_IncrParser->Compile(wrappedInput, CO);
+
+    return kSuccess;
+  }
+
   Interpreter::CompilationResult
   Interpreter::declare(const std::string& input, Transaction** T/*=0 */) {
     CompilationOptions CO;
@@ -664,6 +703,58 @@ namespace cling {
     CO.ResultEvaluation = 1;
 
     return EvaluateInternal(input, CO, &V);
+  }
+
+  Interpreter::CompilationResult
+  Interpreter::codeComplete(const std::string& line, size_t& cursor,
+                            std::vector<std::string>& completions) const {
+
+    const char * const argV = "cling";
+    std::string resourceDir = this->getCI()->getHeaderSearchOpts().ResourceDir;
+    // Remove the extra 3 directory names "/lib/clang/3.9.0"
+    StringRef parentResourceDir = llvm::sys::path::parent_path(
+                                  llvm::sys::path::parent_path(
+                                  llvm::sys::path::parent_path(resourceDir)));
+    std::string llvmDir = parentResourceDir.str();
+
+    Interpreter childInterpreter(*this, 1, &argV, llvmDir.c_str());
+
+    auto childCI = childInterpreter.getCI();
+    clang::Sema &childSemaRef = childCI->getSema();
+
+    // Create the CodeCompleteConsumer with InterpreterCallbacks
+    // from the parent interpreter and set the consumer for the child
+    // interpreter.
+    ClingCodeCompleteConsumer* consumer = new ClingCodeCompleteConsumer(
+                getCI()->getFrontendOpts().CodeCompleteOpts, completions);
+    // Child interpreter CI will own consumer!
+    childCI->setCodeCompletionConsumer(consumer);
+    childSemaRef.CodeCompleter = consumer;
+
+    // Ignore diagnostics when we tab complete.
+    // This is because we get redefinition errors due to the import of the decls.
+    clang::IgnoringDiagConsumer* ignoringDiagConsumer =
+                                            new clang::IgnoringDiagConsumer();                      
+    childSemaRef.getDiagnostics().setClient(ignoringDiagConsumer, true);
+    DiagnosticsEngine& parentDiagnostics = this->getCI()->getSema().getDiagnostics();
+
+    std::unique_ptr<DiagnosticConsumer> ownerDiagConsumer = 
+                                                parentDiagnostics.takeClient();
+    auto clientDiagConsumer = parentDiagnostics.getClient();
+    parentDiagnostics.setClient(ignoringDiagConsumer, /*owns*/ false);
+
+    // The child will desirialize decls from *this. We need a transaction RAII.
+    PushTransactionRAII RAII(this);
+
+    // Triger the code completion.
+    childInterpreter.CodeCompleteInternal(line, cursor);
+
+    // Restore the original diagnostics client for parent interpreter.
+    parentDiagnostics.setClient(clientDiagConsumer,
+                                ownerDiagConsumer.release() != nullptr);
+    parentDiagnostics.Reset(/*soft=*/true);
+
+    return kSuccess;
   }
 
   Interpreter::CompilationResult
@@ -703,93 +794,15 @@ namespace cling {
     return Interpreter::kFailure;
   }
 
-  bool Interpreter::ShouldWrapInput(const std::string& input) {
-    // TODO: For future reference.
-    // Parser* P = const_cast<clang::Parser*>(m_IncrParser->getParser());
-    // Parser::TentativeParsingAction TA(P);
-    // TPResult result = P->isCXXDeclarationSpecifier();
-    // TA.Revert();
-    // return result == TPResult::True();
 
-    // FIXME: can't skipToEndOfLine because we don't want to PragmaLex
-    // because we don't want to pollute the preprocessor. Without PragmaLex
-    // there is no "end of line" / eod token. So skip the #line before lexing.
-    size_t posStart = 0;
-    size_t lenInput = input.length();
-    while (lenInput > posStart && isspace(input[posStart]))
-      ++posStart;
-    // Don't wrap empty input
-    if (posStart == lenInput)
-      return false;
-    if (input[posStart] == '#') {
-      size_t posDirective = posStart + 1;
-      while (lenInput > posDirective && isspace(input[posDirective]))
-        ++posDirective;
-      // A single '#'? Weird... better don't wrap.
-      if (posDirective == lenInput)
-        return false;
-      if (!strncmp(&input[posDirective], "line ", 5)) {
-        // There is a line directive. It does affect the determination whether
-        // this input should be wrapped; skip the line.
-        size_t posEOD = input.find('\n', posDirective + 5);
-        if (posEOD != std::string::npos)
-          posStart = posEOD + 1;
-      }
-    }
-    //llvm::OwningPtr<llvm::MemoryBuffer> buf;
-    //buf.reset(llvm::MemoryBuffer::getMemBuffer(&input[posStart],
-    //                                           "Cling Preparse Buf"));
-    Lexer WrapLexer(SourceLocation(), getSema().getLangOpts(),
-                    input.c_str() + posStart,
-                    input.c_str() + posStart,
-                    input.c_str() + input.size());
-    Token Tok;
-    WrapLexer.LexFromRawLexer(Tok);
-    const tok::TokenKind kind = Tok.getKind();
-
-    if (kind == tok::raw_identifier && !Tok.needsCleaning()) {
-      StringRef keyword(Tok.getRawIdentifier());
-      if (keyword.equals("using")) {
-        // FIXME: Using definitions and declarations should be decl extracted.
-        // Until we have that, don't wrap them if they are the only input.
-        const char* cursor = keyword.data();
-        cursor = strchr(cursor, ';'); // advance to end of using decl / def.
-        if (!cursor) {
-          // Using decl / def without trailing ';' means input consists of only
-          // that using decl /def: should not wrap.
-          return false;
-        }
-        // Skip whitespace after ';'
-        do ++cursor;
-        while (*cursor && isspace(*cursor));
-        if (!*cursor)
-          return false;
-        // There is "more" - let's assume this input consists of a using
-        // declaration or definition plus some code that should be wrapped.
-        return true;
-      }
-      if (keyword.equals("extern"))
-        return false;
-      if (keyword.equals("namespace"))
-        return false;
-      if (keyword.equals("template"))
-        return false;
-    }
-    else if (kind == tok::hash) {
-      WrapLexer.LexFromRawLexer(Tok);
-      if (Tok.is(tok::raw_identifier) && !Tok.needsCleaning()) {
-        StringRef keyword(Tok.getRawIdentifier());
-        if (keyword.equals("include"))
-          return false;
-      }
-    }
-
-    return true;
-  }
-
-  void Interpreter::WrapInput(std::string& input, std::string& fname) {
+  void Interpreter::WrapInput(std::string& input, std::string& fname,
+                              CompilationOptions &CO) {
     fname = createUniqueWrapper();
-    input.insert(0, "void " + fname + "(void* vpClingValue) {\n ");
+    std::string wrapperHeader = "void " + fname + "(void* vpClingValue) {\n ";
+    if (CO.CodeCompletionOffset != -1) {
+      CO.CodeCompletionOffset += wrapperHeader.size();
+    }
+    input.insert(0, wrapperHeader);
     input.append("\n;\n}");
   }
 
@@ -1041,7 +1054,7 @@ namespace cling {
     // Wrap the expression
     std::string WrapperName;
     std::string Wrapper = input;
-    WrapInput(Wrapper, WrapperName);
+    WrapInput(Wrapper, WrapperName, CO);
 
     // We have wrapped and need to disable warnings that are caused by
     // non-default C++ at the prompt:
@@ -1125,7 +1138,7 @@ namespace cling {
     DynamicLibraryManager* DLM = getDynamicLibraryManager();
     std::string canonicalLib = DLM->lookupLibrary(filename);
     if (allowSharedLib && !canonicalLib.empty()) {
-      switch (DLM->loadLibrary(filename, /*permanent*/false)) {
+      switch (DLM->loadLibrary(canonicalLib, /*permanent*/false, /*resolved*/true)) {
       case DynamicLibraryManager::kLoadLibSuccess: // Intentional fall through
       case DynamicLibraryManager::kLoadLibAlreadyLoaded:
         return kSuccess;
@@ -1379,7 +1392,7 @@ namespace cling {
 
     std::string includeFile = std::string("#include \"") + inFile.str() + "\"";
     IncrementalParser::ParseResultTransaction PRT
-      = fwdGen.m_IncrParser->Parse(includeFile, CO);
+      = fwdGen.m_IncrParser->Compile(includeFile, CO);
     cling::Transaction* T = PRT.getPointer();
 
     // If this was already #included we will get a T == 0.
@@ -1411,5 +1424,7 @@ namespace cling {
     // Avoid assertion in the ~IncrementalParser.
     T.setState(Transaction::kCommitted);
   }
+
+
 
 } //end namespace cling

@@ -124,7 +124,9 @@ namespace {
   if (!II)
     return;
   const clang::DefMacroDirective* MD
-    = llvm::dyn_cast<clang::DefMacroDirective>(PP.getLocalMacroDirective(II));
+    = llvm::dyn_cast_or_null<clang::DefMacroDirective>(
+                                                   PP.getLocalMacroDirective(II)
+                                                      );
   if (!MD)
     return;
   const clang::MacroInfo* MI = MD->getMacroInfo();
@@ -660,14 +662,6 @@ namespace cling {
     return PRT;
   }
 
-  IncrementalParser::ParseResultTransaction
-  IncrementalParser::Parse(llvm::StringRef input,
-                           const CompilationOptions& Opts) {
-    Transaction* CurT = beginTransaction(Opts);
-    ParseInternal(input);
-    return endTransaction(CurT);
-  }
-
   // Add the input to the memory buffer, parse it, and add it to the AST.
   IncrementalParser::EParseResult
   IncrementalParser::ParseInternal(llvm::StringRef input) {
@@ -713,10 +707,28 @@ namespace cling {
     SourceLocation NewLoc = getLastMemoryBufferEndLoc().getLocWithOffset(1);
 
     llvm::MemoryBuffer* MBNonOwn = MB.get();
-    // Create FileID for the current buffer
-    FileID FID = SM.createFileID(std::move(MB), SrcMgr::C_User,
+
+    // Create FileID for the current buffer.
+    FileID FID;
+    if (CO.CodeCompletionOffset == -1)
+    {
+      FID = SM.createFileID(std::move(MB), SrcMgr::C_User,
                                  /*LoadedID*/0,
                                  /*LoadedOffset*/0, NewLoc);
+    } else {
+      // Create FileEntry and FileID for the current buffer.
+      // Enabling the completion point only works on FileEntries.
+      const clang::FileEntry* FE
+        = SM.getFileManager().getVirtualFile("vfile for " + source_name.str(),
+                                             InputSize, 0 /* mod time*/);
+      SM.overrideFileContents(FE, std::move(MB));
+      FID = SM.createFileID(FE, NewLoc, SrcMgr::C_User);
+
+      // The completion point is set one a 1-based line/column numbering.
+      // It relies on the implementation to account for the wrapper extra line.
+      PP.SetCodeCompletionPoint(FE, 1/* start point 1-based line*/,
+                                CO.CodeCompletionOffset+1/* 1-based column*/);
+    }
 
     m_MemoryBuffers.push_back(std::make_pair(MBNonOwn, FID));
 
@@ -766,6 +778,19 @@ namespace cling {
       if (ADecl)
         m_Consumer->HandleTopLevelDecl(ADecl.get());
     };
+
+    if (CO.CodeCompletionOffset != -1) {
+      assert((int)SM.getFileOffset(PP.getCodeCompletionLoc())
+             == CO.CodeCompletionOffset
+             && "Completion point wrongly set!");
+      assert(PP.isCodeCompletionReached()
+             && "Code completion set but not reached!");
+
+      // Let's ignore this transaction:
+      m_Consumer->getTransaction()->setIssuedDiags(Transaction::kErrors);
+
+      return kSuccess;
+    }
 
 #ifdef LLVM_ON_WIN32
     // Microsoft-specific:
