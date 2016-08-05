@@ -97,6 +97,7 @@ namespace TMVA {
    }
 }
 
+
 ////////////////////////////////////////////////////////////////////////////////
 /// constructor
 
@@ -177,7 +178,7 @@ TMVA::DataSet* TMVA::DataSetFactory::BuildDynamicDataSet( TMVA::DataSetInfo& dsi
       Float_t* external=(Float_t*)(*it).GetExternalLink();
       if (external==0)
          Log() << kDEBUG << Form("Dataset[%s] : ",dsi.GetName()) << "The link to the external variable is NULL while I am trying to build a dynamic data set. In this case fTmpEvent from MethodBase HAS TO BE USED in the method to get useful values in variables." << Endl;
-      evdyn->push_back (external);
+      else evdyn->push_back (external);
    }
 
    std::vector<VariableInfo>& spectatorinfos = dsi.GetSpectatorInfos();

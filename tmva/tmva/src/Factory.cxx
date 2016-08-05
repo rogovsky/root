@@ -121,14 +121,12 @@ TMVA::Factory::Factory( TString jobName, TFile* theTargetFile, TString theOption
    fROC                  ( kTRUE ),
    fSilentFile           ( kFALSE ),
    fJobName              ( jobName ),
-   fDataAssignType       ( kAssignEvents ),
-   fATreeEvent           ( NULL ),
    fAnalysisType         ( Types::kClassification ),
    fModelPersistence     (kTRUE)
 {
    fgTargetFile = theTargetFile;
-
-
+   fLogger->SetSource(GetName());
+   
    // render silent
    if (gTools().CheckForSilentOption( GetOptions() )) Log().InhibitOutput(); // make sure is silent if wanted to
 
@@ -155,7 +153,6 @@ TMVA::Factory::Factory( TString jobName, TFile* theTargetFile, TString theOption
    DeclareOptionRef( fCorrelations, "Correlations", "boolean to show correlation in output" );
    DeclareOptionRef( fROC, "ROC", "boolean to show ROC in output" );
    DeclareOptionRef( silent,   "Silent", "Batch mode: boolean silent flag inhibiting any output from TMVA after the creation of the factory class object (default: False)" );
-//    DeclareOptionRef( fSilentFile,   "SilentFile", "Reduce the information saved in the output file (default: False)" );
    DeclareOptionRef( drawProgressBar,
                      "DrawProgressBar", "Draw progress bar to display training, testing and evaluation schedule (default: True)" );
    DeclareOptionRef( fModelPersistence,
@@ -199,13 +196,12 @@ TMVA::Factory::Factory( TString jobName, TString theOption )
    fROC                  ( kTRUE ),
    fSilentFile           ( kTRUE ),
    fJobName              ( jobName ),
-   fDataAssignType       ( kAssignEvents ),
-   fATreeEvent           ( NULL ),
    fAnalysisType         ( Types::kClassification ),
    fModelPersistence     (kTRUE)
 {
    fgTargetFile = 0;
-
+   fLogger->SetSource(GetName());
+   
 
    // render silent
    if (gTools().CheckForSilentOption( GetOptions() )) Log().InhibitOutput(); // make sure is silent if wanted to
@@ -217,7 +213,7 @@ TMVA::Factory::Factory( TString jobName, TString theOption )
 
    // histograms are not automatically associated with the current
    // directory and hence don't go out of scope when closing the file
-   // TH1::AddDirectory(kFALSE);
+   TH1::AddDirectory(kFALSE);
    Bool_t silent          = kFALSE;
 #ifdef WIN32
    // under Windows, switch progress bar and color off by default, as the typical windows shell doesn't handle these (would need different sequences..)
@@ -448,10 +444,7 @@ TMVA::MethodBase* TMVA::Factory::BookMethod( TMVA::DataLoader *loader, TString t
       }
       return 0;
    }
-   
-//    method->SetWeightFileDir(Form("%s/%s",loader->GetName(),method->GetWeightFileDir().Data()));//setting up weight file dir
-   //method->fDataLoader=loader;
-   
+      
    if(fModelPersistence) method->SetWeightFileDir(fFileDir);
    method->SetModelPersistence(fModelPersistence);
    method->SetAnalysisType( fAnalysisType );
@@ -521,7 +514,7 @@ void TMVA::Factory::WriteDataInformation(DataSetInfo&     fDataSetInfo)
       for (UInt_t cls = 0; cls < fDataSetInfo.GetNClasses() ; cls++) {
          m = fDataSetInfo.CorrelationMatrix(fDataSetInfo.GetClassInfo(cls)->GetName());
          h = fDataSetInfo.CreateCorrelationMatrixHist(m, TString("CorrelationMatrix")+fDataSetInfo.GetClassInfo(cls)->GetName(),
-                                                              "Correlation Matrix ("+ fDataSetInfo.GetClassInfo(cls)->GetName() +TString(")"));
+                                                              TString("Correlation Matrix (")+ fDataSetInfo.GetClassInfo(cls)->GetName() +TString(")"));
          if (h!=0) {
             h->Write();
             delete h;
@@ -1540,7 +1533,7 @@ void TMVA::Factory::EvaluateAllMethods( void )
 
 	      TString header= "DataSet Name     MVA Method     "; 
 	      for(UInt_t icls = 0; icls<theMethod->fDataSetInfo.GetNClasses(); ++icls){
-		  header += Form("%-12s ",theMethod->fDataSetInfo.GetClassInfo(icls)->GetName().Data());
+		  header += Form("%-12s ",theMethod->fDataSetInfo.GetClassInfo(icls)->GetName());
 	      }
 	      Log() << kINFO << header << Endl;
 	      Log() << kINFO << hLine << Endl;
@@ -1638,7 +1631,6 @@ void TMVA::Factory::EvaluateAllMethods( void )
 		}
 		Log() << kINFO << hLine << Endl;
 		Log() << kINFO << Endl; 
-		Log().flush();
 		if (gTools().CheckForSilentOption( GetOptions() )) Log().InhibitOutput();
 	    }//end fROC
 	  }
@@ -1670,7 +1662,9 @@ void TMVA::Factory::EvaluateAllMethods( void )
 
 TH1F* TMVA::Factory::EvaluateImportance(DataLoader *loader,VIType vitype, Types::EMVA theMethod,  TString methodTitle, const char *theOption)
 {
-  
+  fModelPersistence=kFALSE;
+  fSilentFile=kTRUE;//we need silent file here beause we need fast classification results
+    
   //getting number of variables and variable names from loader
   const int nbits = loader->DefaultDataSetInfo().GetNVariables();
   if(vitype==VIType::kShort)
@@ -1689,7 +1683,7 @@ TH1F* TMVA::Factory::EvaluateImportance(DataLoader *loader,VIType vitype, Types:
 
 TH1F* TMVA::Factory::EvaluateImportanceAll(DataLoader *loader, Types::EMVA theMethod,  TString methodTitle, const char *theOption)
 {
-  
+    
   uint64_t x = 0;
   uint64_t y = 0;
   
@@ -1737,15 +1731,8 @@ TH1F* TMVA::Factory::EvaluateImportanceAll(DataLoader *loader, Types::EMVA theMe
     //cleaning information to process subseeds
     TMVA::MethodBase *smethod=dynamic_cast<TMVA::MethodBase*>(fMethodsMap[xbitset.to_string().c_str()][0][0]);
     TMVA::ResultsClassification  *sresults = (TMVA::ResultsClassification*)smethod->Data()->GetResults(smethod->GetMethodName(), Types::kTesting, Types::kClassification);
-    sresults->Delete();
     delete sresults;
-    fgTargetFile->cd();
-    fgTargetFile->Delete(seedloader->GetName());
-    fgTargetFile->Delete(Form("%s;1",seedloader->GetName()));
-    fgTargetFile->Flush();
-    delete seedloader;
-    gSystem->Exec(Form("rm -rf %s", xbitset.to_string().c_str()));
-    
+    delete seedloader;    
     this->DeleteAllMethods();
     
     fMethodsMap.clear();
@@ -1790,8 +1777,7 @@ static long int sum(long int i)
 
 
 TH1F* TMVA::Factory::EvaluateImportanceShort(DataLoader *loader, Types::EMVA theMethod,  TString methodTitle, const char *theOption)
-{
-  
+{    
   uint64_t x = 0;
   uint64_t y = 0;
   
@@ -1838,18 +1824,11 @@ TH1F* TMVA::Factory::EvaluateImportanceShort(DataLoader *loader, Types::EMVA the
   //cleaning information to process subseeds
   TMVA::MethodBase *smethod=dynamic_cast<TMVA::MethodBase*>(fMethodsMap[xbitset.to_string().c_str()][0][0]);
   TMVA::ResultsClassification  *sresults = (TMVA::ResultsClassification*)smethod->Data()->GetResults(smethod->GetMethodName(), Types::kTesting, Types::kClassification);
-  sresults->Delete();
   delete sresults;
-  fgTargetFile->cd();
-  fgTargetFile->Delete(seedloader->GetName());
-  fgTargetFile->Delete(Form("%s;1",seedloader->GetName()));
-  fgTargetFile->Flush();
-  delete seedloader;
-  gSystem->Exec(Form("rm -rf %s", xbitset.to_string().c_str()));
-  
+  delete seedloader;  
   this->DeleteAllMethods();
-  
   fMethodsMap.clear();
+  
   //removing global result because it is requiring alot amount of RAM for all seeds
   
   for (uint32_t i = 0; i < VIBITS; ++i) {
@@ -1890,16 +1869,10 @@ TH1F* TMVA::Factory::EvaluateImportanceShort(DataLoader *loader, Types::EMVA the
       //cleaning information
       TMVA::MethodBase *ssmethod=dynamic_cast<TMVA::MethodBase*>(fMethodsMap[ybitset.to_string().c_str()][0][0]);
       TMVA::ResultsClassification *ssresults = (TMVA::ResultsClassification*)ssmethod->Data()->GetResults(ssmethod->GetMethodName(), Types::kTesting, Types::kClassification);
-      ssresults->Delete();
       delete ssresults;
-      fgTargetFile->cd();
-      fgTargetFile->Delete(subseedloader->GetName());//deleting directories in global file
-      fgTargetFile->Delete(Form("%s;1",subseedloader->GetName()));//deleting directories in global file
-      fgTargetFile->Flush();
       delete subseedloader;
       this->DeleteAllMethods();
       fMethodsMap.clear();
-      gSystem->Exec(Form("rm -rf %s", ybitset.to_string().c_str()));
     }
   }
    std::cout<<"--- Variable Importance Results (Short)"<<std::endl;
@@ -1907,7 +1880,7 @@ TH1F* TMVA::Factory::EvaluateImportanceShort(DataLoader *loader, Types::EMVA the
 }
 
 TH1F* TMVA::Factory::EvaluateImportanceRandom(DataLoader *loader, UInt_t nseeds, Types::EMVA theMethod,  TString methodTitle, const char *theOption)
-{
+{    
    TRandom3 *rangen = new TRandom3(0);  //Random Gen.
 
    uint64_t x = 0;
@@ -1958,19 +1931,11 @@ TH1F* TMVA::Factory::EvaluateImportanceRandom(DataLoader *loader, UInt_t nseeds,
       //cleaning information to process subseeds
       TMVA::MethodBase *smethod=dynamic_cast<TMVA::MethodBase*>(fMethodsMap[xbitset.to_string().c_str()][0][0]);
       TMVA::ResultsClassification  *sresults = (TMVA::ResultsClassification*)smethod->Data()->GetResults(smethod->GetMethodName(), Types::kTesting, Types::kClassification);
-      sresults->Delete();
       delete sresults;
-      fgTargetFile->cd();
-      fgTargetFile->Delete(seedloader->GetName());
-      fgTargetFile->Delete(Form("%s;1",seedloader->GetName()));
-      fgTargetFile->Flush();
       delete seedloader;
-      // std::vector<TMVA::VariableTransformBase *>::iterator trfIt = fDefaultTrfs.begin();
-      gSystem->Exec(Form("rm -rf %s", xbitset.to_string().c_str()));
-      
       this->DeleteAllMethods();
-      
       fMethodsMap.clear();
+      
       //removing global result because it is requiring alot amount of RAM for all seeds
       
       for (uint32_t i = 0; i < 32; ++i) {
@@ -2013,16 +1978,10 @@ TH1F* TMVA::Factory::EvaluateImportanceRandom(DataLoader *loader, UInt_t nseeds,
             //cleaning information
 	    TMVA::MethodBase *ssmethod=dynamic_cast<TMVA::MethodBase*>(fMethodsMap[ybitset.to_string().c_str()][0][0]);
             TMVA::ResultsClassification *ssresults = (TMVA::ResultsClassification*)ssmethod->Data()->GetResults(ssmethod->GetMethodName(), Types::kTesting, Types::kClassification);
-	    ssresults->Delete();
             delete ssresults;
-            fgTargetFile->cd();
-            fgTargetFile->Delete(subseedloader->GetName());//deleting directories in global file
-            fgTargetFile->Delete(Form("%s;1",subseedloader->GetName()));//deleting directories in global file
-            fgTargetFile->Flush();
             delete subseedloader;
             this->DeleteAllMethods();
             fMethodsMap.clear();
-            gSystem->Exec(Form("rm -rf %s", ybitset.to_string().c_str()));            
          }
       }
    }
@@ -2170,7 +2129,7 @@ float TMVA::Factory::CrossValidate(DataLoader * loader, Types::EMVA theMethod, T
       
          TMVA::MethodBase * smethod = dynamic_cast<TMVA::MethodBase*>(fMethodsMap[seedloader->GetName()][0][0]);
          TMVA::ResultsClassification * sresults = (TMVA::ResultsClassification*)smethod->Data()->GetResults(smethod->GetMethodName(), Types::kTesting, Types::kClassification);
-         sresults->Clear();
+         sresults->Clear("");
          sresults->Delete();
          delete sresults;
          fgTargetFile->cd();

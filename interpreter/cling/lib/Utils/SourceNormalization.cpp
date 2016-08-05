@@ -74,20 +74,38 @@ cling::utils::isUnnamedMacro(llvm::StringRef source,
 
   MinimalPPLexer Lex(LangOpts, source);
   Token Tok;
+  bool AfterHash = false;
   while (true) {
     bool atEOF = Lex.Lex(Tok);
-    const tok::TokenKind kind = Tok.getKind();
-
-    if (kind == tok::l_brace)
-      return getFileOffset(Tok);
 
     if (atEOF)
       return std::string::npos;
 
-    if (Lex.inPPDirective())
-      continue; // Skip PP directives.
+    if (Lex.inPPDirective() || Tok.is(tok::eod)) {
+      if (AfterHash) {
+        if (Tok.is(tok::raw_identifier)) {
+          StringRef keyword(Tok.getRawIdentifier());
+          if (keyword.startswith("if")) {
+            // This could well be
+            //   #if FOO
+            //   {
+            // where we would determine this to be an unnamed macro and replace
+            // '{' by ' ', whether FOO is #defined or not. Instead, assume that
+            // this is not an unnamed macro and we need to parse it as is.
+            return std::string::npos;
+          }
+        }
+        AfterHash = false;
+      } else
+        AfterHash = Tok.is(tok::hash);
 
-    if (kind == tok::comment)
+      continue; // Skip PP directives.
+    }
+
+    if (Tok.is(tok::l_brace))
+      return getFileOffset(Tok);
+
+    if (Tok.is(tok::comment))
       continue; // ignore comments
 
     return std::string::npos;
@@ -112,12 +130,14 @@ size_t cling::utils::getWrapPoint(std::string& source,
   MinimalPPLexer Lex(LangOpts, source);
   Token Tok;
 
-  size_t wrapPoint;
+  //size_t wrapPoint = 0;
 
   while (true) {
     bool atEOF = Lex.Lex(Tok);
-    if (Lex.inPPDirective()) {
-      wrapPoint = getFileOffset(Tok);
+    if (Lex.inPPDirective() || Tok.is(tok::eod)) {
+      //wrapPoint = getFileOffset(Tok);
+      if (atEOF)
+        break;
       continue; // Skip PP directives; they just move the wrap point.
     }
 
@@ -142,11 +162,15 @@ size_t cling::utils::getWrapPoint(std::string& source,
         return std::string::npos;
       if (keyword.equals("template"))
         return std::string::npos;
-      // Else there is something else here that needs to be wrapped.
-      return wrapPoint;
+
+      // There is something else here that needs to be wrapped.
+      return getFileOffset(Tok);
     }
-    if (atEOF)
-      break;
+
+    // FIXME: in the future, continue lexing to extract relevant PP directives;
+    // return wrapPoint
+    // There is something else here that needs to be wrapped.
+    return getFileOffset(Tok);
   }
 
   // We have only had PP directives; no need to wrap.

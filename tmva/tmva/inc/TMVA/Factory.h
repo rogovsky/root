@@ -203,21 +203,9 @@ namespace TMVA {
       Bool_t                                    fVerbose;         //! verbose mode
       Bool_t                                    fCorrelations;    //! enable to calculate corelations
       Bool_t                                    fROC;             //! enable to calculate ROC values
-      const Bool_t                              fSilentFile;      //! used in contructor wihtout file 
+      Bool_t                                    fSilentFile;      //! used in contructor wihtout file 
 
       TString                                   fJobName;         //! jobname, used as extension in weight file names
-
-      // flag determining the way training and test data are assigned to Factory
-      enum DataAssignType { kUndefined = 0, 
-                            kAssignTrees,
-                            kAssignEvents };
-      DataAssignType                            fDataAssignType;  //! flags for data assigning
-      std::vector<TTree*>                       fTrainAssignTree; //! for each class: tmp tree if user wants to assign the events directly
-      std::vector<TTree*>                       fTestAssignTree;  //! for each class: tmp tree if user wants to assign the events directly
-
-      Int_t                                     fATreeType;          // type of event (=classIndex)
-      Float_t                                   fATreeWeight;        // weight of the event
-      Float_t*                                  fATreeEvent;         // event variables
 
       Types::EAnalysisType                      fAnalysisType;    //! the training type
       Bool_t                                    fModelPersistence;//!option to save the trained model in xml file or using serialization

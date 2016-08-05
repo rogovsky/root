@@ -1,5 +1,6 @@
 /// \file
 /// \ingroup tutorial_hist
+/// \notebook
 /// 1-D histogram drawing options.
 /// We attach (or generate) the ROOT file in `$ROOTSYS/tutorials/hsimple.root`
 /// or `$PWD/hsimple.root`
@@ -24,8 +25,8 @@
 
 void h1draw()
 {
-   TString dir = gSystem->UnixPathName(__FILE__);
-   dir.ReplaceAll("h1draw.C","../hsimple.C");
+   TString dir = gROOT->GetTutorialsDir();
+   dir.Append("/hsimple.C");
    dir.ReplaceAll("/./","/");
    if (gBenchmark->GetBench("hsimple") < 0) gInterpreter->LoadMacro(dir.Data());
    TFile *example = (TFile*)gROOT->ProcessLineFast("hsimple(1)");

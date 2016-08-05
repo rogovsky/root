@@ -1,5 +1,6 @@
 /// \file
 /// \ingroup tutorial_fit
+/// \notebook
 /// Convoluted Landau and Gaussian Fitting Function
 ///         (using ROOT's Landau and Gauss functions)
 ///
@@ -7,15 +8,15 @@
 ///
 ///  to execute this example, do:
 ///
-/// ~~~ {.cpp}
+/// ```cpp
 ///  root > .x langaus.C
-/// ~~~
+/// ```
 ///
 /// or
 ///
-/// ~~~ {.cpp}
+/// ```cpp
 ///  root > .x langaus.C++
-/// ~~~
+/// ```
 ///
 /// \macro_image
 /// \macro_output
