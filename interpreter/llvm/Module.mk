@@ -172,6 +172,12 @@ $(LLVMDEPO): $(LLVMDEPS)
 		if [ $(LIBCXX) = "yes" ]; then \
 			LLVMLIBCXX="-DLLVM_ENABLE_LIBCXX=ON"; \
 		fi; \
+		if [ $(GCCTOOLCHAIN) ]; then \
+			LLVM_CFLAGS="$(LLVM_CFLAGS) --gcc-toolchain=$(GCCTOOLCHAIN) "; \
+		fi; \
+		if [ $(CXXMODULES) = "yes" ]; then \
+			LLVM_CXXMODULES=" -DLLVM_ENABLE_MODULES=ON "; \
+		fi; \
 		echo "*** Configuring LLVM in $(dir $@) ..."; \
 		mkdir -p $(dir $@) && \
 		cd $(dir $@)  && \
@@ -202,10 +208,11 @@ $(LLVMDEPO): $(LLVMDEPS)
 		$$LLVM_32BITS \
 		-DLLVM_TARGETS_TO_BUILD=host \
 		$$LLVM_GCC_TOOLCHAIN \
+		$$LLVM_CXXMODULES \
 		-DCMAKE_C_COMPILER=$$LLVMCC \
                 -DCMAKE_CXX_COMPILER=$$LLVMCXX \
 		-DCMAKE_CXX_FLAGS="$$LLVM_CFLAGS" \
-		-DCMAKE_CXX_FLAGS="$$LLVM_CFLAGS" \
+		-DCMAKE_C_FLAGS="$$LLVM_CFLAGS" \
 		$(LLVMDIRS) )
 
 all-$(MODNAME): $(LLVMLIB)

@@ -51,12 +51,7 @@
 
 #ifndef NODEBUG
 
-#ifndef ROOT_Riosfwd
-#include "Riosfwd.h"
-#endif
-#ifndef ROOT_DllImport
 #include "DllImport.h"
-#endif
 #include "XrdOuc/XrdOucTrace.hh"
 
 R__EXTERN XrdOucTrace *XrdProofdTrace;

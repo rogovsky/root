@@ -49,7 +49,7 @@ namespace utils {
   NestedNameSpecifier* GetFullyQualifiedNameSpecifier(const ASTContext& Ctx,
                                                       NestedNameSpecifier* scope);
 
-  bool Analyze::IsWrapper(const NamedDecl* ND) {
+  bool Analyze::IsWrapper(const FunctionDecl* ND) {
     if (!ND)
       return false;
 
@@ -86,8 +86,17 @@ namespace utils {
       //Dtor_Deleting, // Deleting dtor
       //Dtor_Complete, // Complete object dtor
       //Dtor_Base      // Base object dtor
-      mangleCtx->mangleCXXDtor(cast<CXXDestructorDecl>(D),
-                               GD.getDtorType(), RawStr);
+#if defined(LLVM_ON_WIN32)
+      // MicrosoftMangle.cpp:954 calls llvm_unreachable when mangling Dtor_Comdat
+      if (GD.getDtorType() == Dtor_Comdat) {
+        if (const IdentifierInfo* II = D->getIdentifier())
+          RawStr << II->getName();
+      } else
+#endif
+      {
+        mangleCtx->mangleCXXDtor(cast<CXXDestructorDecl>(D),
+                                 GD.getDtorType(), RawStr);
+      }
       break;
 
     default :
@@ -161,7 +170,13 @@ namespace utils {
 
   const char* const Synthesize::UniquePrefix = "__cling_Un1Qu3";
 
-  Expr* Synthesize::CStyleCastPtrExpr(Sema* S, QualType Ty, uint64_t Ptr) {
+  IntegerLiteral* Synthesize::IntegerLiteralExpr(ASTContext& C, uintptr_t Ptr) {
+    const llvm::APInt Addr(8 * sizeof(void*), Ptr);
+    return IntegerLiteral::Create(C, Addr, C.getUIntPtrType(),
+                                  SourceLocation());
+  }
+
+  Expr* Synthesize::CStyleCastPtrExpr(Sema* S, QualType Ty, uintptr_t Ptr) {
     ASTContext& Ctx = S->getASTContext();
     return CStyleCastPtrExpr(S, Ty, Synthesize::IntegerLiteralExpr(Ctx, Ptr));
   }
@@ -176,12 +191,6 @@ namespace utils {
       = S->BuildCStyleCastExpr(SourceLocation(), TSI,SourceLocation(),E).get();
     assert(Result && "Cannot create CStyleCastPtrExpr");
     return Result;
-  }
-
-  IntegerLiteral* Synthesize::IntegerLiteralExpr(ASTContext& C, uint64_t Ptr) {
-    const llvm::APInt Addr(8 * sizeof(void *), Ptr);
-    return IntegerLiteral::Create(C, Addr, C.getUIntPtrType(),
-                                  SourceLocation());
   }
 
   static bool

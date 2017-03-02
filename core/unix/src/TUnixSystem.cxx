@@ -458,7 +458,9 @@ static const char *GetExePath()
 
 static void SetRootSys()
 {
-#ifndef ROOTPREFIX
+#ifdef ROOTPREFIX
+   if (gSystem->Getenv("ROOTIGNOREPREFIX")) {
+#endif
    void *addr = (void *)SetRootSys;
    Dl_info info;
    if (dladdr(addr, &info) && info.dli_fname && info.dli_fname[0]) {
@@ -471,8 +473,8 @@ static void SetRootSys()
          gSystem->Setenv("ROOTSYS", gSystem->DirName(rs));
       }
    }
-#else
-   return;
+#ifdef ROOTPREFIX
+   }
 #endif
 }
 #endif
@@ -500,7 +502,9 @@ static void DylibAdded(const struct mach_header *mh, intptr_t /* vmaddr_slide */
    TRegexp sovers = "libCore\\.[0-9]+\\.*[0-9]*\\.so";
    TRegexp dyvers = "libCore\\.[0-9]+\\.*[0-9]*\\.dylib";
 
-#ifndef ROOTPREFIX
+#ifdef ROOTPREFIX
+   if (gSystem->Getenv("ROOTIGNOREPREFIX")) {
+#endif
 #if TARGET_OS_IPHONE || TARGET_IPHONE_SIMULATOR
    // first loaded is the app so set ROOTSYS to app bundle
    if (i == 1) {
@@ -526,6 +530,8 @@ static void DylibAdded(const struct mach_header *mh, intptr_t /* vmaddr_slide */
       }
    }
 #endif
+#ifdef ROOTPREFIX
+   }
 #endif
 
    // when libSystem.B.dylib is loaded we have finished loading all dylibs
@@ -613,13 +619,8 @@ Bool_t TUnixSystem::Init()
    SetRootSys();
 #endif
 
-#ifndef ROOTPREFIX
-   gRootDir = Getenv("ROOTSYS");
-   if (gRootDir == 0)
-      gRootDir= "/usr/local/root";
-#else
-   gRootDir = ROOTPREFIX;
-#endif
+   // This is a fallback in case TROOT::GetRootSys() can't determine ROOTSYS
+   gRootDir = "/usr/local/root";
 
    return kFALSE;
 }
@@ -1458,7 +1459,9 @@ const char *TUnixSystem::HomeDirectory(const char *userName)
 std::string TUnixSystem::GetHomeDirectory(const char *userName) const
 {
    char path[kMAXPATHLEN], mydir[kMAXPATHLEN] = { '\0' };
-   return std::string(UnixHomedirectory(userName, path, mydir));
+   auto res = UnixHomedirectory(userName, path, mydir);
+   if (res) return std::string(res);
+   else return std::string();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2184,17 +2187,21 @@ extern "C" {
   typedef CSTypeRef CSSymbolRef;
 
   CSSymbolicatorRef CSSymbolicatorCreateWithPid(pid_t pid);
+  CSSymbolRef CSSymbolicatorGetSymbolWithAddressAtTime(CSSymbolicatorRef cs, vm_address_t addr, uint64_t time);
   CSSourceInfoRef CSSymbolicatorGetSourceInfoWithAddressAtTime(CSSymbolicatorRef cs, vm_address_t addr, uint64_t time);
-  CSSymbolRef CSSourceInfoGetSymbol(CSSourceInfoRef info);
   const char* CSSymbolGetName(CSSymbolRef sym);
-  CSSymbolOwnerRef CSSourceInfoGetSymbolOwner(CSSourceInfoRef info);
+  CSSymbolOwnerRef CSSymbolGetSymbolOwner(CSSymbolRef sym);
   const char* CSSymbolOwnerGetPath(CSSymbolOwnerRef symbol);
   const char* CSSourceInfoGetPath(CSSourceInfoRef info);
   int CSSourceInfoGetLineNumber(CSSourceInfoRef info);
 }
 
+bool CSTypeRefIdValid(CSTypeRef ref) {
+   return ref.csCppData || ref.csCppObj;
+}
+
 void macosx_backtrace() {
-  void* addrlist[kMAX_BACKTRACE_DEPTH];
+void* addrlist[kMAX_BACKTRACE_DEPTH];
   // retrieve current stack addresses
   int numstacks = backtrace( addrlist, sizeof( addrlist ) / sizeof( void* ));
 
@@ -2203,22 +2210,30 @@ void macosx_backtrace() {
   // skip TUnixSystem::Backtrace(), macosx_backtrace()
   static const int skipFrames = 2;
   for (int i = skipFrames; i < numstacks; ++i) {
-    CSSourceInfoRef sourceInfo
-    = CSSymbolicatorGetSourceInfoWithAddressAtTime(symbolicator,
-                                                   (vm_address_t)addrlist[i],
-                                                   0x80000000u /*"now"*/);
+    // No debug info, try to get at least the symbol name.
+    CSSymbolRef sym = CSSymbolicatorGetSymbolWithAddressAtTime(symbolicator,
+                                                               (vm_address_t)addrlist[i],
+                                                               0x80000000u);
+    CSSymbolOwnerRef symOwner = CSSymbolGetSymbolOwner(sym);
 
-    CSSymbolOwnerRef symOwner = CSSourceInfoGetSymbolOwner(sourceInfo);
     if (const char* libPath = CSSymbolOwnerGetPath(symOwner)) {
       printf("[%s]", libPath);
     } else {
       printf("[<unknown binary>]");
     }
 
-    CSSymbolRef sym = CSSourceInfoGetSymbol(sourceInfo);
     if (const char* symname = CSSymbolGetName(sym)) {
-      printf(" %s %s:%d", symname, CSSourceInfoGetPath(sourceInfo),
-             (int)CSSourceInfoGetLineNumber(sourceInfo));
+      printf(" %s", symname);
+    }
+
+    CSSourceInfoRef sourceInfo
+      = CSSymbolicatorGetSourceInfoWithAddressAtTime(symbolicator,
+                                                     (vm_address_t)addrlist[i],
+                                                     0x80000000u /*"now"*/);
+    if (const char* sourcePath = CSSourceInfoGetPath(sourceInfo)) {
+      printf(" %s:%d", sourcePath, (int)CSSourceInfoGetLineNumber(sourceInfo));
+    } else {
+      printf(" (no debug info)");
     }
     printf("\n");
   }
@@ -2240,22 +2255,17 @@ void TUnixSystem::StackTrace()
       if (AccessPathName(gdbscript, kReadPermission)) {
          fprintf(stderr, "Root.StacktraceScript %s does not exist\n", gdbscript.Data());
          gdbscript = "";
-      } else {
-         gdbscript += " ";
       }
    }
    if (gdbscript == "") {
-#ifdef ROOTETCDIR
-      gdbscript.Form("%s/gdb-backtrace.sh", ROOTETCDIR);
-#else
-      gdbscript.Form("%s/etc/gdb-backtrace.sh", Getenv("ROOTSYS"));
-#endif
+      gdbscript = "gdb-backtrace.sh";
+      gSystem->PrependPathName(TROOT::GetEtcDir(), gdbscript);
       if (AccessPathName(gdbscript, kReadPermission)) {
          fprintf(stderr, "Error in <TUnixSystem::StackTrace> script %s is missing\n", gdbscript.Data());
          return;
       }
-      gdbscript += " ";
    }
+   gdbscript += " ";
 
    TString gdbmess = gEnv->GetValue("Root.StacktraceMessage", "");
    gdbmess = gdbmess.Strip();
@@ -3000,89 +3010,53 @@ void TUnixSystem::ResetTimer(TTimer *ti)
 
 TInetAddress TUnixSystem::GetHostByName(const char *hostname)
 {
-   UInt_t addr;    // good for 4 byte addresses
-   Bool_t isinaddr = kFALSE;         
-#ifdef HASNOT_INETATON
-   isinaddr = (addr = (UInt_t)inet_addr(hostname)) != INADDR_NONE) ? kTRUE : kFALSE;
-#else
-   struct in_addr ad;
-   isinaddr = inet_aton(hostname, &ad);
-   if (isinaddr) memcpy(&addr, &ad.s_addr, sizeof(ad.s_addr));
-#endif
-
-   std::string host(hostname);
-   if (isinaddr) {
-      struct sockaddr_in sin;
-      sin.sin_family = AF_INET;
-      sin.sin_port = 0;
-      memcpy(&sin.sin_addr.s_addr, &addr, sizeof(sin.sin_addr.s_addr));
-      memset(&sin.sin_zero[0], 0, sizeof(sin.sin_zero));
-      struct sockaddr *sa = (struct sockaddr *) &sin;    /* input */
-
-      char hbuf[NI_MAXHOST];
-
-      int rc = getnameinfo(sa, sizeof(struct sockaddr), hbuf, sizeof(hbuf), nullptr, 0, NI_NAMEREQD);
-      if (rc != 0 ) {
-         if (rc == EAI_NONAME) {
-            if (gDebug > 0)
-               Error("GetHostByName", "unknown host '%s'", hostname);
-            return TInetAddress("UnNamedHost", 0, -1);
-         } else {
-            Error("GetHostByName", "getnameinfo failed for '%s': '%s'", hostname, gai_strerror(rc));
-            return TInetAddress();
-         }
-      }
-      host = hbuf;
-   }
-
-   // Hints structure
+   TInetAddress ia;
    struct addrinfo hints;
+   struct addrinfo *result, *rp;
    memset(&hints, 0, sizeof(struct addrinfo));
-   hints.ai_family = AF_INET;        // Ask IPv4
-   hints.ai_socktype = 0;            // Any socket type
-   hints.ai_flags = AI_CANONNAME;    // Get canonical name
-   hints.ai_protocol = 0;            // Any protocol
-   hints.ai_canonname = nullptr;
-   hints.ai_addr = nullptr;
-   hints.ai_next = nullptr;
+   hints.ai_family = AF_INET;       // only IPv4
+   hints.ai_socktype = 0;           // any socket type
+   hints.ai_protocol = 0;           // any protocol
+   hints.ai_flags = AI_CANONNAME;   // get canonical name
 
-   struct addrinfo *res;
-   int rc = getaddrinfo(host.c_str(), nullptr, &hints, &res);
+   // obsolete gethostbyname() replaced by getaddrinfo()
+   int rc = getaddrinfo(hostname, nullptr, &hints, &result);
    if (rc != 0) {
       if (rc == EAI_NONAME) {
-         if (gDebug > 0)
-            Error("GetHostByName", "unknown host '%s'", host.c_str());
-         return TInetAddress("UnNamedHost", 0, -1);
+         if (gDebug > 0) Error("GetHostByName", "unknown host '%s'", hostname);
+         ia.fHostname = "UnNamedHost";
       } else {
-         Error("GetHostByName", "getaddrinfo failed for '%s': '%s'", host.c_str(), gai_strerror(rc));
-         return TInetAddress();
+         Error("GetHostByName", "getaddrinfo failed for '%s': %s", hostname, gai_strerror(rc));
+         ia.fHostname = "UnknownHost";
       }
+      return ia;
    }
-   if (res[0].ai_canonname) host = res[0].ai_canonname;
-   // Prepare output
-   TInetAddress a(host.c_str(),
-                  ntohl(((sockaddr_in *)(res[0].ai_addr))->sin_addr.s_addr),
-                  res[0].ai_family);
-   struct addrinfo *rp = res[0].ai_next;
-   for (; rp != NULL; rp = rp->ai_next) {
-      UInt_t arp = ntohl(((sockaddr_in *)(rp->ai_addr))->sin_addr.s_addr);
-      std::vector<UInt_t> addrs = a.GetAddresses();
-      Bool_t newad = kTRUE;
-      for (UInt_t sad : addrs) {
-         if (sad == arp) {
-            newad = kFALSE;
-            break;
-         }
-      }
-      if (newad) {
-         a.AddAddress(ntohl(((sockaddr_in *)(rp->ai_addr))->sin_addr.s_addr));
-         if (rp->ai_canonname) a.AddAlias(rp->ai_canonname);
-      }
+
+   std::string hostcanon(result->ai_canonname ? result->ai_canonname : hostname);
+   ia.fHostname = hostcanon.data();
+   ia.fFamily = result->ai_family;
+   ia.fAddresses[0] = ntohl(((struct sockaddr_in *)(result->ai_addr))->sin_addr.s_addr);
+   // with getaddrinfo() no way to get list of aliases for a hostname
+   if (hostcanon.compare(hostname) != 0) ia.AddAlias(hostname);
+
+   // check on numeric hostname
+   char tmp[sizeof(struct in_addr)];
+   if (inet_pton(AF_INET, hostcanon.data(), tmp) == 1) {
+      char hbuf[NI_MAXHOST];
+      if (getnameinfo(result->ai_addr, result->ai_addrlen, hbuf, sizeof(hbuf), nullptr, 0, 0) == 0)
+         ia.fHostname = hbuf;
    }
-   // Release memory
-   freeaddrinfo(res);
-   // Done
-   return a;
+
+   // check other addresses (if exist)
+   rp = result->ai_next;
+   for (; rp != nullptr; rp = rp->ai_next) {
+      UInt_t arp = ntohl(((struct sockaddr_in *)(rp->ai_addr))->sin_addr.s_addr);
+      if ( !(std::find(ia.fAddresses.begin(), ia.fAddresses.end(), arp) != ia.fAddresses.end()) )
+         ia.AddAddress(arp);
+   }
+
+   freeaddrinfo(result);
+   return ia;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -3090,7 +3064,7 @@ TInetAddress TUnixSystem::GetHostByName(const char *hostname)
 
 TInetAddress TUnixSystem::GetSockName(int sock)
 {
-   struct sockaddr_in addr;
+   struct sockaddr addr;
 #if defined(USE_SIZE_T)
    size_t len = sizeof(addr);
 #elif defined(USE_SOCKLEN_T)
@@ -3099,27 +3073,26 @@ TInetAddress TUnixSystem::GetSockName(int sock)
    int len = sizeof(addr);
 #endif
 
-   if (getsockname(sock, (struct sockaddr *)&addr, &len) == -1) {
-      SysError("GetSockName", "getsockname");
-      return TInetAddress();
+   TInetAddress ia;
+   if (getsockname(sock, &addr, &len) == -1) {
+      SysError("GetSockName", "getsockname failed");
+      return ia;
    }
 
-   struct sockaddr *sa = (struct sockaddr *) &addr;    /* input */
+   if (addr.sa_family != AF_INET) return ia; // only IPv4
+   ia.fFamily = addr.sa_family;
+   struct sockaddr_in *addrin = (struct sockaddr_in *)&addr;
+   ia.fPort = ntohs(addrin->sin_port);
+   ia.fAddresses[0] = ntohl(addrin->sin_addr.s_addr);
+
    char hbuf[NI_MAXHOST];
-   int rc = 0;
-   if ((rc = getnameinfo(sa, sizeof(struct sockaddr), hbuf, sizeof(hbuf),
-                         nullptr, 0, 0)) == 0) {
-      TInetAddress a = GetHostByName(hbuf);
-      if (a.IsValid()) {
-         a.fFamily = addr.sin_family;
-         a.fPort = ntohs(addr.sin_port);
-         return a;
-      }
-   }
-   // Failure: return minimal information
-   UInt_t iaddr;
-   memcpy(&iaddr, &addr.sin_addr, sizeof(addr.sin_addr));
-   return TInetAddress("????", ntohl(iaddr), AF_INET, ntohs(addr.sin_port));
+   if (getnameinfo(&addr, sizeof(struct sockaddr), hbuf, sizeof(hbuf), nullptr, 0, 0) != 0) {
+      Error("GetSockName", "getnameinfo failed");
+      ia.fHostname = "????";
+   } else
+      ia.fHostname = hbuf;
+
+   return ia;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -3127,7 +3100,7 @@ TInetAddress TUnixSystem::GetSockName(int sock)
 
 TInetAddress TUnixSystem::GetPeerName(int sock)
 {
-   struct sockaddr_in addr;
+   struct sockaddr addr;
 #if defined(USE_SIZE_T)
    size_t len = sizeof(addr);
 #elif defined(USE_SOCKLEN_T)
@@ -3136,27 +3109,26 @@ TInetAddress TUnixSystem::GetPeerName(int sock)
    int len = sizeof(addr);
 #endif
 
-   if (getpeername(sock, (struct sockaddr *)&addr, &len) == -1) {
-      SysError("GetPeerName", "getpeername");
-      return TInetAddress();
+   TInetAddress ia;
+   if (getpeername(sock, &addr, &len) == -1) {
+      SysError("GetPeerName", "getpeername failed");
+      return ia;
    }
 
-   int rc = 0;
-   struct sockaddr *sa = (struct sockaddr *) &addr;    /* input */
+   if (addr.sa_family != AF_INET) return ia; // only IPv4
+   ia.fFamily = addr.sa_family;
+   struct sockaddr_in *addrin = (struct sockaddr_in *)&addr;
+   ia.fPort = ntohs(addrin->sin_port);
+   ia.fAddresses[0] = ntohl(addrin->sin_addr.s_addr);
+
    char hbuf[NI_MAXHOST];
-   if ((rc = getnameinfo(sa, sizeof(struct sockaddr), hbuf, sizeof(hbuf),
-                         nullptr, 0, 0)) == 0) {
-      TInetAddress a = GetHostByName(hbuf);
-      if (a.IsValid()) {
-         a.fFamily = addr.sin_family;
-         a.fPort = ntohs(addr.sin_port);
-         return a;
-      }
-   }
-   // Failure: return minimal information
-   UInt_t iaddr;
-   memcpy(&iaddr, &addr.sin_addr, sizeof(addr.sin_addr));
-   return TInetAddress("????", ntohl(iaddr), AF_INET, ntohs(addr.sin_port));
+   if (getnameinfo(&addr, sizeof(struct sockaddr), hbuf, sizeof(hbuf), nullptr, 0, 0) != 0) {
+      Error("GetPeerName", "getnameinfo failed");
+      ia.fHostname = "????";
+   } else
+      ia.fHostname = hbuf;
+
+   return ia;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -4332,8 +4304,9 @@ int TUnixSystem::UnixTcpService(int port, Bool_t reuse, int backlog,
    } else {
       int bret;
       do {
-         inserver.sin_port = htons(tryport++);
+         inserver.sin_port = htons(tryport);
          bret = ::bind(sock, (struct sockaddr*) &inserver, sizeof(inserver));
+         tryport++;
       } while (bret < 0 && GetErrno() == EADDRINUSE && tryport < kSOCKET_MAXPORT);
       if (bret < 0) {
          ::SysError("TUnixSystem::UnixTcpService", "bind (port scan)");
@@ -4393,8 +4366,9 @@ int TUnixSystem::UnixUdpService(int port, int backlog)
    } else {
       int bret;
       do {
-         inserver.sin_port = htons(tryport++);
+         inserver.sin_port = htons(tryport);
          bret = ::bind(sock, (struct sockaddr*) &inserver, sizeof(inserver));
+         tryport++;
       } while (bret < 0 && GetErrno() == EADDRINUSE && tryport < kSOCKET_MAXPORT);
       if (bret < 0) {
          ::SysError("TUnixSystem::UnixUdpService", "bind (port scan)");
@@ -4600,11 +4574,7 @@ static const char *DynamicPath(const char *newpath = 0, Bool_t reset = kFALSE)
       TString rdynpath = gEnv->GetValue("Root.DynamicPath", (char*)0);
       rdynpath.ReplaceAll(": ", ":");  // in case DynamicPath was extended
       if (rdynpath.IsNull()) {
-#ifdef ROOTLIBDIR
-         rdynpath = ".:"; rdynpath += ROOTLIBDIR;
-#else
-         rdynpath = ".:"; rdynpath += gRootDir; rdynpath += "/lib";
-#endif
+         rdynpath = ".:"; rdynpath += TROOT::GetLibDir();
       }
       TString ldpath;
 #if defined (R__AIX)
@@ -4625,16 +4595,9 @@ static const char *DynamicPath(const char *newpath = 0, Bool_t reset = kFALSE)
       else {
          dynpath = ldpath; dynpath += ":"; dynpath += rdynpath;
       }
-
-#ifdef ROOTLIBDIR
-      if (!dynpath.Contains(ROOTLIBDIR)) {
-         dynpath += ":"; dynpath += ROOTLIBDIR;
+      if (!dynpath.Contains(TROOT::GetLibDir())) {
+         dynpath += ":"; dynpath += TROOT::GetLibDir();
       }
-#else
-      if (!dynpath.Contains(TString::Format("%s/lib", gRootDir))) {
-         dynpath += ":"; dynpath += gRootDir; dynpath += "/lib";
-      }
-#endif
       if (gCling) {
          dynpath += ":"; dynpath += gCling->GetSTLIncludePath();
       } else

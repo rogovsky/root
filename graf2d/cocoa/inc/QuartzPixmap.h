@@ -17,18 +17,10 @@
 
 #include <Cocoa/Cocoa.h>
 
-#ifndef ROOT_CocoaGuiTypes
 #include "CocoaGuiTypes.h"
-#endif
-#ifndef ROOT_CocoaUtils
 #include "CocoaUtils.h"
-#endif
-#ifndef ROOT_X11Drawable
 #include "X11Drawable.h"
-#endif
-#ifndef ROOT_GuiTypes
 #include "GuiTypes.h"
-#endif
 
 ///////////////////////////////////////////////////////
 //                                                   //
@@ -90,8 +82,6 @@
 // data)                                               //
 //                                                     //
 /////////////////////////////////////////////////////////
-
-//TODO: split image and mask image?
 
 @interface QuartzImage : NSObject<X11Drawable> {
 @private

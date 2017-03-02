@@ -19,12 +19,16 @@
  *                                                                       *
  *************************************************************************/
 
-#ifndef ROOT_RVersion
 #include "RVersion.h"
-#endif
 
 
 /*---- new C++ features ------------------------------------------------------*/
+
+#if defined __has_feature
+# if __has_feature(modules)
+#  define R__CXXMODULES
+# endif
+#endif
 
 #define R__USE_SHADOW_CLASS
 
@@ -326,6 +330,18 @@
 #   endif
 #endif
 
+#ifdef R__USE_CXX14
+#   if defined(R__MACOSX) && !defined(MAC_OS_X_VERSION_10_12)
+      // At least on 10.11, the compiler defines but the c++ library does not provide the size operator delete.
+      // See for example https://llvm.org/bugs/show_bug.cgi?id=22951 or
+      // https://github.com/gperftools/gperftools/issues/794.
+#   elif !defined(__GNUC__)
+#      define R__SIZEDDELETE
+#   elif __GNUC__ > 4 
+#      define R__SIZEDDELETE
+#   endif
+#endif
+
 /* allows symbols to be hidden from the shared library export symbol table */
 /* use typically on file statics and private methods */
 #if defined(__GNUC__) && (__GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 3))
@@ -437,11 +453,8 @@
 #ifndef __CINT__
 #   define _R__JOIN_(X,Y) _NAME2_(X,Y)
 #   define _R__JOIN3_(F,X,Y) _NAME3_(F,X,Y)
-#ifdef R__DICTIONARY_FILENAME
-#   define _R__UNIQUE_(X) _R__JOIN3_(R__DICTIONARY_FILENAME,X,__LINE__)
-#else
+#   define _R__UNIQUE_DICT_(X) _R__JOIN3_(R__DICTIONARY_FILENAME,X,__LINE__)
 #   define _R__UNIQUE_(X) _R__JOIN_(X,__LINE__)
-#endif
 #else
     /* Currently CINT does not really mind to have duplicates and     */
     /* does not work correctly as far as merging tokens is concerned. */
@@ -449,15 +462,46 @@
 #endif
 
 /*---- deprecation -----------------------------------------------------------*/
-
 #if defined(__GNUC__) || defined(__clang__) || defined(__INTEL_COMPILER)
-#   define R__DEPRECATED(REASON) __attribute__((deprecated(REASON)))
+# if __GNUC__ == 5 && (__GNUC_MINOR__ == 1 || __GNUC_MINOR__ == 2)
+/* GCC 5.1, 5.2: false positives due to https://gcc.gnu.org/bugzilla/show_bug.cgi?id=15269 */
+#   define _R__DEPRECATED_LATER(REASON)
+# else
+#   define _R__DEPRECATED_LATER(REASON) __attribute__((deprecated(REASON)))
+# endif
 #elif defined(_MSC_VER)
-#   define R__DEPRECATED(REASON) __declspec(deprecated(REASON))
+#   define _R__DEPRECATED_LATER(REASON) __declspec(deprecated(REASON))
 #else
-#   pragma message("Deprecation not supported for this compiler.")
-#   define R__DEPRECATED(REASON)
+/* Deprecation not supported for this compiler. */
+#   define _R__DEPRECATED_LATER(REASON)
 #endif
+#define _R_DEPRECATED_REMOVE_NOW(REASON) __attribute__((REMOVE_THIS_NOW))
+
+/* To be removed by 6.12 */
+#if ROOT_VERSION_CODE < ROOT_VERSION(6,11,0)
+# define _R__DEPRECATED_612(REASON) _R__DEPRECATED_LATER(REASON)
+#else
+# define _R__DEPRECATED_612(REASON) _R_DEPRECATED_REMOVE_NOW(REASON)
+#endif
+
+/* To be removed by 6.14 */
+#if ROOT_VERSION_CODE < ROOT_VERSION(6,13,0)
+# define _R__DEPRECATED_614(REASON) _R__DEPRECATED_LATER(REASON)
+#else
+# define _R__DEPRECATED_614(REASON) _R_DEPRECATED_REMOVE_NOW(REASON)
+#endif
+
+/* To be removed by 7.00 */
+#if ROOT_VERSION_CODE < ROOT_VERSION(6,99,0)
+# define _R__DEPRECATED_700(REASON) _R__DEPRECATED_LATER(REASON)
+#else
+# define _R__DEPRECATED_700(REASON) _R_DEPRECATED_REMOVE_NOW(REASON)
+#endif
+
+
+/* Spell as R__DEPRECATED(6,04, "Not threadsafe; use TFoo::Bar().") */
+#define R__DEPRECATED(MAJOR, MINOR, REASON) \
+  _R__JOIN3_(_R__DEPRECATED_,MAJOR,MINOR)("will be removed in ROOT v" #MAJOR "." #MINOR ": " REASON)
 
 /*---- misc ------------------------------------------------------------------*/
 
@@ -470,5 +514,28 @@
 #ifdef __FAST_MATH__
 #define R__FAST_MATH
 #endif
+
+/*---- unlikely / likely expressions -----------------------------------------*/
+// These are meant to use in cases like:
+//   if (R__unlikely(expression)) { ... }
+// in performance-critical sessions.  R__unlikely / R__likely provide hints to
+// the compiler code generation to heavily optimize one side of a conditional,
+// causing the other branch to have a heavy performance cost.
+//
+// It is best to use this for conditionals that test for rare error cases or
+// backward compatibility code.
+
+#if (__GNUC__ >= 3) || defined(__INTEL_COMPILER)
+#if !defined(R__unlikely)
+  #define R__unlikely(expr) __builtin_expect(!!(expr), 0)
+#endif
+#if !defined(R__likely)
+  #define R__likely(expr) __builtin_expect(!!(expr), 1)
+#endif
+#else
+  #define R__unlikely(expr) expr
+  #define R__likely(expr) expr
+#endif
+
 
 #endif

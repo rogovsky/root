@@ -8,10 +8,12 @@
 //------------------------------------------------------------------------------
 
 #include "cling/Interpreter/LookupHelper.h"
+#include "cling/Utils/Output.h"
 
 #include "DeclUnloader.h"
 #include "cling/Interpreter/Interpreter.h"
 #include "cling/Utils/AST.h"
+#include "cling/Utils/ParserStateRAII.h"
 
 #include "clang/AST/ASTContext.h"
 #include "clang/Frontend/CompilerInstance.h"
@@ -24,88 +26,7 @@
 #include "clang/Sema/Template.h"
 #include "clang/Sema/TemplateDeduction.h"
 
-#if defined(_MSC_VER) && (_MSC_VER <= 1800)
-#define constexpr const
-#endif
-
 using namespace clang;
-
-namespace clang {
-
-  ///\brief Cleanup Parser state after a failed lookup.
-  ///
-  /// After a failed lookup we need to discard the remaining unparsed input,
-  /// restore the original state of the incremental parsing flag, clear any
-  /// pending diagnostics, restore the suppress diagnostics flag, and restore
-  /// the spell checking language options.
-  ///
-  class ParserStateRAII {
-  private:
-    Parser* P;
-    Preprocessor& PP;
-    decltype(Parser::TemplateIds) OldTemplateIds;
-    bool ResetIncrementalProcessing;
-    bool OldSuppressAllDiagnostics;
-    bool OldPPSuppressAllDiagnostics;
-    bool OldSpellChecking;
-    SourceLocation OldPrevTokLocation;
-    unsigned short OldParenCount, OldBracketCount, OldBraceCount;
-    unsigned OldTemplateParameterDepth;
-    decltype(P->getActions().InNonInstantiationSFINAEContext)
-       OldInNonInstantiationSFINAEContext;
-
-  public:
-    ParserStateRAII(Parser& p)
-      : P(&p), PP(p.getPreprocessor()),
-        ResetIncrementalProcessing(p.getPreprocessor()
-                                   .isIncrementalProcessingEnabled()),
-        OldSuppressAllDiagnostics(P->getActions().getDiagnostics()
-                                  .getSuppressAllDiagnostics()),
-        OldPPSuppressAllDiagnostics(p.getPreprocessor().getDiagnostics()
-                                  .getSuppressAllDiagnostics()),
-        OldSpellChecking(p.getPreprocessor().getLangOpts().SpellChecking),
-        OldPrevTokLocation(p.PrevTokLocation),
-        OldParenCount(p.ParenCount), OldBracketCount(p.BracketCount),
-        OldBraceCount(p.BraceCount),
-        OldTemplateParameterDepth(p.TemplateParameterDepth),
-        OldInNonInstantiationSFINAEContext(P->getActions()
-                                           .InNonInstantiationSFINAEContext)
-    {
-       OldTemplateIds.swap(P->TemplateIds);
-    }
-
-    ~ParserStateRAII()
-    {
-      //
-      // Advance the parser to the end of the file, and pop the include stack.
-      //
-      // Note: Consuming the EOF token will pop the include stack.
-      //
-      {
-         // Cleanup the TemplateIds before swapping the previous set back.
-         DestroyTemplateIdAnnotationsRAIIObj CleanupTemplateIds(*P);
-      }
-      P->TemplateIds.swap(OldTemplateIds);
-      P->SkipUntil(tok::eof);
-      PP.enableIncrementalProcessing(ResetIncrementalProcessing);
-      // Doesn't reset the diagnostic mappings
-      P->getActions().getDiagnostics().Reset(/*soft=*/true);
-      P->getActions().getDiagnostics().setSuppressAllDiagnostics(OldSuppressAllDiagnostics);
-      PP.getDiagnostics().Reset(/*soft=*/true);
-      PP.getDiagnostics().setSuppressAllDiagnostics(OldPPSuppressAllDiagnostics);
-      const_cast<LangOptions&>(PP.getLangOpts()).SpellChecking =
-         OldSpellChecking;
-
-      P->PrevTokLocation = OldPrevTokLocation;
-      P->ParenCount = OldParenCount;
-      P->BracketCount = OldBracketCount;
-      P->BraceCount = OldBraceCount;
-      P->TemplateParameterDepth = OldTemplateParameterDepth;
-      P->getActions().InNonInstantiationSFINAEContext =
-         OldInNonInstantiationSFINAEContext;
-    }
-  };
-}
 
 namespace cling {
   ///\brief Class to help with the custom allocation of clang::Expr
@@ -197,10 +118,11 @@ namespace cling {
 
     PP.getDiagnostics().setSuppressAllDiagnostics(OldSuppressAllDiagnostics);
 
-    if (complete) {
-      const TagDecl *result = dyn_cast<TagDecl>(complete);
+    if (!complete)
+      return 0;
+    if (const TagDecl *result = dyn_cast<TagDecl>(complete))
       return result->getDefinition();
-    } else return 0;
+    return 0;
   }
 
   ///\brief Look for a tag decl based on its name
@@ -392,9 +314,9 @@ namespace cling {
                                 quickTypeName.size()-6);
       innerConst = true;
     }
-    constexpr int pointerType = 0;
-    constexpr int lrefType = 1;
-    constexpr int rrefType = 2;
+
+    enum PointerType { kPointerType, kLRefType, kRRefType, };
+
     if (quickTypeName.endswith("const")) {
       if (quickTypeName.size() < 6) return true;
       auto c = quickTypeName[quickTypeName.size()-6];
@@ -407,16 +329,16 @@ namespace cling {
                                        quickTypeName.size() - 5);
       }
     }
-    std::vector<int> ptrref;
+    std::vector<PointerType> ptrref;
     for(auto c = quickTypeName.end()-1; c != quickTypeName.begin(); --c) {
-      if (*c == '*')  ptrref.push_back(pointerType);
+      if (*c == '*')  ptrref.push_back(kPointerType);
       else if (*c == '&') {
         if (*(c-1)== '&') {
           --c;
-          ptrref.push_back(rrefType);
+          ptrref.push_back(kRRefType);
 
         } else
-          ptrref.push_back(lrefType);
+          ptrref.push_back(kLRefType);
       }
       else break;
     }
@@ -447,14 +369,14 @@ namespace cling {
 
       for(auto t : ptrref) {
         switch (t) {
-          case pointerType :
+          case kPointerType :
             quickFind = Context.getPointerType(quickFind);
             break;
-          case rrefType :
-            quickFind = Context.getRValueReferenceType(quickFind);
-            break;
-          case lrefType :
+          case kLRefType :
             quickFind = Context.getLValueReferenceType(quickFind);
+            break;
+          case kRRefType :
+            quickFind = Context.getRValueReferenceType(quickFind);
             break;
         }
       }
@@ -490,7 +412,7 @@ namespace cling {
 
     // Use P for shortness
     Parser& P = *m_Parser;
-    ParserStateRAII ResetParserState(P);
+    ParserStateRAII ResetParserState(P, true /*skipToEOF*/);
     prepareForParsing(P,m_Interpreter,
                       typeName, llvm::StringRef("lookup.type.by.name.file"),
                       diagOnOff);
@@ -597,7 +519,7 @@ namespace cling {
     // the caused instantiation decl.
     Interpreter::PushTransactionRAII pushedT(m_Interpreter);
 
-    ParserStateRAII ResetParserState(P);
+    ParserStateRAII ResetParserState(P, true /*skipToEOF*/);
     prepareForParsing(P,m_Interpreter,
                       className.str() + "::",
                       llvm::StringRef("lookup.class.by.name.file"), diagOnOff);
@@ -699,7 +621,8 @@ namespace cling {
 
                       // Make sure it is not just forward declared, and
                       // instantiate any templates.
-                      if (!S.RequireCompleteDeclContext(SS, TD)) {
+                      DeclContext *ctxt = TD;
+                      if (!S.RequireCompleteDeclContext(SS, ctxt)) {
                         // Success, type is complete, instantiations have
                         // been done.
                         TheDecl = TD->getDefinition();
@@ -792,7 +715,7 @@ namespace cling {
     Parser& P = *m_Parser;
     Sema& S = P.getActions();
     ASTContext& Context = S.getASTContext();
-    ParserStateRAII ResetParserState(P);
+    ParserStateRAII ResetParserState(P, true /*skipToEOF*/);
     prepareForParsing(P,m_Interpreter,
                       Name.str(),
                       llvm::StringRef("lookup.class.by.name.file"), diagOnOff);
@@ -1383,7 +1306,7 @@ namespace cling {
     S.EnterDeclaratorContext(P.getCurScope(), foundDC);
 
     UnqualifiedId FuncId;
-    ParserStateRAII ResetParserState(P);
+    ParserStateRAII ResetParserState(P, true /*skipToEOF*/);
     if (!ParseWithShortcuts(foundDC, Context, funcName, Interp,
                             FuncId, diagOnOff)) {
       // Failed parse, cleanup.
@@ -1574,7 +1497,7 @@ namespace cling {
       //  Parse the prototype now.
       //
 
-      ParserStateRAII ResetParserState(P);
+      ParserStateRAII ResetParserState(P, true /*skipToEOF*/);
       prepareForParsing(P,Interp,
                         funcProto, llvm::StringRef("func.prototype.file"), diagOnOff);
 
@@ -1702,12 +1625,12 @@ namespace cling {
         SourceLocation loc;
         sema::TemplateDeductionInfo Info(loc);
         FunctionDecl *fdecl = 0;
-        Sema::TemplateDeductionResult Result
+        Sema::TemplateDeductionResult TemplDedResult
           = S.DeduceTemplateArguments(MethodTmpl,
                     const_cast<TemplateArgumentListInfo*>(ExplicitTemplateArgs),
                                       fdecl,
                                       Info);
-        if (Result) {
+        if (TemplDedResult != Sema::TDK_Success) {
           // Deduction failure.
           return 0;
         } else {
@@ -1829,7 +1752,7 @@ namespace cling {
       //
 
       Interpreter::PushTransactionRAII TforDeser(Interp);
-      ParserStateRAII ResetParserState(P);
+      ParserStateRAII ResetParserState(P, true /*skipToEOF*/);
       prepareForParsing(P,Interp,
                         funcArgs, llvm::StringRef("func.args.file"), diagOnOff);
 
@@ -1855,8 +1778,7 @@ namespace cling {
             else {
               proto += ',';
             }
-            std::string empty;
-            llvm::raw_string_ostream tmp(empty);
+            stdstrstream tmp;
             expr->printPretty(tmp, /*PrinterHelper=*/0, Policy,
                               /*Indentation=*/0);
             proto += tmp.str();
@@ -1910,7 +1832,7 @@ namespace cling {
     //
     // Use P for shortness
     Parser& P = *m_Parser;
-    ParserStateRAII ResetParserState(P);
+    ParserStateRAII ResetParserState(P, true /*skipToEOF*/);
     prepareForParsing(P,m_Interpreter,
                       argList, llvm::StringRef("arg.list.file"), diagOnOff);
     //

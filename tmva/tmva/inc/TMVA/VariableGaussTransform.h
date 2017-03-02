@@ -29,9 +29,7 @@
 #ifndef ROOT_TMVA_VariableGaussTransform
 #define ROOT_TMVA_VariableGaussTransform
 
-#ifndef ROOT_TMVA_PDF
 #include "TMVA/PDF.h"
-#endif
 
 //////////////////////////////////////////////////////////////////////////
 //                                                                      //
@@ -43,25 +41,13 @@
 
 #include <vector>
 
-#ifndef ROOT_TH1
 #include "TH1.h"
-#endif
-#ifndef ROOT_TGraph
 #include "TGraph.h"
-#endif
-#ifndef ROOT_TSpline
 #include "TSpline.h"
-#endif
-#ifndef ROOT_TDirectory
 #include "TDirectory.h"
-#endif
-#ifndef ROOT_Event
 #include "Event.h"
-#endif
 
-#ifndef ROOT_TMVA_VariableTransformBase
 #include "TMVA/VariableTransformBase.h"
-#endif
 
 namespace TMVA {
 
@@ -86,7 +72,7 @@ namespace TMVA {
    class VariableGaussTransform : public VariableTransformBase {
 
    public:
-  
+
       VariableGaussTransform( DataSetInfo& dsi, TString strcor=""  );
       virtual ~VariableGaussTransform( void );
 
@@ -98,7 +84,7 @@ namespace TMVA {
 
       void WriteTransformationToStream ( std::ostream& ) const;
       void ReadTransformationFromStream( std::istream&, const TString& );
-     
+
       virtual void AttachXMLTo(void* parent);
       virtual void ReadFromXML( void* trfnode );
 
@@ -106,7 +92,7 @@ namespace TMVA {
 
       // writer of function code
       virtual void MakeFunction( std::ostream& fout, const TString& fncName, Int_t part, UInt_t trCounter, Int_t cls );
-    
+
    private:
 
       Bool_t           fFlatNotGauss;
@@ -114,9 +100,9 @@ namespace TMVA {
       Int_t            fPdfMaxSmooth;
       //      mutable Event*   fTransformedEvent;
 
-      std::vector< std::vector< TH1F* > >      fCumulativeDist;   //! The Cummulative distributions 
-      //std::vector< std::vector< TGraph* > >    fCumulativeGraph;  //! The Cummulative distributions 
-      //std::vector< std::vector< TSpline3* > >  fCumulativeSpline; //! The Cummulative distributions 
+      std::vector< std::vector< TH1F* > >      fCumulativeDist;   //! The Cumulative distributions
+      //std::vector< std::vector< TGraph* > >    fCumulativeGraph;  //! The Cumulative distributions
+      //std::vector< std::vector< TSpline3* > >  fCumulativeSpline; //! The Cumulative distributions
       std::vector< std::vector< PDF*> >         fCumulativePDF;    //  The cumulative PDF
 
       void GetCumulativeDist( const std::vector<Event*>& );
@@ -131,4 +117,4 @@ namespace TMVA {
 
 } // namespace TMVA
 
-#endif 
+#endif

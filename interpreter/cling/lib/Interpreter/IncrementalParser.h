@@ -28,15 +28,14 @@ namespace llvm {
 namespace clang {
   class CodeGenerator;
   class CompilerInstance;
+  class DiagnosticConsumer;
   class Decl;
   class FileID;
   class Parser;
 }
 
 namespace cling {
-  class BackendPasses;
   class CompilationOptions;
-  class CIFactory;
   class DeclCollector;
   class ExecutionContext;
   class Interpreter;
@@ -61,9 +60,6 @@ namespace cling {
 
     // parser (incremental)
     std::unique_ptr<clang::Parser> m_Parser;
-
-    // optimizer etc passes
-    std::unique_ptr<BackendPasses> m_BackendPasses;
 
     // One buffer for each command line, owner by the source file manager
     std::deque<std::pair<llvm::MemoryBuffer*, clang::FileID>> m_MemoryBuffers;
@@ -93,6 +89,10 @@ namespace cling {
     ///
     std::unique_ptr<TransactionPool> m_TransactionPool;
 
+    ///\brief DiagnosticConsumer instance
+    ///
+    std::unique_ptr<clang::DiagnosticConsumer> m_DiagConsumer;
+
   public:
     enum EParseResult {
       kSuccess,
@@ -101,11 +101,16 @@ namespace cling {
     };
     typedef llvm::PointerIntPair<Transaction*, 2, EParseResult>
       ParseResultTransaction;
-    IncrementalParser(Interpreter* interp, int argc, const char* const *argv,
-                      const char* llvmdir, bool isChildInterpreter);
+    IncrementalParser(Interpreter* interp, const char* llvmdir);
     ~IncrementalParser();
 
-    void Initialize(llvm::SmallVectorImpl<ParseResultTransaction>& result,
+    ///\brief Whether the IncrementalParser is valid.
+    ///
+    ///\param[in] initialized - check if IncrementalParser has been initialized.
+    ///
+    bool isValid(bool initialized = true) const;
+
+    bool Initialize(llvm::SmallVectorImpl<ParseResultTransaction>& result,
                     bool isChildInterpreter);
     clang::CompilerInstance* getCI() const { return m_CI.get(); }
     clang::Parser* getParser() const { return m_Parser.get(); }
@@ -127,10 +132,12 @@ namespace cling {
     ///\brief Commits a transaction if it was complete. I.e pipes it
     /// through the consumer chain, including codegen.
     ///
-    ///\param[in] PRT - the transaction (ParseResultTransaction, really) to be
+    ///\param[in] PRT - the transaction (ParseResultTransaction) to be
     /// committed
+    ///\param[in] ClearDiagClient - Reset the DiagnosticsEngine client or not
     ///
-    void commitTransaction(ParseResultTransaction& PRT);
+    void commitTransaction(ParseResultTransaction& PRT,
+                           bool ClearDiagClient = true);
 
     ///\brief Runs the consumers (e.g. CodeGen) on a non-parsed transaction.
     ///
@@ -194,12 +201,6 @@ namespace cling {
 
     void printTransactionStructure() const;
 
-    ///\brief Adds a UsedAttr to all decls in the transaction.
-    ///
-    ///\param[in] T - the transaction for which all decls will get a UsedAttr.
-    ///
-    void markWholeTransactionAsUsed(Transaction* T) const;
-
     ///\brief Runs the static initializers created by codegening a transaction.
     ///
     ///\param[in] T - the transaction for which to run the initializers.
@@ -216,12 +217,6 @@ namespace cling {
     ///\param[in] T - the transaction to be finalized
     ///
     void codeGenTransaction(Transaction* T);
-
-    ///\brief Runs IR transformers on a transaction.
-    ///
-    ///\param[in] T - the transaction to be transformed.
-    ///
-    bool transformTransactionIR(Transaction* T);
 
     ///\brief Initializes a virtual file, which will be able to produce valid
     /// source locations, with the proper offsets.

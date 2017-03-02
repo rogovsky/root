@@ -20,17 +20,16 @@
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-#ifndef ROOT_TMatrixTBase
 #include "TMatrixTBase.h"
-#endif
-#ifndef ROOT_TMatrixTUtils
 #include "TMatrixTUtils.h"
-#endif
 
 #ifdef CBLAS
 #include <vecLib/vBLAS.h>
 //#include <cblas.h>
 #endif
+
+#include "Rtypes.h"
+#include "TError.h"
 
 
 template<class Element> class TMatrixTSym;

@@ -48,19 +48,6 @@ const Float_t kScale = 0.93376068;
 
 ClassImp(TGQuartz)
 
-//TODO:
-//Originally, Olivier Couet suggested to have a separate module quartz with quartz-related graphics,
-//to be used by both iOS and MacOSX code. Also, the separation of non-GUI and gui parts was suggested
-//that's why we have TGQuartz and TGCocoa classes (TGCocoa is never used as it is, TGQuartz is
-//created and initialzed by TROOT.
-//Today it's clear that there is not need in any special quartz classes anymore -
-//in my iOS applications/module I do not need anything from quartz module, also, the
-//amount of code in quartz module is so small, that it can be merged back into cocoa module.
-
-//At some point, I'll merge cocoa and quartz modules and cleanup all this
-//mess and weird code we have in a quartz module.
-
-
 namespace X11 = ROOT::MacOSX::X11;
 namespace Quartz = ROOT::Quartz;
 namespace Util = ROOT::MacOSX::Util;
@@ -86,7 +73,7 @@ void ConvertPointsROOTToCocoa(Int_t nPoints, const TPoint *xy, std::vector<TPoin
 
 //______________________________________________________________________________
 TGQuartz::TGQuartz()
-            : fUseAA(true)
+            : fUseAA(true), fUseFAAA(false)
 {
    //Default ctor.
 
@@ -108,7 +95,7 @@ TGQuartz::TGQuartz()
 //______________________________________________________________________________
 TGQuartz::TGQuartz(const char *name, const char *title)
             : TGCocoa(name, title),
-              fUseAA(true)
+              fUseAA(true), fUseFAAA(false)
 {
    //Constructor.
    if (!TTF::IsInitialized())
@@ -213,7 +200,7 @@ void TGQuartz::DrawFillArea(Int_t n, TPoint *xy)
 
    const Quartz::CGStateGuard ctxGuard(ctx);
    //AA flag is not a part of a state.
-   const Quartz::CGAAStateGuard aaCtxGuard(ctx, fUseAA);
+   const Quartz::CGAAStateGuard aaCtxGuard(ctx, fUseFAAA);
 
    const TColor * const fillColor = gROOT->GetColor(GetFillColor());
    if (!fillColor) {
@@ -835,7 +822,7 @@ void TGQuartz::RenderTTFString(Int_t x, Int_t y, ETextMode mode)
          return;
       }
 
-      //TODO: this is copy & paste from TGX11TTF, needs more checks (indices).
+      // This is copy & paste from TGX11TTF:
       const Int_t xo = x1 < 0 ? -x1 : 0;
       const Int_t yo = y1 < 0 ? -y1 : 0;
 
@@ -1004,13 +991,21 @@ void TGQuartz::SetAA()
    if (gEnv) {
       const TString value(TString(gEnv->GetValue("Cocoa.EnableAntiAliasing", "auto")).Strip());
       if (value == "auto") {
-         //TODO: what about multi-head setup?
          [[NSScreen mainScreen] backingScaleFactor] > 1. ? fUseAA = true : fUseAA = false;
       } else if (value == "no")
          fUseAA = false;
       else {
          assert(value == "yes" && "SetAA, value must be 'yes', 'no' or 'auto'");
          fUseAA = true;
+      }
+      const TString valuefa(TString(gEnv->GetValue("Cocoa.EnableFillAreaAntiAliasing", "auto")).Strip());
+      if (valuefa == "auto") {
+         [[NSScreen mainScreen] backingScaleFactor] > 1. ? fUseFAAA = true : fUseFAAA = false;
+      } else if (valuefa == "no")
+         fUseFAAA = false;
+      else {
+         assert(valuefa == "yes" && "SetAA, value must be 'yes', 'no' or 'auto'");
+         fUseFAAA = true;
       }
    }
 }

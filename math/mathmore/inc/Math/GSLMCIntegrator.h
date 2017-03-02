@@ -29,31 +29,19 @@
 #ifndef ROOT_Math_GSLMCIntegrator
 #define ROOT_Math_GSLMCIntegrator
 
-#ifndef ROOT_Math_MCIntegrationTypes
 #include "Math/MCIntegrationTypes.h"
-#endif
 
-#ifndef ROOT_Math_IFunctionfwd
 #include "Math/IFunctionfwd.h"
-#endif
 
-#ifndef ROOT_Math_IFunction
 #include "Math/IFunction.h"
-#endif
 
 
-#ifndef ROOT_Math_MCIntegrationTypes
 #include "Math/MCIntegrationTypes.h"
-#endif
 
 
-#ifndef ROOT_Math_MCParameters
 #include "Math/MCParameters.h"
-#endif
 
-#ifndef ROOT_Math_VirtualIntegrator
 #include "Math/VirtualIntegrator.h"
-#endif
 
 #include <iostream>
 
@@ -65,6 +53,7 @@ namespace Math {
 
    class GSLMCIntegrationWorkspace;
    class GSLMonteFunctionWrapper;
+   class GSLRandomEngine;
    class GSLRngWrapper;
 
 
@@ -230,7 +219,7 @@ public:
       /**
        set random number generator
       */
-      void SetGenerator(GSLRngWrapper* r);
+      void SetGenerator(GSLRandomEngine & r);
 
       /**
        set integration method
@@ -327,6 +316,7 @@ public:
       double fResult;
       double fError;
       int fStatus;
+      bool fExtGen;   // flag indicating if class uses an external generator provided by the user
 
 
       GSLMCIntegrationWorkspace * fWorkspace;

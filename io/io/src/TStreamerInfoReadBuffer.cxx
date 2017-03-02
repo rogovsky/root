@@ -1008,12 +1008,8 @@ Int_t TStreamerInfo::ReadBuffer(TBuffer &b, const T &arr,
          // char*
          case TStreamerInfo::kCharStar: {
             DOLOOP {
-               Int_t nch; b >> nch;
                char **f = (char**)(arr[k]+ioffset);
-               delete [] *f;
-               *f = 0; if (nch <=0) continue;
-               *f = new char[nch+1];
-               b.ReadFastArray(*f,nch); (*f)[nch] = 0;
+               b.ReadCharStar(*f);
             }
          }
          continue;
@@ -1160,7 +1156,7 @@ Int_t TStreamerInfo::ReadBuffer(TBuffer &b, const T &arr,
                   TStreamerInfo *subinfo = 0;
 
                   if( newProxy ) {
-                     // coverity[dererence] oldProxy->GetValueClass() can not be null since this was streamed memberwise.
+                     // coverity[dereference] oldProxy->GetValueClass() can not be null since this was streamed memberwise.
                      subinfo = (TStreamerInfo*)newProxy->GetValueClass()->GetConversionStreamerInfo( oldProxy->GetValueClass(), vClVersion );
                   } else {
                      subinfo = (TStreamerInfo*)oldProxy->GetValueClass()->GetStreamerInfo( vClVersion );
@@ -1252,7 +1248,7 @@ Int_t TStreamerInfo::ReadBuffer(TBuffer &b, const T &arr,
                   TStreamerInfo *subinfo = 0;
 
                   if( newProxy ) {
-                     // coverity[dererence] oldProxy->GetValueClass() can not be null since this was streamed memberwise.
+                     // coverity[dereference] oldProxy->GetValueClass() can not be null since this was streamed memberwise.
                      subinfo = (TStreamerInfo*)newProxy->GetValueClass()->GetConversionStreamerInfo( oldProxy->GetValueClass(), vClVersion );
                   } else {
                      subinfo = (TStreamerInfo*)valueClass->GetStreamerInfo( vClVersion );
@@ -1446,7 +1442,7 @@ Int_t TStreamerInfo::ReadBuffer(TBuffer &b, const T &arr,
             UInt_t count = 0;
             b.ReadVersion(&start, &count, cl);
             if (fileVersion > 51508) {
-               // -- Newer versions allow polymorpic pointers.
+               // -- Newer versions allow polymorphic pointers.
                // Loop over the entries in the clones array or the STL container.
                for (Int_t k = 0; k < narr; ++k) {
                   // Get the counter for the varying length array.
@@ -1532,7 +1528,7 @@ Int_t TStreamerInfo::ReadBuffer(TBuffer &b, const T &arr,
                } // k
             }
             else {
-               // -- Older versions do *not* allow polymorpic pointers.
+               // -- Older versions do *not* allow polymorphic pointers.
                // Loop over the entries in the clones array or the STL container.
                for (Int_t k = 0; k < narr; ++k) {
                   // Get the counter for the varying length array.
@@ -1623,7 +1619,7 @@ Int_t TStreamerInfo::ReadBuffer(TBuffer &b, const T &arr,
                            // Allocate an object to read into.
                            r[v] = (char*) cl->New();
                            if (!r[v]) {
-                              // Do not print a second error messsage here.
+                              // Do not print a second error message here.
                               //Error("ReadBuffer", "Memory allocation failed!\n");
                               continue;
                            }

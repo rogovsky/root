@@ -50,18 +50,6 @@ A Branch for the case of an object.
 
 ClassImp(TBranchElement)
 
-#if (__GNUC__ >= 3) || defined(__INTEL_COMPILER)
-#if !defined(R__unlikely)
-#define R__unlikely(expr) __builtin_expect(!!(expr), 0)
-#endif
-#if !defined(R__likely)
-#define R__likely(expr) __builtin_expect(!!(expr), 1)
-#endif
-#else
-#define R__unlikely(expr) expr
-#define R__likely(expr) expr
-#endif
-
 ////////////////////////////////////////////////////////////////////////////////
 
 namespace {
@@ -426,8 +414,9 @@ void TBranchElement::Init(TTree *tree, TBranch *parent,const char* bname, TStrea
 
       if (splitlevel > 0) {
          // -- Create sub branches if requested by splitlevel.
-         const char* elem_type = element->GetTypeName();
-         fSTLtype = TClassEdit::UnderlyingIsSTLCont(elem_type);
+         const char* elemType = element->GetTypeName();
+         TClass *elementClass = element->GetClassPointer();
+         fSTLtype = elementClass ? elementClass->GetCollectionType() : ROOT::kNotSTL;
          if (element->CannotSplit()) {
             fSplitLevel = 0;
          } else if (element->IsA() == TStreamerBase::Class()) {
@@ -437,7 +426,7 @@ void TBranchElement::Init(TTree *tree, TBranch *parent,const char* bname, TStrea
             //        in that case is not the base streamer element it is the
             //        STL streamer element.
             fType = 1;
-            TClass* clOfElement = TClass::GetClass(element->GetName());
+            TClass* clOfElement = element->GetClassPointer();
             Int_t nbranches = fBranches.GetEntriesFast();
             // Note: The following code results in base class branches
             //       having two different cases for what their parent
@@ -553,7 +542,7 @@ void TBranchElement::Init(TTree *tree, TBranch *parent,const char* bname, TStrea
             return;
          } else if (((fSTLtype >= ROOT::kSTLvector) && (fSTLtype < ROOT::kSTLend)) || ((fSTLtype > -ROOT::kSTLend) && (fSTLtype <= -ROOT::kSTLvector))) {
             // -- We are an STL container element.
-            TClass* contCl = TClass::GetClass(elem_type);
+            TClass* contCl = elementClass;
             fCollProxy = contCl->GetCollectionProxy()->Generate();
             TClass* valueClass = GetCollectionProxy()->GetValueClass();
             // Check to see if we can split the container.
@@ -604,14 +593,14 @@ void TBranchElement::Init(TTree *tree, TBranch *parent,const char* bname, TStrea
                SetFillLeavesPtr();
                return;
             }
-         } else if (!strchr(elem_type, '*') && ((fStreamerType == TVirtualStreamerInfo::kObject) || (fStreamerType == TVirtualStreamerInfo::kAny))) {
+         } else if (!strchr(elemType, '*') && ((fStreamerType == TVirtualStreamerInfo::kObject) || (fStreamerType == TVirtualStreamerInfo::kAny))) {
             // -- Create sub-branches for members that are classes.
             //
             // Note: This can only happen if we were called directly
             //       (usually by TClass::Bronch) because Unroll never
             //       calls us for an element of this type.
             fType = 2;
-            TClass* clm = TClass::GetClass(elem_type);
+            TClass* clm = elementClass;
             Int_t err = Unroll(name, clm, clm, pointer, basketsize, splitlevel+splitSTLP, 0);
             if (err >= 0) {
                // Return on success.
@@ -1194,7 +1183,7 @@ void TBranchElement::BuildTitle(const char* name)
 ///
 /// Note: We not not use any member functions from TLeafElement!
 
-Int_t TBranchElement::Fill()
+Int_t TBranchElement::FillImpl(ROOT::Internal::TBranchIMTHelper *imtHelper)
 {
    Int_t nbytes = 0;
    Int_t nwrite = 0;
@@ -1230,7 +1219,7 @@ Int_t TBranchElement::Fill()
    if (!nbranches) {
       // No sub-branches.
       if (!TestBit(kDoNotProcess)) {
-         nwrite = TBranch::Fill();
+         nwrite = TBranch::FillImpl(imtHelper);
          if (nwrite < 0) {
             Error("Fill", "Failed filling branch:%s, nbytes=%d", GetName(), nwrite);
             ++nerror;
@@ -1242,7 +1231,7 @@ Int_t TBranchElement::Fill()
       // We have sub-branches.
       if (fType == 3 || fType == 4) {
          // TClonesArray or STL container counter
-         nwrite = TBranch::Fill();
+         nwrite = TBranch::FillImpl(imtHelper);
          if (nwrite < 0) {
             Error("Fill", "Failed filling branch:%s, nbytes=%d", GetName(), nwrite);
             ++nerror;
@@ -1255,7 +1244,7 @@ Int_t TBranchElement::Fill()
       for (Int_t i = 0; i < nbranches; ++i) {
          TBranchElement* branch = (TBranchElement*) fBranches[i];
          if (!branch->TestBit(kDoNotProcess)) {
-            nwrite = branch->Fill();
+            nwrite = branch->FillImpl(imtHelper);
             if (nwrite < 0) {
                Error("Fill", "Failed filling branch:%s.%s, nbytes=%d", GetName(), branch->GetName(), nwrite);
                nerror++;
@@ -2132,18 +2121,18 @@ TVirtualCollectionProxy* TBranchElement::GetCollectionProxy()
    if (fType == 4) {
       // STL container top-level branch.
       const char* className = 0;
+      TClass* cl = nullptr;
       if (fID < 0) {
          // We are a top-level branch.
          if (fBranchClass.GetClass()) {
-            className = fBranchClass.GetClass()->GetName();
+            cl = fBranchClass.GetClass();
          }
       } else {
          // We are not a top-level branch.
          TVirtualStreamerInfo* si = thiscast->GetInfoImp();
          TStreamerElement* se = si->GetElement(fID);
-         className = se->GetTypeName();
+         cl = se->GetClassPointer();
       }
-      TClass* cl = className ? TClass::GetClass(className) : 0;
       if (!cl) {
          // The TClass was not created but we do know (since it
          // is used as a collection) that it 'className' was a
@@ -2284,7 +2273,7 @@ Int_t TBranchElement::GetEntry(Long64_t entry, Int_t getall)
       SetBit(kDeleteObject);
       SetAddress(fAddress);
    } else {
-      if (R__unlikely(!fAddress && !fTree->GetMakeClass())) {
+      if (R__unlikely(!fAddress && !TestBit(kDecomposedObj))) {
          R__LOCKGUARD_IMT2(gROOTMutex); // Lock for parallel TTree I/O
          SetupAddressesImpl();
       }
@@ -2525,7 +2514,7 @@ T TBranchElement::GetTypedValue(Int_t j, Int_t len, Bool_t subarr) const
       }
    }
 
-   if (fTree->GetMakeClass()) {
+   if (TestBit(kDecomposedObj)) {
       if (!fAddress) {
          return 0;
       }
@@ -2610,7 +2599,7 @@ void* TBranchElement::GetValuePointer() const
       fBranchCount->TBranch::GetEntry(entry);
       if (fBranchCount2) fBranchCount2->TBranch::GetEntry(entry);
    }
-   if (fTree->GetMakeClass()) {
+   if (TestBit(kDecomposedObj)) {
       if (!fAddress) {
          return 0;
       }
@@ -3419,7 +3408,7 @@ void TBranchElement::PrintValue(Int_t lenmax) const
       }
    }
 
-   if (fTree->GetMakeClass()) {
+   if (TestBit(kDecomposedObj)) {
       if (!fAddress) {
          return;
       }
@@ -4496,7 +4485,7 @@ void TBranchElement::SetAddress(void* addr)
    //  Allow sub-branches to have independently set addresses.
    //
 
-   if (fTree->GetMakeClass()) {
+   if (TestBit(kDecomposedObj)) {
       if (fID > -1) {
          // We are *not* a top-level branch.
          if (!info) {
@@ -5188,7 +5177,7 @@ void TBranchElement::SetFillActionSequence()
 
 void TBranchElement::SetFillLeavesPtr()
 {
-   if (fTree->GetMakeClass() && ((fType==3)||(fType==31))) {
+   if (TestBit(kDecomposedObj) && ((fType==3)||(fType==31))) {
       fFillLeaves = (FillLeaves_t)&TBranchElement::FillLeavesMakeClass;
    } else if (fType == 4) {
       fFillLeaves = (FillLeaves_t)&TBranchElement::FillLeavesCollection;
@@ -5272,8 +5261,8 @@ void TBranchElement::SetupAddresses()
    // Check to see if the user changed the branch address on us.
    ValidateAddress();
 
-   if (fAddress || fTree->GetMakeClass()) {
-      // -- Do nothing if already setup or if we are a MakeClass tree.
+   if (fAddress || TestBit(kDecomposedObj)) {
+      // -- Do nothing if already setup or if we are a MakeClass branch.
       return;
    }
    SetupAddressesImpl();
@@ -5530,8 +5519,8 @@ Int_t TBranchElement::Unroll(const char* name, TClass* clParent, TClass* cl, cha
       // See InitializeOffsets() for the proper test.
       if (elem->IsA() == TStreamerBase::Class()) {
          // -- This is a base class of cl.
-         TClass* clOfBase = TClass::GetClass(elem->GetName());
-         if ((clOfBase->Property() & kIsAbstract) && cl->InheritsFrom(TCollection::Class())) {
+         TClass* clOfBase = elem->GetClassPointer();
+         if (!clOfBase || ((clOfBase->Property() & kIsAbstract) && cl->InheritsFrom(TCollection::Class()))) {
             // -- Do nothing if we are one of the abstract collection (we know they have no data).
             return -1;
          }
@@ -5595,8 +5584,8 @@ Int_t TBranchElement::Unroll(const char* name, TClass* clParent, TClass* cl, cha
             // Ignore an abstract class.
             // FIXME: How could an abstract class get here?
             //        Partial answer: It is a base class.  But this is a data member!
-            TClass* elemClass = TClass::GetClass(elem->GetTypeName());
-            if (elemClass->Property() & kIsAbstract) {
+            TClass* elemClass = elem->GetClassPointer();
+            if (!elemClass || elemClass->Property() & kIsAbstract) {
                return -1;
             }
             if (elem->CannotSplit()) {

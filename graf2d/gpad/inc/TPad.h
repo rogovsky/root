@@ -13,18 +13,10 @@
 #define ROOT_TPad
 
 
-#ifndef ROOT_TVirtualPad
 #include "TVirtualPad.h"
-#endif
-#ifndef ROOT_TAttBBox2D
 #include "TAttBBox2D.h"
-#endif
-#ifndef ROOT_TPoint
 #include "TPoint.h"
-#endif
-#ifndef ROOT_GuiTypes
 #include "GuiTypes.h"
-#endif
 
 class TVirtualViewer3D;
 class TVirtualPadPainter;
@@ -120,6 +112,8 @@ protected:
    TObject      *fPadPointer;       ///<! free pointer
    TObject      *fPadView3D;        ///<! 3D View of this TPad
    static Int_t  fgMaxPickDistance; ///<  Maximum Pick Distance
+   Int_t         fNumPaletteColor;     ///< Number of objects with an automatic color
+   Int_t         fNextPaletteColor;    ///< Next automatic color
 
    // 3D Viewer support
    TVirtualViewer3D *fViewer3D;     ///<! Current 3D viewer
@@ -303,6 +297,7 @@ public:
    virtual void      RedrawAxis(Option_t *option="");
    virtual void      ResetView3D(TObject *view=0){fPadView3D=view;}
    virtual void      ResizePad(Option_t *option="");
+   virtual void      Resized() { Emit("Resized()"); } // *SIGNAL*
    virtual void      SaveAs(const char *filename="",Option_t *option="") const; // *MENU*
    virtual void      SetBorderMode(Short_t bordermode) {fBorderMode = bordermode; Modified();} // *MENU*
    virtual void      SetBorderSize(Short_t bordersize) {fBorderSize = bordersize; Modified();} // *MENU*
@@ -369,6 +364,9 @@ public:
    virtual void      ResetToolTip(TObject *tip);
    virtual void      CloseToolTip(TObject *tip);
 
+   Int_t             IncrementPaletteColor(Int_t i, TString opt);
+   Int_t             NextPaletteColor();
+
    virtual void      x3d(Option_t *type=""); // Depreciated
 
    virtual TVirtualViewer3D *GetViewer3D(Option_t * type = "");
@@ -390,7 +388,7 @@ public:
    virtual void      EventPave() { Emit("EventPave()"); }         // *SIGNAL*
    virtual void      StartEditing() { Emit("StartEditing()"); }   // *SIGNAL*
 
-   ClassDef(TPad,11)  //A Graphics pad
+   ClassDef(TPad,12)  //A Graphics pad
 };
 
 

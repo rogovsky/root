@@ -102,7 +102,7 @@ TParallelCoord can also be used to display a candle chart. In that mode, every
 variable is drawn in the same scale. The candle chart can be combined with the
 parallel coordinates mode, drawing the candle sticks over the axes.
 
-Begin_Macro(source)
+~~~ {.cpp}
 {
    TCanvas *c1 = new TCanvas("c1");
    TFile *f = TFile::Open("cernstaff.root");
@@ -115,11 +115,10 @@ Begin_Macro(source)
    para->GetCurrentSelection()->SetLineColor(kViolet);
    TParallelCoordVar* age = (TParallelCoordVar*)para->GetVarList()->FindObject("Age");
    age->AddRange(new TParallelCoordRange(age,21,30));
-   return c1;
 }
-End_Macro
+~~~
 
- Some references:
+### Some references:
 
   - Alfred Inselberg's Homepage <http://www.math.tau.ac.il/~aiisreal>, with
     Visual Tutorial, History, Selected Publications and Applications.
@@ -706,12 +705,12 @@ void TParallelCoord::PaintEntries(TParallelCoordSelect* sel)
          if (TestBit(kVertDisplay)) {
             a    = (y[1]-y[0])/(x[1]-x[0]);
             b    = y[0]-a*x[0];
-            x[0] = x[0]+lx*r.Rndm(n);
+            x[0] = x[0]+lx*r.Rndm();
             y[0] = a*x[0]+b;
          } else {
             a    = (x[1]-x[0])/(y[1]-y[0]);
             b    = x[0]-a*y[0];
-            y[0] = y[0]+ly*r.Rndm(n);
+            y[0] = y[0]+ly*r.Rndm();
             x[0] = a*y[0]+b;
          }
       }

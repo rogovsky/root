@@ -13,21 +13,14 @@
 #define ROOT_TObject
 
 
-#ifndef ROOT_Rtypes
+#include "RConfigure.h"
 #include "Rtypes.h"
-#endif
-#ifndef ROOT_TStorage
 #include "TStorage.h"
-#endif
-#ifndef ROOT_TVersionCheck
 #include "TVersionCheck.h"
-#endif
-#ifndef ROOT_Riosfwd
-#include "Riosfwd.h"
-#endif
 
 #include <stdarg.h>
 #include <string>
+#include <iosfwd>
 
 #ifdef WIN32
 #undef RemoveDirectory
@@ -147,6 +140,11 @@ public:
    void    *operator new[](size_t sz, void *vp) { return TStorage::ObjectAlloc(sz, vp); }
    void     operator delete(void *ptr);
    void     operator delete[](void *ptr);
+#ifdef R__SIZEDDELETE
+   // Sized deallocation.
+   void     operator delete(void*, size_t);
+   void     operator delete[](void*, size_t);
+#endif
 #ifdef R__PLACEMENTDELETE
    void     operator delete(void *ptr, void *vp);
    void     operator delete[](void *ptr, void *vp);

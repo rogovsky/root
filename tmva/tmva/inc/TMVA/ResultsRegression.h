@@ -39,19 +39,11 @@
 
 #include <vector>
 
-#ifndef ROOT_TH1F
 #include "TH1F.h"
-#endif
-#ifndef ROOT_TH2F
 #include "TH2F.h"
-#endif
 
-#ifndef ROOT_TMVA_Results
 #include "TMVA/Results.h"
-#endif
-#ifndef ROOT_TMVA_Event
 #include "TMVA/Event.h"
-#endif
 
 namespace TMVA {
 
@@ -86,7 +78,7 @@ namespace TMVA {
    private:
 
       mutable std::vector<std::vector< Float_t> >  fRegValues;        // mva values (Results)
-      mutable MsgLogger* fLogger;                     // message logger
+      mutable MsgLogger* fLogger;                                     //! message logger
       MsgLogger& Log() const { return *fLogger; }
    protected:
        

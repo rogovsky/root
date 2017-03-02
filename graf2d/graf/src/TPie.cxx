@@ -154,6 +154,7 @@ TPie::TPie(const TPie &cpy) : TNamed(cpy), TAttText(cpy)
 TPie::~TPie()
 {
    if (fNvals>0) {
+      for (int i=0; i<fNvals; ++i) delete fPieSlices[i];
       delete [] fPieSlices;
    }
 
@@ -986,7 +987,7 @@ void TPie::Paint(Option_t *option)
       tmptxt.ReplaceAll("%txt",fPieSlices[i]->GetTitle());
       tmptxt.ReplaceAll("%val",Form(fValueFormat.Data(),fPieSlices[i]->GetValue()));
       tmptxt.ReplaceAll("%frac",Form(fFractionFormat.Data(),fPieSlices[i]->GetValue()/fSum));
-      tmptxt.ReplaceAll("%perc",Form("%3.1f %s",(fPieSlices[i]->GetValue()/fSum)*100,"%"));
+      tmptxt.ReplaceAll("%perc",Form(Form("%s %s",fPercentFormat.Data(),"%s"),(fPieSlices[i]->GetValue()/fSum)*100,"%"));
 
       textlabel->SetTitle(tmptxt.Data());
       Double_t h = textlabel->GetYsize();

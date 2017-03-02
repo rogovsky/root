@@ -10,10 +10,13 @@
 #ifndef CLING_TRANSACTION_UNLOADER
 #define CLING_TRANSACTION_UNLOADER
 
+namespace llvm {
+  class Module;
+}
+
 namespace clang {
   class CodeGenerator;
   class Decl;
-  class DeclUnloader;
   class Sema;
 }
 
@@ -22,6 +25,7 @@ namespace cling {
   class IncrementalExecutor;
   class Interpreter;
   class Transaction;
+  class DeclUnloader;
 
   ///\brief A simple eraser class that removes already created AST Nodes.
   ///
@@ -32,10 +36,11 @@ namespace cling {
     clang::CodeGenerator* m_CodeGen;
     cling::IncrementalExecutor* m_Exe;
 
-    bool unloadDeclarations(Transaction* T, clang::DeclUnloader& DeclU);
+    bool unloadDeclarations(Transaction* T, DeclUnloader& DeclU);
     bool unloadDeserializedDeclarations(Transaction* T,
-                                        clang::DeclUnloader& DeclU);
-    bool unloadFromPreprocessor(Transaction* T, clang::DeclUnloader& DeclU);
+                                        DeclUnloader& DeclU);
+    bool unloadFromPreprocessor(Transaction* T, DeclUnloader& DeclU);
+    bool unloadModule(llvm::Module* M);
 
   public:
     TransactionUnloader(cling::Interpreter* I, clang::Sema* Sema,

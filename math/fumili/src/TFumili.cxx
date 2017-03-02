@@ -97,17 +97,17 @@ function argument.
 //______________________________________________________________________________
 
 
-
-#include "TROOT.h"
 #include "TFumili.h"
-#include "TMath.h"
+
+#include "Riostream.h"
+#include "TGraphAsymmErrors.h"
 #include "TF1.h"
 #include "TF2.h"
 #include "TF3.h"
 #include "TH1.h"
-#include "TGraphAsymmErrors.h"
-
-#include "Riostream.h"
+#include "TMath.h"
+#include "TROOT.h"
+#include "TVirtualFitter.h"
 
 
 extern void H1FitChisquareFumili(Int_t &npar, Double_t *gin, Double_t &f, Double_t *u, Int_t flag);
@@ -211,7 +211,8 @@ void TFumili::BuildArrays(){
 
 TFumili::~TFumili() {
    DeleteArrays();
-   gROOT->GetListOfSpecials()->Remove(this);
+   if (gROOT && !gROOT->TestBit(TObject::kInvalidObject))
+      gROOT->GetListOfSpecials()->Remove(this);
    if (gFumili == this) gFumili = 0;
 }
 

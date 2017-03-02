@@ -40,37 +40,17 @@
 #include <vector>
 #include <stdlib.h>
 
-#ifndef ROOT_TString
 #include "TString.h"
-#endif
-#ifndef ROOT_TTree
 #include "TTree.h"
-#endif
-#ifndef ROOT_TCut
 #include "TCut.h"
-#endif
-#ifndef ROOT_TTreeFormula
 #include "TTreeFormula.h"
-#endif
-#ifndef ROOT_TMatrixDfwd
 #include "TMatrixDfwd.h"
-#endif
-#ifndef ROOT_TPrincipal
 #include "TPrincipal.h"
-#endif
-#ifndef ROOT_TRandom3
 #include "TRandom3.h"
-#endif
 
-#ifndef ROOT_TMVA_Types
 #include "TMVA/Types.h"
-#endif
-#ifndef ROOT_TMVA_VariableInfo
 #include "TMVA/VariableInfo.h"
-#endif
-#ifndef ROOT_TMVA_Event
 #include "TMVA/Event.h"
-#endif
 
 namespace TMVA {
 
@@ -219,6 +199,7 @@ namespace TMVA {
       public:
          Int_t    nTrainingEventsRequested;
          Int_t    nTestingEventsRequested;
+         Float_t  TrainTestSplitRequested;
          Int_t    nInitialEvents;
          Int_t    nEvBeforeCut;
          Int_t    nEvAfterCut;
@@ -229,6 +210,7 @@ namespace TMVA {
       EventStats():
          nTrainingEventsRequested(0),
             nTestingEventsRequested(0),
+            TrainTestSplitRequested(0),
             nInitialEvents(0),
             nEvBeforeCut(0),
             nEvAfterCut(0),
@@ -317,7 +299,7 @@ namespace TMVA {
       std::vector<TTreeFormula*> fWeightFormula;   // weights
       std::vector<TTreeFormula*> fSpectatorFormulas; // spectators
 
-      MsgLogger*                 fLogger;          // message logger
+      MsgLogger*                 fLogger;          //! message logger
       MsgLogger& Log() const { return *fLogger; }
    public:
        

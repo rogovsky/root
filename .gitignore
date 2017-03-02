@@ -26,6 +26,12 @@ etc/allDict.h
 xcuserdata
 project.xcworkspace
 
+# Visual Code
+.vscode/*
+
+# Vim
+*.swp
+
 # Other Stuff
 *.d
 
@@ -50,6 +56,7 @@ project.xcworkspace
 /roottest
 /*.mk
 /.project
+/files
 
 # /README/
 /README/ChangeLog
@@ -62,7 +69,7 @@ project.xcworkspace
 /config/Makefile.comp
 
 # /core/base/src/
-core/base/src/RGitCommit.h
+/core/base/src/RGitCommit.h
 
 # /core/lzma/src/
 /core/lzma/src/xz-5.2.1
@@ -83,17 +90,8 @@ core/base/src/RGitCommit.h
 # /core/pcre/src/
 /core/pcre/src/pcre-8.37
 
-# /core/utils/src/
-/core/utils/src/rootcint_tmp
-/core/utils/src/rootcint_tmp.exp
-/core/utils/src/rootcint_tmp.lib
-/core/utils/src/rootcint_tmp.pdb
-/core/utils/src/rootcint_tmp.cxx
-/core/utils/src/rootcint_tmp.exe
-/core/utils/src/rootcling_tmp
-/core/utils/src/rootcling_tmp.cxx
-/core/utils/src/RStl_tmp.cxx
-/core/utils/src/RConversionRuleParser_tmp.cxx
+# /core/rootcling_stage1/src/
+/core/rootcling_stage1/src/rootcling_stage1
 
 # /documentation/primer/
 /documentation/primer/ROOTPrimer.tex
@@ -224,6 +222,7 @@ core/base/src/RGitCommit.h
 # /main/src/
 /main/src/roots.sh
 /main/src/proofserv.sh
+/main/src/xproofd.sh
 
 # /math/genetic/test/
 /math/genetic/test/testGAMinimizer

@@ -27,14 +27,26 @@
  * (http://tmva.sourceforge.net/LICENSE)                                          *
  **********************************************************************************/
 
-//_______________________________________________________________________
-//
-// Node for the Decision Tree
-//
-// The node specifies ONE variable out of the given set of selection variable
-// that is used to split the sample which "arrives" at the node, into a left
-// (background-enhanced) and a right (signal-enhanced) sample.
-//_______________________________________________________________________
+/*! \class TMVA::
+\ingroup TMVA
+
+Node for the Decision Tree.
+
+The node specifies ONE variable out of the given set of selection variable
+that is used to split the sample which "arrives" at the node, into a left
+(background-enhanced) and a right (signal-enhanced) sample.
+
+*/
+
+#include "TMVA/DecisionTreeNode.h"
+
+#include "TMVA/Types.h"
+#include "TMVA/MsgLogger.h"
+#include "TMVA/Tools.h"
+#include "TMVA/Event.h"
+
+#include "ThreadLocalStorage.h"
+#include "TString.h"
 
 #include <algorithm>
 #include <exception>
@@ -42,18 +54,13 @@
 #include <limits>
 #include <sstream>
 
-#include "TMVA/Types.h"
-#include "TMVA/MsgLogger.h"
-#include "TMVA/DecisionTreeNode.h"
-#include "TMVA/Tools.h"
-#include "TMVA/Event.h"
-
 using std::string;
 
 ClassImp(TMVA::DecisionTreeNode)
 
 bool     TMVA::DecisionTreeNode::fgIsTraining = false;
 UInt_t   TMVA::DecisionTreeNode::fgTmva_Version_Code = 0;
+
 ////////////////////////////////////////////////////////////////////////////////
 /// constructor of an essentially "empty" node floating in space
 
@@ -142,9 +149,8 @@ TMVA::DecisionTreeNode::~DecisionTreeNode(){
    delete fTrainInfo;
 }
 
-
 ////////////////////////////////////////////////////////////////////////////////
-/// test event if it decends the tree at this node to the right
+/// test event if it descends the tree at this node to the right
 
 Bool_t TMVA::DecisionTreeNode::GoesRight(const TMVA::Event & e) const
 {
@@ -168,7 +174,7 @@ Bool_t TMVA::DecisionTreeNode::GoesRight(const TMVA::Event & e) const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// test event if it decends the tree at this node to the left
+/// test event if it descends the tree at this node to the left
 
 Bool_t TMVA::DecisionTreeNode::GoesLeft(const TMVA::Event & e) const
 {
@@ -188,7 +194,7 @@ void TMVA::DecisionTreeNode::SetPurity( void )
       fPurity = this->GetNSigEvents() / ( this->GetNSigEvents() + this->GetNBkgEvents());
    }
    else {
-      Log() << kINFO << "Zero events in purity calcuation , return purity=0.5" << Endl;
+      Log() << kINFO << "Zero events in purity calculation , return purity=0.5" << Endl;
       std::ostringstream oss;
       this->Print(oss);
       Log() <<oss.str();
@@ -197,7 +203,6 @@ void TMVA::DecisionTreeNode::SetPurity( void )
    return;
 }
 
-// print a node
 ////////////////////////////////////////////////////////////////////////////////
 ///print the node
 
@@ -231,7 +236,7 @@ void TMVA::DecisionTreeNode::Print(std::ostream& os) const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-///recursively print the node and its daughters (--> print the 'tree')
+/// recursively print the node and its daughters (--> print the 'tree')
 
 void TMVA::DecisionTreeNode::PrintRec(std::ostream& os) const
 {

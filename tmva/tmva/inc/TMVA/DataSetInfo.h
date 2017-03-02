@@ -37,34 +37,16 @@
 
 #include <iosfwd>
 
-#ifndef ROOT_TObject
 #include "TObject.h"
-#endif
-#ifndef ROOT_TString
 #include "TString.h"
-#endif
-#ifndef ROOT_TTree
 #include "TTree.h"
-#endif
-#ifndef ROOT_TCut
 #include "TCut.h"
-#endif
-#ifndef ROOT_TMatrixDfwd
 #include "TMatrixDfwd.h"
-#endif
 
-#ifndef ROOT_TMVA_Types
 #include "TMVA/Types.h"
-#endif
-#ifndef ROOT_TMVA_VariableInfo
 #include "TMVA/VariableInfo.h"
-#endif
-#ifndef ROOT_TMVA_ClassInfo
 #include "TMVA/ClassInfo.h"
-#endif
-#ifndef ROOT_TMVA_Event
 #include "TMVA/Event.h"
-#endif
 
 class TH2;
 
@@ -146,6 +128,8 @@ namespace TMVA {
 
       // classification information
       Int_t              GetClassNameMaxLength() const;
+      Int_t              GetVariableNameMaxLength() const;
+      Int_t              GetTargetNameMaxLength() const;
       ClassInfo*         GetClassInfo( Int_t clNum ) const;
       ClassInfo*         GetClassInfo( const TString& name ) const;
       void               PrintClasses() const;
@@ -229,7 +213,7 @@ namespace TMVA {
 
       std::vector<Float_t>*      fTargetsForMulticlass;//-> all targets 0 except the one with index==classNumber
       
-      mutable MsgLogger*         fLogger;            // message logger
+      mutable MsgLogger*         fLogger;            //! message logger
       MsgLogger& Log() const { return *fLogger; }
 
    public:

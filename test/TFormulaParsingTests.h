@@ -3,6 +3,7 @@
 #include "TF3.h"
 #include "TFormula.h"
 #include "TGraph.h"
+#include "TMath.h"
 #include "Math/ChebyshevPol.h"
 
 #include <limits>
@@ -390,7 +391,7 @@ bool test23() {
    TF1 f3("f3","f1+[0]");
    // param order should be the same
    f3.SetParameters( f2.GetParameters() );
-   ok &= fpEqual(f2.Eval(1) , f0.Eval(1) );
+   ok &= fpEqual(f3.Eval(1) , f0.Eval(1) );
    return ok;
 }
 
@@ -409,40 +410,56 @@ bool test24() {
 
 bool test25() {
    // fix parsing of operator^ (ROOT-7349)
-   bool ok = true; 
+   bool ok = true;
    TF1 f1("f1","x^-2.5");
    ok &= (f1.Eval(3.) == TMath::Power(3,-2.5) );
+   if (!ok)  std::cout << "Error in test25 - f != x^-2.5 " << f1.Eval(3.) << "  " <<  TMath::Power(3,-2.5) << std::endl;
 
    TF1 f2("f2","x^+2.5");
    //TF1 f3("f3","std::pow(x,2.5)");  // this needed to be fixed
    TF1 f3("f3","TMath::Power(x,2.5)");
-   ok &= (f2.Eval(3.) == f3.Eval(3) );
+   bool ret =  (f2.Eval(3.) == f3.Eval(3) );
+   if (!ret)  std::cout << "Error in test25 - f2 != f3 " << f2.Eval(3.) << "  " <<  f3.Eval(3.) << std::endl;
+   ok &= ret; 
 
    //cms test
    TF1 t1("t1","(x<190)?(-18.7813+(((2.49368+(10.3321/(x^0.881126)))*exp(-((x^-1.66603)/0.074916)))-(-17.5757*exp(-((x^-1464.26)/-7.94004e+06))))):(1.09984+(0.394544*exp(-(x/562.407))))");
    double x = 2;
    double y =(x<190)?(-18.7813+(((2.49368+(10.3321/(std::pow(x,0.881126))))*exp(-((std::pow(x,-1.66603))/0.074916)))-(-17.5757*exp(-((std::pow(x,-1464.26))/-7.94004e+06))))):(1.09984+(0.394544*exp(-(x/562.407))));
-   ok &= (t1.Eval(2) == y );
+   // this fails on 32 bits - put a tolerance
+   ret = TMath::AreEqualAbs(t1.Eval(2) , y , 1.E-8);
+   if (!ret)  std::cout << "Error in test25 - t1 != y " << t1.Eval(2.) << "  " <<  y << std::endl;
+   ok &= ret; 
 
    // tests with scientific notations
    auto ff = new TFormula("ff","x+2.e-2^1.2e-1");
-   ok &= ( ff->Eval(1.) == (1. + std::pow(2.e-2,1.2e-1) ) );
+   ret = ( ff->Eval(1.) == (1. + std::pow(2.e-2,1.2e-1) ) );
+   if (!ret) std::cout << "Error in test25 - ff != expr " << ff->Eval(1.) << "  " <<   (1. + std::pow(2.e-2,1.2e-1) ) << std::endl;
+   ok &= ret; 
 
    ff = new TFormula("ff","x^-1.2e1");
-   ok &= ( ff->Eval(1.5) == std::pow(1.5,-1.2e1) ) ;
+   ret = ( ff->Eval(1.5) == std::pow(1.5,-1.2e1) ) ;
+   if (!ret) std::cout << "Error in test25 - ff(1.5) != pow " <<  ff->Eval(1.5) << "  " <<  std::pow(1.5,-1.2e1) << std::endl; 
+   ok &= ret; 
 
    ff = new TFormula("ff","1.5e2^x");
-   ok &= ( ff->Eval(2) == std::pow(1.5e2,2) );
+   ret = ( ff->Eval(2) == std::pow(1.5e2,2) );
+   if (!ret) std::cout << "Error in test25 - ff(2) != pow " << ff->Eval(2) << "  " <<  std::pow(1.5e2,2) << std::endl; 
+   ok &= ret; 
 
    ff = new TFormula("ff","1.5e2^x^-1.1e-2");
-   ok &= ( ff->Eval(2.) == std::pow(1.5e2, std::pow(2,-1.1e-2) ) );
+   ret = ( ff->Eval(2.) == std::pow(1.5e2, std::pow(2,-1.1e-2) ) );
+   if (!ret) std::cout << "Error in test25 - ff(2) != pow^pow " << ff->Eval(2.) << "  " <<  std::pow(1.5e2, std::pow(2,-1.1e-2) ) << std::endl; 
+   ok &= ret; 
 
    // test same prelacements
    ff = new TFormula("ff","pol10(3)+pol2");
    std::vector<double> p = {1,2,3,4,5,6,7,8,9,10,11,12,13,14};
    ff->SetParameters(p.data() );
    double sum = 0; for (auto &a : p) { sum+= a;} 
-   ok &= ( ff->Eval(1.) == sum );
+   ret = ( ff->Eval(1.) == sum );
+   if (!ret) std::cout << "Error in test25 - ff(1) != sum " << ff->Eval(1.) << "  " <<  sum << std::endl; 
+   ok &= ret; 
 
    return ok;   
 }
@@ -601,13 +618,15 @@ bool test35() {
    g1.SetParameters(par.data()); 
 
    ok &=  TMath::AreEqualRel( f1.Eval(2), g1.Eval(2), 1.E-6);
+   if (!ok) std::cout << "Error in test35 - f1 != g1 " << f1.Eval(2) << "  " << g1.Eval(2) << std::endl;
    
    TF1 f2("f2","cheb10(0)+cheb1(11)",-1,1);
    TF1 g2("g2",[](double *x, double *p){ return ROOT::Math::ChebyshevN(10, x[0], p ) + ROOT::Math::ChebyshevN(1,x[0],p+11 ); }, -1, 1, 13);
    f2.SetParameters(par.data()); 
    g2.SetParameters(par.data()); 
 
-   ok &=  TMath::AreEqualRel( f2.Eval(2), g2.Eval(2), 1.E-6);   
+   ok &=  TMath::AreEqualRel( f2.Eval(2), g2.Eval(2), 1.E-6);
+   if (!ok) std::cout << "Error in test35 - f2 != g2 " << f2.Eval(2.) << "  " << g2.Eval(2.) << std::endl;
    
    return ok; 
 }
@@ -626,8 +645,55 @@ bool test36() {
 
    
    return ok; 
-} 
+}
+
+bool test37() {
+  // test for inserting correcting polynomials (bug ROOT-8496)
+  bool ok = true;
+  TF1 f1("f1","[0]*pol1(1) + pol2(3)*[6]",0,1);
+  f1.SetParameters(2,1,2,1,2,3,4); 
+  auto ref = [](double x) { return 2 * (1 + 2*x ) +  (1 + 2*x + 3*x*x) * 4 ; };
+
+  ok &= TMath::AreEqualAbs( f1.Eval(0.5), ref(0.5), 1.E-10);
+  return ok; 
+}
+
+bool test38() {
+  // test for missing parameters  (bug ROOT-8182)
+  bool ok = true;
+  TF1 f1("f1","[1]",0,1);
+  f1.SetParameters(999,2);
+  ok &= (f1.Eval(0) == 2.);
+  TF1 f2("f2","[A]+[1]*x",0,1);
+  f2.SetParameters(999,2,3);
+  ok &= (f2.Eval(2) == 7.);  
+  return ok; 
+}
+
+bool test39() {
+   // test special characters in parameter names (bug ROOT-8303)
+   // test with operator ^, @ and predefined functions (pol, gaus, etc..)
+   bool ok = true;
+
+   TF1 f1("f1","[s^x]*x+[0]");
+   f1.SetParameters(1,2);
+   ok &= (f1.Eval(2) == 2*2+1);
    
+   TF1 f2("f2","[0]*x+[s@x]");
+   f2.SetParameters(2,1);
+   ok &= (f2.Eval(2) == 2*2+1);
+
+   TF1 f3("f2","[0]*x+[pol_par_1]");
+   f3.SetParameters(2,1);
+   ok &= (f3.Eval(2) == 2*2+1);
+
+   TF1 f4("f2","gaus+[gaus_offset]*x");
+   f4.SetParameters(2,2,1,3);
+   ok &= (f4.Eval(2) == 2+3*2);
+   
+   return ok;
+}
+ 
 void PrintError(int itest)  { 
    Error("TFormula test","test%d FAILED ",itest);
    failedTests.push_back(itest);
@@ -681,6 +747,9 @@ int runTests(bool debug = false) {
    IncrTest(itest); if (!test34() ) { PrintError(itest); }
    IncrTest(itest); if (!test35() ) { PrintError(itest); }
    IncrTest(itest); if (!test36() ) { PrintError(itest); }
+   IncrTest(itest); if (!test37() ) { PrintError(itest); }
+   IncrTest(itest); if (!test38() ) { PrintError(itest); }
+   IncrTest(itest); if (!test39() ) { PrintError(itest); }
 
    std::cout << ".\n";
     

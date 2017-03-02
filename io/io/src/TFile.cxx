@@ -147,6 +147,9 @@ Bool_t   TFile::fgCacheFileForce = kFALSE;
 Bool_t   TFile::fgCacheFileDisconnected = kTRUE;
 UInt_t   TFile::fgOpenTimeout = TFile::kEternalTimeout;
 Bool_t   TFile::fgOnlyStaged = 0;
+#ifdef R__USE_IMT
+ROOT::TRWSpinLock TFile::fgRwLock;
+#endif
 
 const Int_t kBEGIN = 100;
 
@@ -855,7 +858,10 @@ void TFile::Init(Bool_t create)
                goto zombie;
             }
          } else if (fVersion != gROOT->GetVersionInt() && fVersion > 30000) {
-            Warning("Init","no StreamerInfo found in %s therefore preventing schema evolution when reading this file.",GetName());
+            // Don't complain about missing streamer info for empty files.
+            if (fKeys->GetSize()) {
+               Warning("Init","no StreamerInfo found in %s therefore preventing schema evolution when reading this file.",GetName());
+            }
          }
       }
    }
@@ -1305,12 +1311,16 @@ const TList *TFile::GetStreamerInfoCache()
 /// The function returns a TList. It is the user's responsibility
 /// to delete the list created by this function.
 ///
+/// Note the list, in addition to TStreamerInfo object, contains sometimes
+/// a TList named 'listOfRules' and containing the schema evolution rules
+/// related to the file's content.
+///
 /// Using the list, one can access additional information, e.g.:
 /// ~~~{.cpp}
 /// TFile f("myfile.root");
 /// auto list = f.GetStreamerInfoList();
-/// auto info = (TStreamerInfo*)list->FindObject("MyClass");
-/// auto classversionid = info->GetClassVersion();
+/// auto info = dynamic_cast<TStreamerInfo*>(list->FindObject("MyClass"));
+/// if (info) auto classversionid = info->GetClassVersion();
 /// delete list;
 /// ~~~
 ///
@@ -1795,23 +1805,37 @@ TProcessID  *TFile::ReadProcessID(UShort_t pidf)
       //file->Error("ReadProcessID","Cannot find %s in file %s",pidname,file->GetName());
       return pid;
    }
-      //check that a similar pid is not already registered in fgPIDs
+
+   //check that a similar pid is not already registered in fgPIDs
    TObjArray *pidslist = TProcessID::GetPIDs();
    TIter next(pidslist);
    TProcessID *p;
+   bool found = false;
+   R__RWLOCK_ACQUIRE_READ(fgRwLock);
    while ((p = (TProcessID*)next())) {
       if (!strcmp(p->GetTitle(),pid->GetTitle())) {
-         delete pid;
-         pids->AddAtAndExpand(p,pidf);
-         p->IncrementCount();
-         return p;
+         found = true;
+         break;
       }
    }
+   R__RWLOCK_RELEASE_READ(fgRwLock);
+
+   if (found) {
+      delete pid;
+      pids->AddAtAndExpand(p,pidf);
+      p->IncrementCount();
+      return p;
+   }
+
    pids->AddAtAndExpand(pid,pidf);
    pid->IncrementCount();
+
+   R__RWLOCK_ACQUIRE_WRITE(fgRwLock);
    pidslist->Add(pid);
    Int_t ind = pidslist->IndexOf(pid);
    pid->SetUniqueID((UInt_t)ind);
+   R__RWLOCK_RELEASE_WRITE(fgRwLock);
+
    return pid;
 }
 
@@ -2354,34 +2378,65 @@ Int_t TFile::WriteBufferViaCache(const char *buf, Int_t len)
 void TFile::WriteFree()
 {
    //*-* Delete old record if it exists
-   if (fSeekFree != 0){
+   if (fSeekFree != 0) {
       MakeFree(fSeekFree, fSeekFree + fNbytesFree -1);
    }
 
-   Int_t nbytes = 0;
-   TFree *afree;
-   TIter next (fFree);
-   while ((afree = (TFree*) next())) {
-      nbytes += afree->Sizeof();
-   }
-   if (!nbytes) return;
+   Bool_t largeFile = (fEND > TFile::kStartBigFile);
 
-   TKey *key    = new TKey(fName,fTitle,IsA(),nbytes,this);
-   if (key->GetSeekKey() == 0) {
+   auto createKey = [this]() {
+      Int_t nbytes = 0;
+      TFree *afree;
+      TIter next (fFree);
+      while ((afree = (TFree*) next())) {
+         nbytes += afree->Sizeof();
+      }
+      if (!nbytes) return (TKey*)nullptr;
+
+      TKey *key = new TKey(fName,fTitle,IsA(),nbytes,this);
+
+      if (key->GetSeekKey() == 0) {
+         delete key;
+         return (TKey*)nullptr;
+      }
+      return key;
+   };
+
+   TKey *key = createKey();
+   if (!key) return;
+
+   if (!largeFile && (fEND > TFile::kStartBigFile)) {
+      // The free block list is large enough to bring the file to larger
+      // than 2Gb, the references/offsets are now 64bits in the output
+      // so we need to redo the calculattion since the list of free block
+      // information will not fit in the original size.
+      key->Delete();
       delete key;
-      return;
+
+      key = createKey();
+      if (!key) return;
    }
+
+   Int_t nbytes = key->GetObjlen();
    char *buffer = key->GetBuffer();
    char *start = buffer;
 
-   next.Reset();
+   TIter next (fFree);
+   TFree *afree;
    while ((afree = (TFree*) next())) {
+      // We could 'waste' time here and double check that
+      //   (buffer+afree->Sizeof() < (start+nbytes)
       afree->FillBuffer(buffer);
    }
-   if ( (buffer-start)!=nbytes ) {
-      // Most likely one of the 'free' segment was used to store this
-      // TKey, so we had one less TFree to store than we planned.
-      memset(buffer,0,nbytes-(buffer-start));
+   auto actualBytes = buffer-start;
+   if ( actualBytes != nbytes ) {
+      if (actualBytes < nbytes) {
+         // Most likely one of the 'free' segment was used to store this
+         // TKey, so we had one less TFree to store than we planned.
+         memset(buffer,0,nbytes-actualBytes);
+      } else {
+         Error("WriteFree","The free block list TKey wrote more data than expected (%d vs %ld). Most likely there has been an out-of-bound write.",nbytes,(long int)actualBytes);
+      }
    }
    fNbytesFree = key->GetNbytes();
    fSeekFree   = key->GetSeekKey();
@@ -3047,11 +3102,7 @@ void TFile::MakeProject(const char *dirname, const char * /*classes*/,
          return;
       }
       // Get Makefile.arch
-#ifdef ROOTETCDIR
-      TString mkarchsrc = TString::Format("%s/Makefile.arch", ROOTETCDIR);
-#else
-      TString mkarchsrc("$(ROOTSYS)/etc/Makefile.arch");
-#endif
+      TString mkarchsrc = TString::Format("%s/Makefile.arch", TROOT::GetEtcDir().Data());
       if (gSystem->ExpandPathName(mkarchsrc))
          Warning("MakeProject", "problems expanding '%s'", mkarchsrc.Data());
       TString mkarchdst = TString::Format("%s/Makefile.arch", clean_dirname.Data());
@@ -3563,8 +3614,13 @@ void TFile::WriteStreamerInfo()
    if (!fWritable) return;
    if (!fClassIndex) return;
    if (fIsPcmFile) return; // No schema evolution for ROOT PCM files.
-   //no need to update the index if no new classes added to the file
-   if (fClassIndex->fArray[0] == 0) return;
+   if (fClassIndex->fArray[0] == 0
+       && fSeekInfo != 0) {
+      // No need to update the index if no new classes added to the file
+      // but write once an empty StreamerInfo list to mark that there is no need
+      // for StreamerInfos in this file.
+      return;
+   }
    if (gDebug > 0) Info("WriteStreamerInfo", "called for file %s",GetName());
 
    SafeDelete(fInfoCache);

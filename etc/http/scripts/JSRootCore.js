@@ -1,8 +1,8 @@
-/// @file JSRootCore.js
-/// Core methods of JavaScript ROOT
+/** @file JSRootCore.js
+ * Core methods of JavaScript ROOT */
 
-/// @namespace JSROOT
-/// Holder of all JSROOT functions and classes
+/** @namespace JSROOT
+  * Holder of all JSROOT functions and classes */
 
 (function( factory ) {
    if ( typeof define === "function" && define.amd ) {
@@ -12,25 +12,27 @@
       var dir = jsroot.source_dir + "scripts/", ext = jsroot.source_min ? ".min" : "";
 
       var paths = {
-            'd3'                   : dir+'d3.v3.min',
+            'd3'                   : dir+'d3.min',
             'jquery'               : dir+'jquery.min',
             'jquery-ui'            : dir+'jquery-ui.min',
-            'jqueryui-mousewheel'  : dir+'jquery.mousewheel'+ext,
+            'jqueryui-mousewheel'  : dir+'jquery.mousewheel.min',
             'jqueryui-touch-punch' : dir+'touch-punch.min',
-            'rawinflate'           : dir+'rawinflate'+ext,
+            'rawinflate'           : dir+'rawinflate.min',
             'MathJax'              : 'https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_SVG&amp;delayStartupUntil=configured',
-            'saveSvgAsPng'         : dir+'saveSvgAsPng'+ext,
-            'threejs'              : dir+'three'+ext,
-            'threejs_all'          : dir+'three.extra'+ext,
-//            'JSRootCore'           : dir+'JSRootCore'+ext,
+            'saveSvgAsPng'         : dir+'saveSvgAsPng.min',
+            'dat.gui'              : dir+'dat.gui.min',
+            'threejs'              : dir+'three.min',
+            'threejs_all'          : dir+'three.extra.min',
+            'JSRootCore'           : dir+'JSRootCore'+ext,
             'JSRootMath'           : dir+'JSRootMath'+ext,
-            'JSRootInterface'      : dir+'JSRootInterface'+ext,
             'JSRootIOEvolution'    : dir+'JSRootIOEvolution'+ext,
+            'JSRootTree'           : dir+'JSRootTree'+ext,
             'JSRootPainter'        : dir+'JSRootPainter'+ext,
             'JSRootPainter.more'   : dir+'JSRootPainter.more'+ext,
             'JSRootPainter.jquery' : dir+'JSRootPainter.jquery'+ext,
             'JSRoot3DPainter'      : dir+'JSRoot3DPainter'+ext,
             'ThreeCSG'             : dir+'ThreeCSG'+ext,
+            'JSRootGeoBase'        : dir+'JSRootGeoBase'+ext,
             'JSRootGeoPainter'     : dir+'JSRootGeoPainter'+ext
          };
 
@@ -51,10 +53,11 @@
          'jqueryui-mousewheel': { deps: ['jquery-ui'] },
          'jqueryui-touch-punch': { deps: ['jquery-ui'] },
          'threejs_all': { deps: [ 'threejs'] },
+         'ThreeCSG' : { deps: [ 'threejs'] },
          'MathJax': {
              exports: 'MathJax',
              init: function () {
-                MathJax.Hub.Config({ TeX: { extensions: ["color.js"] }});
+                MathJax.Hub.Config({ TeX: { extensions: ["color.js"] }, SVG: { mtextFontInherit: true } });
                 MathJax.Hub.Register.StartupHook("SVG Jax Ready",function () {
                    var VARIANT = MathJax.OutputJax.SVG.FONTDATA.VARIANT;
                    VARIANT["normal"].fonts.unshift("MathJax_SansSerif");
@@ -89,7 +92,7 @@
    }
 } (function(JSROOT) {
 
-   JSROOT.version = "4.5.3 4/08/2016";
+   JSROOT.version = "5.1.0 23/02/2017";
 
    JSROOT.source_dir = "";
    JSROOT.source_min = false;
@@ -98,8 +101,10 @@
 
    JSROOT.id_counter = 0;
 
+   // JSROOT.use_full_libs = true;
+
    JSROOT.touches = false;
-   JSROOT.browser = { isOpera:false, isFirefox:true, isSafari:false, isChrome:false, isIE:false };
+   JSROOT.browser = { isOpera:false, isFirefox:true, isSafari:false, isChrome:false, isIE:false, isWin:false };
 
    if ((typeof document !== "undefined") && (typeof window !== "undefined")) {
       var scripts = document.getElementsByTagName('script');
@@ -126,35 +131,89 @@
       JSROOT.browser.isSafari = Object.prototype.toString.call(window.HTMLElement).indexOf('Constructor') > 0;
       JSROOT.browser.isChrome = !!window.chrome && !JSROOT.browser.isOpera;
       JSROOT.browser.isIE = false || !!document.documentMode;
+      JSROOT.browser.isWin = navigator.platform.indexOf('Win') >= 0;
    }
 
    JSROOT.browser.isWebKit = JSROOT.browser.isChrome || JSROOT.browser.isSafari;
 
    // default draw styles, can be changed after loading of JSRootCore.js
+   // this style also can be changed providing style=itemname in the URL
    JSROOT.gStyle = {
          Tooltip : 1, // 0 - off, 1 - on
+         TooltipAnimation : 500, // time in msec for appearance of tooltips, 0 - no animation
          ContextMenu : true,
-         Zooming : true,
+         Zooming : true,  // global zooming flag, enable/disable any kind of interactive zooming
+         ZoomMouse : true,  // Zooming with the mouse events
+         ZoomWheel : true,  // Zooming with mouse wheel
+         ZoomTouch : true,  // Zooming with the touch devices
          MoveResize : true,   // enable move and resize of elements like statbox, title, pave, colz
          DragAndDrop : true,  // enables drag and drop functionality
-         ToolBar : true,    // show additional tool buttons on the canvas
+         ToolBar : 'popup',  // show additional tool buttons on the canvas, false - disabled, true - enabled, 'popup' - only toggle button
+         CanEnlarge : true,  // if drawing inside particular div can be enrlarged on full window
          OptimizeDraw : 1, // drawing optimization: 0 - disabled, 1 - only for large (>5000 1d bins, >50 2d bins) histograms, 2 - always
          AutoStat : true,
-         OptStat  : 1111,
-         OptFit   : 0,
          FrameNDC : { fX1NDC: 0.07, fY1NDC: 0.12, fX2NDC: 0.95, fY2NDC: 0.88 },
-         StatNDC  : { fX1NDC: 0.78, fY1NDC: 0.75, fX2NDC: 0.98, fY2NDC: 0.91 },
-         StatText : { fTextAngle: 0, fTextSize: 9, fTextAlign: 12, fTextColor: 1, fTextFont: 42 },
-         StatFill : { fFillColor: 0, fFillStyle: 1001 },
-         TimeOffset : 788918400000, // UTC time at 01/01/95
-         StatFormat : "6.4g",
-         FitFormat : "5.4g",
          Palette : 57,
          MathJax : 0,  // 0 - never, 1 - only for complex cases, 2 - always
          ProgressBox : true,  // show progress box
          Embed3DinSVG : 2,  // 0 - no embed, only 3D plot, 1 - overlay over SVG (IE/WebKit), 2 - embed into SVG (only Firefox)
          NoWebGL : false, // if true, WebGL will be disabled,
-         EndErrorSize : 2 // size in pixels of end error for E1 draw options
+         GeoGradPerSegm : 6, // amount of grads per segment in TGeo spherical shapes like tube
+         GeoCompressComp : true, // if one should compress faces after creation of composite shape,
+         IgnoreUrlOptions : false, // if true, ignore all kind of URL options in the browser URL
+         HierarchyLimit : 250,   // how many items shown on one level of hierarhcy
+
+         // these are TStyle attributes, which can be chenged via URL 'style' parameter
+
+         fPadBottomMargin : 0.1,
+         fPadTopMargin : 0.1,
+         fPadLeftMargin : 0.1,
+         fPadRightMargin : 0.1,
+         fPadGridX : false,
+         fPadGridY : false,
+         fPadTickX : 0,
+         fPadTickY : 0,
+         fStatColor : 0,
+         fStatTextColor : 1,
+         fStatBorderSize : 1,
+         fStatFont : 42,
+         fStatFontSize : 0,
+         fStatStyle : 1001,
+         fStatFormat : "6.4g",
+         fStatX : 0.98,
+         fStatY : 0.935,
+         fStatW : 0.2,
+         fStatH : 0.16,
+         fTitleAlign : 23,
+         fTitleColor : 0,
+         fTitleTextColor : 1,
+         fTitleBorderSize : 0,
+         fTitleFont : 42,
+         fTitleFontSize : 0.05,
+         fTitleStyle : 0,
+         fTitleX : 0.5,
+         fTitleY : 0.995,
+         fTitleW : 0,
+         fTitleH : 0,
+         fFitFormat : "5.4g",
+         fOptStat : 1111,
+         fOptFit : 0,
+         fNumberContours : 20,
+         fGridColor : 0,
+         fGridStyle : 11,
+         fGridWidth : 1,
+         fFrameFillColor : 0,
+         fFrameLineColor : 1,
+         fFrameFillStyle : 1001,
+         fFrameLineStyle : 1,
+         fFrameLineWidth : 1,
+         fFrameBorderSize : 1,
+         fFrameBorderMode : 0,
+         fEndErrorSize : 2,   // size in pixels of end error for E1 draw options
+         fErrorX : 0.5,   // X size of the error marks for the histogram drawings
+         fHistMinimumZero: false,   // when true, BAR and LEGO drawing using base = 0
+         fPaintTextFormat : "g",
+         fTimeOffset : 788918400 // UTC time at 01/01/95
       };
 
    JSROOT.BIT = function(n) { return 1 << (n); }
@@ -191,66 +250,132 @@
    // wrapper for console.log, avoids missing console in IE
    // if divid specified, provide output to the HTML element
    JSROOT.console = function(value, divid) {
-      if ((divid!=null) && (typeof divid=='string') && ((typeof document.getElementById(divid))!='undefined'))
+      if ((typeof divid == 'string') && document.getElementById(divid))
          document.getElementById(divid).innerHTML = value;
       else
       if ((typeof console != 'undefined') && (typeof console.log == 'function'))
          console.log(value);
    }
 
-   // This is part of the JSON-R code, found on
+   /// Should be used to reintroduce objects references, produced by TBufferJSON
+   // Replace all references inside object, object should not be null
+   // Idea of the code taken from JSON-R code, found on
    // https://github.com/graniteds/jsonr
    // Only unref part was used, arrays are not accounted as objects
-   // Should be used to reintroduce objects references, produced by TBufferJSON
-   JSROOT.JSONR_unref = function(value, dy) {
-      var c, i, k, ks;
-      if (!dy) dy = [];
+   JSROOT.JSONR_unref = function(obj) {
 
-      switch (typeof value) {
-      case 'string':
-          if ((value.length > 5) && (value.substr(0, 5) == "$ref:")) {
-             c = parseInt(value.substr(5));
-             if (!isNaN(c) && (c < dy.length)) {
-                value = dy[c];
+      var map = [], newfmt = undefined;
+
+      function unref_value(value) {
+         if ((value===null) || (value===undefined)) return;
+
+         if (typeof value === 'string') {
+            if (newfmt || (value.length < 6) || (value.indexOf("$ref:") !== 0)) return;
+            var ref = parseInt(value.substr(5));
+            if (isNaN(ref) || (ref < 0) || (ref >= map.length)) return;
+            newfmt = false;
+            return map[ref];
+         }
+
+         if (typeof value !== 'object') return;
+
+         var i, k, res, proto = Object.prototype.toString.apply(value);
+
+         // scan array - it can contain other objects
+         if ((proto.indexOf('[object')==0) && (proto.indexOf('Array]')>0)) {
+             for (i = 0; i < value.length; ++i) {
+                res = unref_value(value[i]);
+                if (res!==undefined) value[i] = res;
              }
-          }
-          break;
+             return;
+         }
 
-      case 'object':
-         if (value !== null) {
+         var ks = Object.keys(value), len = ks.length;
 
-            if (Object.prototype.toString.apply(value) === '[object Array]') {
-               for (i = 0; i < value.length; ++i) {
-                  value[i] = this.JSONR_unref(value[i], dy);
-               }
-            } else {
+         if ((newfmt!==false) && (len===1) && (ks[0]==='$ref')) {
+            var ref = parseInt(value['$ref']);
+            if (isNaN(ref) || (ref < 0) || (ref >= map.length)) return;
+            newfmt = true;
+            return map[ref];
+         }
 
-               // account only objects in ref table
-               if (dy.indexOf(value) === -1) {
-                  dy.push(value);
-               }
+         if ((newfmt!==false) && (len>1) && (ks[0]==='$arr') && (ks[1]==='len')) {
+            // this is ROOT-coded array
+            var arr = null, dflt = (value.$arr==="Bool") ? false : 0;
+            switch (value.$arr) {
+               case "Int8" : arr = new Int8Array(value.len); break;
+               case "Uint8" : arr = new Uint8Array(value.len); break;
+               case "Int16" : arr = new Int16Array(value.len); break;
+               case "Uint16" : arr = new Uint16Array(value.len); break;
+               case "Int32" : arr = new Int32Array(value.len); break;
+               case "Uint32" : arr = new Uint32Array(value.len); break;
+               case "Float32" : arr = new Float32Array(value.len); break;
+               case "Int64" :
+               case "Uint64" :
+               case "Float64" : arr = new Float64Array(value.len); break;
+               default : arr = new Array(value.len); break;
+            }
+            for (var k=0;k<value.len;++k) arr[k] = dflt;
 
-               // add methods to all objects, where _typename is specified
-               if ('_typename' in value) this.addMethods(value);
-
-               ks = Object.keys(value);
-               for (i = 0; i < ks.length; ++i) {
-                  k = ks[i];
-                  value[k] = this.JSONR_unref(value[k], dy);
+            var nkey = 2, p = 0;
+            while (nkey<len) {
+               if (ks[nkey][0]=="p") p = value[ks[nkey++]]; // position
+               if (ks[nkey][0]!=='v') throw new Error('Unexpected member ' + ks[nkey] + ' in array decoding');
+               var v = value[ks[nkey++]]; // value
+               if (typeof v === 'object') {
+                  for (var k=0;k<v.length;++k) arr[p++] = v[k];
+               } else {
+                  arr[p++] = v;
+                  if ((nkey<len) && (ks[nkey][0]=='n')) {
+                     var cnt = value[ks[nkey++]]; // counter
+                     while (--cnt) arr[p++] = v;
+                  }
                }
             }
+
+            return arr;
          }
-         break;
+
+         if ((newfmt!==false) && (len===3) && (ks[0]==='$pair') && (ks[1]==='first') && (ks[2]==='second')) {
+            newfmt = true;
+            var f1 = unref_value(value.first),
+                s1 = unref_value(value.second);
+            if (f1!==undefined) value.first = f1;
+            if (s1!==undefined) value.second = s1;
+            value._typename = value['$pair'];
+            delete value['$pair'];
+            return; // pair object is not counted in the objects map
+         }
+
+         // debug code, can be commented out later
+         if (map.indexOf(value) >= 0) {
+            JSROOT.console('should never happen - object already in the map');
+            return;
+         }
+
+         // add object to object map
+         map.push(value);
+
+         // add methods to all objects, where _typename is specified
+         if ('_typename' in value) JSROOT.addMethods(value);
+
+         for (k = 0; k < len; ++k) {
+            i = ks[k];
+            res = unref_value(value[i]);
+            if (res!==undefined) value[i] = res;
+         }
       }
 
-      return value;
+      unref_value(obj);
+
+      return obj;
    }
 
    JSROOT.debug = 0;
 
    // This is simple replacement of jQuery.extend method
    // Just copy (not clone) all fields from source to the target object
-   JSROOT.extend = function(tgt, src, map, deep_copy) {
+   JSROOT.extend = function(tgt, src) {
       if ((src === null) || (typeof src !== 'object')) return src;
       if ((tgt === null) || (typeof tgt !== 'object')) tgt = {};
 
@@ -261,11 +386,11 @@
    }
 
    // Make deep clone of the object, including all sub-objects
-   JSROOT.clone = function(src, map) {
+   JSROOT.clone = function(src, map, nofunc) {
       if (src === null) return null;
 
       if (!map) {
-         map = { obj:[], clones:[] };
+         map = { obj:[], clones:[], nofunc: nofunc };
       } else {
          var i = map.obj.indexOf(src);
          if (i>=0) return map.clones[i];
@@ -283,6 +408,7 @@
                tgt.push(JSROOT.clone(src[i], map));
             else
                tgt.push(src[i]);
+
          return tgt;
       }
 
@@ -305,6 +431,7 @@
          if (typeof src[k] === 'object')
             tgt[k] = JSROOT.clone(src[k], map);
          else
+         if (!map.nofunc || (typeof src[k]!=='function'))
             tgt[k] = src[k];
       }
 
@@ -314,7 +441,7 @@
    // method can be used to delete all functions from objects
    // only such objects can be cloned when transfer to Worker
    JSROOT.clear_func = function(src, map) {
-      if (src === null) return;
+      if (src === null) return src;
 
       var proto = Object.prototype.toString.apply(src);
 
@@ -322,14 +449,14 @@
          for (var n=0;n<src.length;n++)
             if (typeof src[n] === 'object')
                JSROOT.clear_func(src[n], map);
-         return;
+         return src;
       }
 
-      if ((proto.indexOf('[object ') == 0) && (proto.indexOf('Array]') == proto.length-6)) return;
+      if ((proto.indexOf('[object ') == 0) && (proto.indexOf('Array]') == proto.length-6)) return src;
 
       if (!map) map = [];
       var nomap = (map.length == 0);
-      if ('__clean_func__' in src) return;
+      if ('__clean_func__' in src) return src;
 
       map.push(src);
       src['__clean_func__'] = true;
@@ -344,9 +471,12 @@
       if (nomap)
          for (var n=0;n<map.length;++n)
             delete map[n]['__clean_func__'];
+
+      return src;
    }
 
-
+   /** @memberOf JSROOT
+    * Method should be used to parse JSON code, produced with TBufferJSON */
    JSROOT.parse = function(arg) {
       if ((arg==null) || (arg=="")) return null;
       var obj = JSON.parse(arg);
@@ -354,40 +484,61 @@
       return obj;
    }
 
+   /** @memberOf JSROOT
+    * Method should be used to parse JSON code, produced by multi.json of THttpServer */
+   JSROOT.parse_multi = function(arg) {
+      if (!arg) return null;
+      var arr = JSON.parse(arg);
+      if (arr && arr.length)
+         for (var i=0;i<arr.length;++i)
+            arr[i] = this.JSONR_unref(arr[i]);
+      return arr;
+   }
+
+   /** @memberOf JSROOT */
    JSROOT.GetUrlOption = function(opt, url, dflt) {
       // analyzes document.URL and extracts options after '?' mark
       // following options supported ?opt1&opt2=3
       // In case of opt1 empty string will be returned, in case of opt2 '3'
       // If option not found, null is returned (or provided default value)
 
-      if (arguments.length < 3) dflt = null;
-      if ((opt==null) || (typeof opt != 'string') || (opt.length==0)) return dflt;
+      if (dflt === undefined) dflt = null;
+      if ((opt===null) || (typeof opt != 'string') || (opt.length==0)) return dflt;
 
       if (!url) {
-         if (typeof document === 'undefined') return dflt;
+         if (JSROOT.gStyle.IgnoreUrlOptions || (typeof document === 'undefined')) return dflt;
          url = document.URL;
       }
 
-      var pos = url.indexOf("?");
+      var pos = url.indexOf("?"), nquotes;
       if (pos<0) return dflt;
-      url = url.slice(pos+1);
+      url = decodeURI(url.slice(pos+1));
 
       while (url.length>0) {
 
          if (url==opt) return "";
 
-         pos = url.indexOf("&");
-         if (pos < 0) pos = url.length;
-
-         if (url.indexOf(opt) == 0) {
-            if (url.charAt(opt.length)=="&") return "";
-
-            // replace several symbols which are known to make a problem
-            if (url.charAt(opt.length)=="=")
-               return url.slice(opt.length+1, pos).replace(/%27/g, "'").replace(/%22/g, '"').replace(/%20/g, ' ').replace(/%3C/g, '<').replace(/%3E/g, '>').replace(/%5B/g, '[').replace(/%5D/g, ']');
+         // try to correctly handle quotes in the URL
+         pos = 0; nquotes = 0;
+         while ((pos < url.length) && ((nquotes!==0) || (url[pos]!=="&"))) {
+            switch (url[pos]) {
+               case "'": if (nquotes>=0) nquotes = (nquotes+1)%2; break;
+               case '"': if (nquotes<=0) nquotes = (nquotes-1)%2; break;
+            }
+            pos++;
          }
 
-         url = url.slice(pos+1);
+         if (url.indexOf(opt) == 0) {
+            if (url[opt.length]=="&") return "";
+
+            if (url[opt.length]==="=") {
+               url = url.slice(opt.length+1, pos);
+               if (((url[0]==="'") || (url[0]==='"')) && (url[0]===url[url.length-1])) url = url.substr(1, url.length-2);
+               return url;
+            }
+         }
+
+         url = url.substr(pos+1);
       }
       return dflt;
    }
@@ -409,23 +560,46 @@
          res.push(val); return res;
       }
 
-      // try to parse ourself
-      var arr = val.substr(1, val.length-2).split(","); // remove brackets
+      // try to split ourself, checking quotes and brackes
+      var nbr = 0, nquotes = 0, ndouble = 0, last = 1;
 
-      for (var i = 0; i < arr.length; ++i) {
-         var sub = arr[i].trim();
-         if ((sub.length>1) && (sub[0]==sub[sub.length-1]) && ((sub[0]=='"') || (sub[0]=="'")))
-            sub = sub.substr(1, sub.length-2);
-         res.push(sub);
+      for (var indx = 1; indx < val.length; ++indx) {
+         if (nquotes > 0) {
+            if (val[indx]==="'") nquotes--;
+            continue;
+         }
+         if (ndouble > 0) {
+            if (val[indx]==='"') ndouble--;
+            continue;
+         }
+         switch (val[indx]) {
+            case "'": nquotes++; break;
+            case '"': ndouble++; break;
+            case "[": nbr++; break;
+            case "]": if (indx < val.length - 1) { nbr--; break; }
+            case ",":
+               if (nbr === 0) {
+                  var sub =  val.substring(last, indx).trim();
+                  if ((sub.length>1) && (sub[0]==sub[sub.length-1]) && ((sub[0]=='"') || (sub[0]=="'")))
+                     sub = sub.substr(1, sub.length-2);
+                  res.push(sub);
+                  last = indx+1;
+               }
+               break;
+         }
       }
+
+      if (res.length === 0)
+         res.push(val.substr(1, val.length-2).trim());
+
       return res;
    }
 
    JSROOT.GetUrlOptionAsArray = function(opt, url) {
       // special handling of URL options to produce array
       // if normal option is specified ...?opt=abc, than array with single element will be created
-      // one could specify normal JSON array ...?opt=['item1','item2']
-      // but also one could skip quotes ...?opt=[item1,item2]
+      // one could specify normal JSON array ...?opts=['item1','item2']
+      // but also one could skip quotes ...?opts=[item1,item2]
       // one could collect values from several options, specifying
       // options names via semicolon like opt='item;items'
 
@@ -433,27 +607,36 @@
 
       while (opt.length>0) {
          var separ = opt.indexOf(";");
-         var part = separ>0 ? opt.substr(0, separ) : opt;
+         var part = (separ>0) ? opt.substr(0, separ) : opt;
+
          if (separ>0) opt = opt.substr(separ+1); else opt = "";
 
+         var canarray = true;
+         if (part[0]=='#') { part = part.substr(1); canarray = false; }
+
          var val = this.GetUrlOption(part, url, null);
-         res = res.concat(JSROOT.ParseAsArray(val));
+
+         if (canarray) res = res.concat(JSROOT.ParseAsArray(val));
+                  else if (val!==null) res.push(val);
       }
       return res;
    }
 
    JSROOT.findFunction = function(name) {
       if (typeof name === 'function') return name;
-      var func = window[name];
-      if (typeof func == 'function') return func;
-      var separ = name.lastIndexOf(".");
-      if (separ<0) return null;
-      var namespace = name.slice(0, separ);
-      name = name.slice(separ+1);
-      if (namespace=="JSROOT") func = this[name]; else
-      if (namespace=="JSROOT.Painter") { if ('Painter' in this) func = this['Painter'][name]; } else
-      if (window[namespace]) func = window[namespace][name];
-      return (typeof func == 'function') ? func : null;
+      if (typeof window[name] == 'function') return window[name];
+      if ((typeof name !== 'string') || (name.indexOf(".") < 0)) return null;
+
+      var names = name.split('.'), elem = window;
+      for (var n=0;n<names.length;++n) {
+         if ((n==0) && (names[0]==='JSROOT'))
+            elem = this;
+         else
+            elem = elem[names[n]];
+         if (!elem) return null;
+      }
+
+      return (typeof elem == 'function') ? elem : null;
    }
 
    JSROOT.CallBack = function(func, arg1, arg2) {
@@ -473,7 +656,6 @@
       if (('obj' in func) && ('func' in func) &&
          (typeof func.obj == 'object') && (typeof func.func == 'string') &&
          (typeof func.obj[func.func] == 'function')) {
-         alert('Old-style call-back, change code for ' + func.func);
              return func.obj[func.func](arg1, arg2);
       }
    }
@@ -482,12 +664,13 @@
       // Create asynchronous XMLHttpRequest object.
       // One should call req.send() to submit request
       // kind of the request can be:
-      //  "bin" - abstract binary data, result as string (default)
-      //  "buf" - abstract binary data, result as BufferArray (if supported)
-      //  "text" - returns req.responseText
-      //  "object" - returns JSROOT.parse(req.responseText)
-      //  "xml" - returns res.responseXML
-      //  "head" - returns request itself, uses "HEAD" method
+      //   "bin" - abstract binary data, result as string (default)
+      //   "buf" - abstract binary data, result as BufferArray
+      //   "text" - returns req.responseText
+      //   "object" - returns JSROOT.parse(req.responseText)
+      //   "multi" - returns correctly parsed multi.json request
+      //   "xml" - returns res.responseXML
+      //   "head" - returns request itself, uses "HEAD" method
       // Result will be returned to the callback functions
       // Request will be set as this pointer in the callback
       // If failed, request returns null
@@ -499,86 +682,68 @@
          if (typeof user_call_back == 'function') user_call_back.call(xhr, res);
       }
 
-      var pthis = this;
+      var pthis = this, method = "GET";
+      if (kind === "head") method = "HEAD"; else
+      if (kind === "multi") method = "POST";
 
-      if (window.ActiveXObject) {
+      xhr.onreadystatechange = function() {
 
-         xhr.onreadystatechange = function() {
-            if (xhr.readyState != 4) return;
+         if (xhr.did_abort) return;
 
-            if (xhr.status != 200 && xhr.status != 206) {
-               // error
+         if ((xhr.readyState === 2) && xhr.expected_size) {
+            var len = parseInt(xhr.getResponseHeader("Content-Length"));
+            if (!isNaN(len) && (len>xhr.expected_size)) {
+               xhr.did_abort = true;
+               xhr.abort();
+               console.warn('Server response size ' + len + ' larger than expected ' + xhr.expected_size + ' Abort I/O operation');
                return callback(null);
             }
-
-            if (kind == "xml") return callback(xhr.responseXML);
-            if (kind == "text") return callback(xhr.responseText);
-            if (kind == "object") return callback(pthis.parse(xhr.responseText));
-            if (kind == "head") return callback(xhr);
-
-            if ((kind == "buf") && ('responseType' in xhr) &&
-                (xhr.responseType == 'arraybuffer') && ('response' in xhr))
-               return callback(xhr.response);
-
-            var filecontent = new String("");
-            var array = new VBArray(xhr.responseBody).toArray();
-            for (var i = 0; i < array.length; ++i)
-               filecontent = filecontent + String.fromCharCode(array[i]);
-            delete array;
-            callback(filecontent);
          }
 
-         xhr.open(kind == 'head' ? 'HEAD' : 'GET', url, true);
+         if (xhr.readyState != 4) return;
 
-         if (kind=="buf") {
-            if (('Uint8Array' in window) && ('responseType' in xhr))
-              xhr.responseType = 'arraybuffer';
+         if ((xhr.status != 200) && (xhr.status != 206) &&
+               ((xhr.status !== 0) || (url.indexOf("file://")!==0))) {
+            return callback(null);
          }
 
-      } else {
-
-         xhr.onreadystatechange = function() {
-            if (xhr.readyState != 4) return;
-
-            if (xhr.status != 200 && xhr.status != 206) {
-               return callback(null);
-            }
-
-            if (kind == "xml") return callback(xhr.responseXML);
-            if (kind == "text") return callback(xhr.responseText);
-            if (kind == "object") return callback(pthis.parse(xhr.responseText));
-            if (kind == "head") return callback(xhr);
-
-            // if no response type is supported, return as text (most probably, will fail)
-            if (! ('responseType' in xhr))
-               return callback(xhr.responseText);
-
-            if ((kind=="bin") && ('Uint8Array' in window) && ('byteLength' in xhr.response)) {
-               // if string representation in requested - provide it
-               var filecontent = "";
-               var u8Arr = new Uint8Array(xhr.response, 0, xhr.response.byteLength);
-               for (var i = 0; i < u8Arr.length; ++i)
-                  filecontent = filecontent + String.fromCharCode(u8Arr[i]);
-               delete u8Arr;
-
-               return callback(filecontent);
-            }
-
-            callback(xhr.response);
+         switch(kind) {
+            case "xml": return callback(xhr.responseXML);
+            case "text": return callback(xhr.responseText);
+            case "object": return callback(pthis.parse(xhr.responseText));
+            case "multi": return callback(pthis.parse_multi(xhr.responseText));
+            case "head": return callback(xhr);
          }
 
-         xhr.open(kind == 'head' ? 'HEAD' : 'GET', url, true);
+         // if no response type is supported, return as text (most probably, will fail)
+         if (! ('responseType' in xhr))
+            return callback(xhr.responseText);
 
-         if ((kind == "bin") || (kind == "buf")) {
-            if (('Uint8Array' in window) && ('responseType' in xhr)) {
-               xhr.responseType = 'arraybuffer';
-            } else {
-               //XHR binary charset opt by Marcus Granado 2006 [http://mgran.blogspot.com]
-               xhr.overrideMimeType("text/plain; charset=x-user-defined");
-            }
+         if ((kind=="bin") && ('byteLength' in xhr.response)) {
+            // if string representation in requested - provide it
+
+            var filecontent = "", u8Arr = new Uint8Array(xhr.response);
+            for (var i = 0; i < u8Arr.length; ++i)
+               filecontent += String.fromCharCode(u8Arr[i]);
+            delete u8Arr;
+
+            return callback(filecontent);
          }
 
+         callback(xhr.response);
       }
+
+      xhr.open(method, url, true);
+
+      if ((kind == "bin") || (kind == "buf")) {
+         if ('responseType' in xhr) {
+            xhr.responseType = 'arraybuffer';
+         } else {
+            //XHR binary charset opt by Marcus Granado 2006 [http://mgran.blogspot.com]
+            xhr.overrideMimeType("text/plain; charset=x-user-defined");
+         }
+      }
+
       return xhr;
    }
 
@@ -597,7 +762,7 @@
          else
             JSROOT.progress();
 
-         if ((urllist!=null) && (urllist.length>0))
+         if (urllist)
             return JSROOT.loadScript(urllist, callback, debugout);
 
          JSROOT.CallBack(callback);
@@ -606,8 +771,9 @@
       if ((urllist==null) || (urllist.length==0))
          return completeLoad();
 
-      var filename = urllist;
-      var separ = filename.indexOf(";");
+      var filename = urllist, separ = filename.indexOf(";"),
+          isrootjs = false, isbower = false;
+
       if (separ>0) {
          filename = filename.substr(0, separ);
          urllist = urllist.slice(separ+1);
@@ -615,7 +781,11 @@
          urllist = "";
       }
 
-      var isrootjs = false, isbower = false;
+      if (filename.indexOf('&&&scripts/')===0) {
+         isrootjs = true;
+         filename = filename.slice(3);
+         if (JSROOT.use_full_libs) filename = "libs/" + filename.slice(8, filename.length-7) + ".js";
+      } else
       if (filename.indexOf("$$$")===0) {
          isrootjs = true;
          filename = filename.slice(3);
@@ -628,37 +798,52 @@
          isbower = true;
          filename = filename.slice(3);
       }
+
+      var font_suffix = filename.indexOf('.typeface.json');
+      if (font_suffix > 0) {
+         var fontid = 'threejs_font_' + filename.slice(filename.lastIndexOf('/')+1, font_suffix);
+         if (typeof JSROOT[fontid] !== 'undefined') return completeLoad();
+
+         if ((typeof THREE === 'undefined') || (typeof THREE.FontLoader === 'undefined')) {
+            console.log('fail to load',filename,'no (proper) three.js found');
+            return completeLoad();
+         }
+
+         JSROOT.progress("loading " + filename + " ...");
+
+         var loader = new THREE.FontLoader();
+         loader.load( filename, function ( response ) {
+            JSROOT[fontid] = response;
+            completeLoad();
+         } );
+         return;
+      }
+
       var isstyle = filename.indexOf('.css') > 0;
 
       if (isstyle) {
          var styles = document.getElementsByTagName('link');
          for (var n = 0; n < styles.length; ++n) {
-            if ((styles[n].type != 'text/css') || (styles[n].rel !== 'stylesheet')) continue;
+            if (!styles[n].href || (styles[n].type !== 'text/css') || (styles[n].rel !== 'stylesheet')) continue;
 
-            var href = styles[n].href;
-            if ((href == null) || (href.length == 0)) continue;
-
-            if (href.indexOf(filename)>=0) return completeLoad();
+            if (styles[n].href.indexOf(filename)>=0) return completeLoad();
          }
 
       } else {
          var scripts = document.getElementsByTagName('script');
 
          for (var n = 0; n < scripts.length; ++n) {
-            // if (scripts[n].type != 'text/javascript') continue;
-
             var src = scripts[n].src;
-            if ((src == null) || (src.length == 0)) continue;
+            if (!src) continue;
 
-            if ((src.indexOf(filename)>=0) && (src.indexOf("load=")<0)) {
+            if ((src.indexOf(filename)>=0) && (src.indexOf("load=")<0))
                // avoid wrong decision when script name is specified as more argument
                return completeLoad();
-            }
          }
       }
 
-      if (isrootjs && (JSROOT.source_dir!=null)) filename = JSROOT.source_dir + filename; else
-      if (isbower && (JSROOT.bower_dir.length>0)) filename = JSROOT.bower_dir + filename;
+      if (isrootjs && JSROOT.source_dir) filename = JSROOT.source_dir + filename; else
+      if (isbower && JSROOT.bower_dir) filename = JSROOT.bower_dir + filename;
 
       var element = null;
 
@@ -697,25 +882,30 @@
 
    JSROOT.AssertPrerequisites = function(kind, callback, debugout) {
       // one could specify kind of requirements
-      // 'io' for I/O functionality (default)
-      // '2d' for 2d graphic
-      // 'jq' jQuery and jQuery-ui
-      // 'jq2d' jQuery-dependend part of 2d graphic
-      // '3d' for 3d graphic
-      // 'simple' for basic user interface
-      // 'load:' list of user-specific scripts at the end of kind string
+      //     'io'  TFile functionality
+      //   'tree'  TTree support
+      //     '2d'  basic 2d graphic (TCanvas, TH1)
+      // 'more2d'  extra 2d graphic (TH2, TGraph)
+      //   'math'  some methods from TMath class
+      //     'jq'  jQuery and jQuery-ui
+      //   'jq2d'  jQuery-dependend part of 2d graphic
+      //     '3d'  histograms 3d graphic
+      //   'geom'  TGeo support
+      // 'simple'  for basic user interface
+      //  'load:'  list of user-specific scripts at the end of kind string
 
       var jsroot = JSROOT;
 
-      if (!('doing_assert' in jsroot)) jsroot.doing_assert = [];
+      if (jsroot.doing_assert === undefined) jsroot.doing_assert = [];
+      if (jsroot.ready_modules === undefined) jsroot.ready_modules = [];
 
       if ((typeof kind !== 'string') || (kind == ''))
          return jsroot.CallBack(callback);
 
-      if (kind=='__next__') {
+      if (kind === '__next__') {
          if (jsroot.doing_assert.length==0) return;
          var req = jsroot.doing_assert[0];
-         if ('running' in req) return;
+         if (req.running) return;
          kind = req._kind;
          callback = req._callback;
          debugout = req._debug;
@@ -724,32 +914,50 @@
          if (jsroot.doing_assert.length > 1) return;
       }
 
-      jsroot.doing_assert[0]['running'] = true;
+      jsroot.doing_assert[0].running = true;
 
-      if (kind.charAt(kind.length-1)!=";") kind+=";";
+      if (kind[kind.length-1]!=";") kind+=";";
 
-      var ext = jsroot.source_min ? ".min" : "";
+      var ext = jsroot.source_min ? ".min" : "",
+          need_jquery = false,
+          use_bower = (jsroot.bower_dir.length > 0),
+          mainfiles = "",
+          extrafiles = "", // scripts for direct loadin
+          modules = [];  // modules used for require.js
 
-      var need_jquery = false, use_bower = (JSROOT.bower_dir.length>0);
-
-      // file names should be separated with ';'
-      var mainfiles = "", extrafiles = ""; // scripts for direct loadin
-      var modules = [];  // modules used for require.js
-
-      if (kind.indexOf('io;')>=0) {
-         mainfiles += "$$$scripts/rawinflate" + ext + ".js;" +
+      if ((kind.indexOf('io;')>=0) || (kind.indexOf('tree;')>=0)) {
+         mainfiles += "&&&scripts/rawinflate.min.js;" +
                       "$$$scripts/JSRootIOEvolution" + ext + ".js;";
-         modules.push('JSRootIOEvolution');
+         modules.push('rawinflate','JSRootIOEvolution');
+      }
+
+      if ((kind.indexOf('math;')>=0) || (kind.indexOf('tree;')>=0) || (kind.indexOf('more2d;')>=0)) {
+         mainfiles += '$$$scripts/JSRootMath' + ext + ".js;";
+         modules.push('JSRootMath');
+      }
+
+      if (kind.indexOf('tree;')>=0) {
+         mainfiles += "$$$scripts/JSRootTree" + ext + ".js;";
+         modules.push('JSRootTree');
       }
 
       if (kind.indexOf('2d;')>=0) {
-         if (!('_test_d3_' in jsroot)) {
-            if (typeof d3 != 'undefined') {
-               jsroot.console('Reuse existing d3.js ' + d3.version + ", required 3.4.10", debugout);
-               jsroot['_test_d3_'] = 1;
+         if (jsroot._test_d3_ === undefined) {
+            if ((typeof d3 == 'object') && d3.version && (d3.version[0]==="4"))  {
+               jsroot.console('Reuse existing d3.js ' + d3.version + ", expected 4.4.4", debugout);
+               jsroot._test_d3_ = 4;
+            } else
+            if ((typeof d3 == 'object') && d3.version && (d3.version[0]==="3")) {
+               jsroot.console("d3 version is " + d3.version + ", try to adjust");
+               d3.timeFormat = d3.time.format;
+               d3.scaleTime = d3.time.scale;
+               d3.scaleLog = d3.scale.log;
+               d3.scaleLinear = d3.scale.linear;
+
+               jsroot._test_d3_ = 3;
             } else {
-               mainfiles += use_bower ? '###d3/d3.min.js;' : '$$$scripts/d3.v3.min.js;';
-               jsroot['_test_d3_'] = 2;
+               mainfiles += use_bower ? '###d3/d3.min.js;' : '&&&scripts/d3.min.js;';
+               jsroot._test_d3_ = 4;
             }
          }
          modules.push('JSRootPainter');
@@ -759,17 +967,12 @@
 
       if (kind.indexOf('savepng;')>=0) {
          modules.push('saveSvgAsPng');
-         mainfiles += '$$$scripts/saveSvgAsPng' + ext + ".js;";
+         mainfiles += '&&&scripts/saveSvgAsPng.min.js;';
       }
 
       if (kind.indexOf('jq;')>=0) need_jquery = true;
 
-      if (kind.indexOf('math;')>=0)  {
-         mainfiles += '$$$scripts/JSRootMath' + ext + ".js;";
-         modules.push('JSRootMath');
-      }
-
-      if (kind.indexOf('more2d;')>=0) {
+      if ((kind.indexOf('more2d;')>=0) || (kind.indexOf("3d;")>=0)) {
          mainfiles += '$$$scripts/JSRootPainter.more' + ext + ".js;";
          modules.push('JSRootPainter.more');
       }
@@ -781,28 +984,35 @@
       }
 
       if ((kind.indexOf("3d;")>=0) || (kind.indexOf("geom;")>=0)) {
-         if (use_bower)
+         if (use_bower) {
            mainfiles += "###threejs/build/three.min.js;" +
-                        "###threejs/examples/js/utils/FontUtils.js;" +
                         "###threejs/examples/js/renderers/Projector.js;" +
                         "###threejs/examples/js/renderers/CanvasRenderer.js;" +
-                        "###threejs/examples/js/geometries/TextGeometry.js;" +
                         "###threejs/examples/js/controls/OrbitControls.js;" +
                         "###threejs/examples/js/controls/TransformControls.js;" +
-                        "###threejs/examples/fonts/helvetiker_regular.typeface.js";
-         else
-            mainfiles += "$$$scripts/three" + ext + ".js;" +
-                         "$$$scripts/three.extra" + ext + ".js;";
-         modules.push("threejs_all");
+                        "###threejs/examples/js/shaders/CopyShader.js;" +
+                        "###threejs/examples/js/postprocessing/EffectComposer.js;" +
+                        "###threejs/examples/js/postprocessing/MaskPass.js;" +
+                        "###threejs/examples/js/postprocessing/RenderPass.js;" +
+                        "###threejs/examples/js/postprocessing/ShaderPass.js;" +
+                        "###threejs/examples/js/shaders/SSAOShader.js;"
+           extrafiles += "###threejs/examples/fonts/helvetiker_regular.typeface.json;";
+         } else {
+            mainfiles += "&&&scripts/three.min.js;" +
+                         "&&&scripts/three.extra.min.js;";
+         }
+         modules.push("threejs", "threejs_all");
          mainfiles += "$$$scripts/JSRoot3DPainter" + ext + ".js;";
          modules.push('JSRoot3DPainter');
       }
 
       if (kind.indexOf("geom;")>=0) {
          mainfiles += "$$$scripts/ThreeCSG" + ext + ".js;" +
-                      "$$$scripts/JSRootGeoPainter" + ext + ".js;";
+                      "$$$scripts/JSRootGeoBase" + ext + ".js;" +
+                      "$$$scripts/JSRootGeoPainter" + ext + ".js;" +
+                      "$$$scripts/dat.gui.min.js;";
          extrafiles += "$$$style/JSRootGeoPainter" + ext + ".css;";
-         modules.push('ThreeCSG', 'JSRootGeoPainter');
+         modules.push('ThreeCSG', 'JSRootGeoBase', 'JSRootGeoPainter', 'dat.gui');
       }
 
       if (kind.indexOf("mathjax;")>=0) {
@@ -810,32 +1020,29 @@
             mainfiles += (use_bower ? "###MathJax/MathJax.js" : "https://cdn.mathjax.org/mathjax/latest/MathJax.js") +
                          "?config=TeX-AMS-MML_SVG," + jsroot.source_dir + "scripts/mathjax_config.js;";
          }
-         if (JSROOT.gStyle.MathJax == 0) JSROOT.gStyle.MathJax = 1;
+         if (jsroot.gStyle.MathJax == 0) jsroot.gStyle.MathJax = 1;
          modules.push('MathJax');
       }
 
       if (kind.indexOf("simple;")>=0) {
          need_jquery = true;
-         mainfiles += '$$$scripts/JSRootInterface' + ext + ".js;";
-         extrafiles += '$$$style/JSRootInterface' + ext + '.css;';
-         modules.push('JSRootInterface');
       }
 
-      if (need_jquery && (JSROOT.load_jquery==null)) {
+      if (need_jquery && !jsroot.load_jquery) {
          var has_jq = (typeof jQuery != 'undefined'), lst_jq = "";
 
          if (has_jq)
-            jsroot.console('Reuse existing jQuery ' + jQuery.fn.jquery + ", required 2.1.4", debugout);
+            jsroot.console('Reuse existing jQuery ' + jQuery.fn.jquery + ", required 3.1.1", debugout);
          else
-            lst_jq += (use_bower ? "###jquery/dist" : "$$$scripts") + "/jquery.min.js;";
+            lst_jq += (use_bower ? "###jquery/dist" : "&&&scripts") + "/jquery.min.js;";
          if (has_jq && typeof $.ui != 'undefined')
-            jsroot.console('Reuse existing jQuery-ui ' + $.ui.version + ", required 1.11.4", debugout);
+            jsroot.console('Reuse existing jQuery-ui ' + $.ui.version + ", required 1.12.1", debugout);
          else {
-            lst_jq += (use_bower ? "###jquery-ui" : "$$$scripts") + '/jquery-ui.min.js;';
+            lst_jq += (use_bower ? "###jquery-ui" : "&&&scripts") + '/jquery-ui.min.js;';
             extrafiles += '$$$style/jquery-ui' + ext + '.css;';
          }
 
-         if (JSROOT.touches) {
+         if (jsroot.touches) {
             lst_jq += use_bower ? '###jqueryui-touch-punch/jquery.ui.touch-punch.min.js;' : '$$$scripts/touch-punch.min.js;';
             modules.push('jqueryui-touch-punch');
          }
@@ -852,11 +1059,23 @@
 
       function load_callback() {
          var req = jsroot.doing_assert.shift();
+         for (var n=0;n<req.modules.length;++n)
+            jsroot.ready_modules.push(req.modules[n]);
          jsroot.CallBack(req._callback);
          jsroot.AssertPrerequisites('__next__');
       }
 
-      if ((typeof define === "function") && define.amd && (modules.length>0)) {
+      // check if modules already loaded
+      for (var n=modules.length-1;n>=0;--n)
+         if (jsroot.ready_modules.indexOf(modules[n])>=0)
+            modules.splice(n,1);
+
+      // no modules means no main files
+      if (modules.length===0) mainfiles = "";
+
+      jsroot.doing_assert[0].modules = modules;
+
+      if ((modules.length>0) && (typeof define === "function") && define.amd) {
          jsroot.console("loading " + JSON.stringify(modules) + " with require.js", debugout);
          require(modules, function() {
             jsroot.loadScript(extrafiles, load_callback, debugout);
@@ -869,22 +1088,23 @@
    // function can be used to open ROOT file, I/O functionality will be loaded when missing
    JSROOT.OpenFile = function(filename, callback) {
       JSROOT.AssertPrerequisites("io", function() {
-         new JSROOT.TFile(filename, callback);
+         JSROOT.OpenFile(filename, callback);
       });
    }
 
    // function can be used to draw supported ROOT classes,
    // required functionality will be loaded automatically
    // if painter pointer required, one should load '2d' functionlity itself
-   JSROOT.draw = function(divid, obj, opt) {
+   // or use callback function which provides painter pointer as first argument
+   JSROOT.draw = function(divid, obj, opt, callback) {
       JSROOT.AssertPrerequisites("2d", function() {
-         JSROOT.draw(divid, obj, opt);
+         JSROOT.draw(divid, obj, opt, callback);
       });
    }
 
-   JSROOT.redraw = function(divid, obj, opt) {
+   JSROOT.redraw = function(divid, obj, opt, callback) {
       JSROOT.AssertPrerequisites("2d", function() {
-         JSROOT.redraw(divid, obj, opt);
+         JSROOT.redraw(divid, obj, opt, callback);
       });
    }
 
@@ -894,15 +1114,17 @@
          user_scripts = null;
       }
 
-      var debugout = null;
-      var nobrowser = JSROOT.GetUrlOption('nobrowser')!=null;
-      var requirements = "io;2d;";
+      var debugout = null,
+          nobrowser = JSROOT.GetUrlOption('nobrowser')!=null,
+          requirements = "io;2d;",
+          simplegui = document.getElementById('simpleGUI');
 
-      if (document.getElementById('simpleGUI')) {
+      if (simplegui) {
          debugout = 'simpleGUI';
          if ((JSROOT.GetUrlOption('json')!=null) &&
              (JSROOT.GetUrlOption('file')==null) &&
              (JSROOT.GetUrlOption('files')==null)) requirements = "2d;";
+         if (simplegui.getAttribute('nobrowser') && (simplegui.getAttribute('nobrowser')!="false")) nobrowser = true;
       } else
       if (document.getElementById('onlineGUI')) { debugout = 'onlineGUI'; requirements = "2d;"; } else
       if (document.getElementById('drawGUI')) { debugout = 'drawGUI'; requirements = "2d;"; nobrowser = true; }
@@ -921,7 +1143,7 @@
          requirements += "load:" + user_scripts + ";";
 
       JSROOT.AssertPrerequisites(requirements, function() {
-         JSROOT.CallBack(JSROOT.findFunction(nobrowser ? 'JSROOT.BuildNobrowserGUI' : 'BuildSimpleGUI'));
+         JSROOT.CallBack(JSROOT.findFunction(nobrowser ? 'JSROOT.BuildNobrowserGUI' : 'JSROOT.BuildGUI'));
          JSROOT.CallBack(andThen);
       }, debugout);
    };
@@ -990,6 +1212,19 @@
             JSROOT.Create("TPaveText", obj);
             JSROOT.extend(obj, { fOptFit: 0, fOptStat: 0, fFitFormat: "", fStatFormat: "", fParent: null });
             break;
+         case 'TLegend':
+            JSROOT.Create("TPave", obj);
+            JSROOT.Create("TAttText", obj);
+            JSROOT.extend(obj, { fColumnSeparation: 0, fEntrySeparation: 0.1, fMargin: 0.25, fNColumns: 1, fPrimitives: JSROOT.Create("TList") });
+            break;
+         case 'TLegendEntry':
+            JSROOT.Create("TObject", obj);
+            JSROOT.Create("TAttText", obj);
+            JSROOT.Create("TAttLine", obj);
+            JSROOT.Create("TAttFill", obj);
+            JSROOT.Create("TAttMarker", obj);
+            JSROOT.extend(obj, { fLabel: "", fObject: null, fOption: "" });
+            break;
          case 'TObjString':
             JSROOT.Create("TObject", obj);
             JSROOT.extend(obj, { fString: "" });
@@ -1022,7 +1257,7 @@
             break;
          case 'TH2':
             JSROOT.Create("TH1", obj);
-            JSROOT.extend(obj, { fScalefactor: 1., fTsumwy: 0.,  fTsumwy2: 0, fTsumwxy : 0});
+            JSROOT.extend(obj, { fScalefactor: 1., fTsumwy: 0.,  fTsumwy2: 0, fTsumwxy: 0});
             break;
          case 'TH2I':
          case 'TH2F':
@@ -1031,6 +1266,22 @@
          case 'TH2C':
             JSROOT.Create("TH2", obj);
             obj.fArray = [];
+            break;
+         case 'TH3':
+            JSROOT.Create("TH1", obj);
+            JSROOT.extend(obj, { fTsumwy: 0.,  fTsumwy2: 0, fTsumwz: 0.,  fTsumwz2: 0, fTsumwxy: 0, fTsumwxz: 0, fTsumwyz: 0 });
+            break;
+         case 'TH3I':
+         case 'TH3F':
+         case 'TH3D':
+         case 'TH3S':
+         case 'TH3C':
+            JSROOT.Create("TH3", obj);
+            obj.fArray = [];
+            break;
+         case 'THStack':
+            JSROOT.Create("TNamed", obj);
+            JSROOT.extend(obj, { fHists: JSROOT.Create("TList"), fHistogram: null, fMaximum: -1111, fMinimum: -1111 });
             break;
          case 'TGraph':
             JSROOT.Create("TNamed", obj);
@@ -1045,6 +1296,12 @@
             JSROOT.extend(obj, { fFunctions: JSROOT.Create("TList"), fGraphs: JSROOT.Create("TList"),
                                  fHistogram: null, fMaximum: -1111, fMinimum: -1111 });
             break;
+         case 'TPolyLine':
+            JSROOT.Create("TObject", obj);
+            JSROOT.Create("TAttLine", obj);
+            JSROOT.Create("TAttFill", obj);
+            JSROOT.extend(obj, { fLastPoint: -1, fN: 0, fOption: "", fX: null, fY: null });
+            break;
          case 'TGaxis':
             JSROOT.Create("TLine", obj);
             JSROOT.Create("TAttText", obj);
@@ -1054,7 +1311,72 @@
                                   fTitle: "", fTitleOffset: 1, fTitleSize: 0.035,
                                   fWmax: 100, fWmin: 0 });
             break;
+         case 'TAttPad':
+            JSROOT.extend(obj, { fLeftMargin: JSROOT.gStyle.fPadLeftMargin,
+                                 fRightMargin: JSROOT.gStyle.fPadRightMargin,
+                                 fBottomMargin: JSROOT.gStyle.fPadBottomMargin,
+                                 fTopMargin: JSROOT.gStyle.fPadTopMargin,
+                                 fXfile: 2, fYfile: 2, fAfile: 1, fXstat: 0.99, fYstat: 0.99, fAstat: 2,
+                                 fFrameFillColor: JSROOT.gStyle.fFrameFillColor,
+                                 fFrameLineColor: JSROOT.gStyle.fFrameLineColor,
+                                 fFrameFillStyle: JSROOT.gStyle.fFrameFillStyle,
+                                 fFrameLineStyle: JSROOT.gStyle.fFrameLineStyle,
+                                 fFrameLineWidth: JSROOT.gStyle.fFrameLineWidth,
+                                 fFrameBorderSize: JSROOT.gStyle.fFrameBorderSize,
+                                 fFrameBorderMode: JSROOT.gStyle.fFrameBorderMode });
+            break;
+         case 'TPad':
+            JSROOT.Create("TObject", obj);
+            JSROOT.Create("TAttLine", obj);
+            JSROOT.Create("TAttFill", obj);
+            JSROOT.Create("TAttPad", obj);
+            JSROOT.extend(obj, { fX1: 0, fY1: 0, fX2: 1, fY2: 1, fXtoAbsPixelk: 1, fXtoPixelk: 1,
+                                 fXtoPixel: 1, fYtoAbsPixelk: 1, fYtoPixelk: 1, fYtoPixel: 1,
+                                 fUtoAbsPixelk: 1, fUtoPixelk: 1, fUtoPixel: 1, fVtoAbsPixelk: 1,
+                                 fVtoPixelk: 1, fVtoPixel: 1, fAbsPixeltoXk: 1, fPixeltoXk: 1,
+                                 fPixeltoX: 1, fAbsPixeltoYk: 1, fPixeltoYk: 1, fPixeltoY: 1,
+                                 fXlowNDC: 0, fYlowNDC: 0, fXUpNDC: 0, fYUpNDC: 0, fWNDC: 1, fHNDC: 1,
+                                 fAbsXlowNDC: 0, fAbsYlowNDC: 0, fAbsWNDC: 1, fAbsHNDC: 1,
+                                 fUxmin: 0, fUymin: 0, fUxmax: 0, fUymax: 0, fTheta: 30, fPhi: 30, fAspectRatio: 0,
+                                 fNumber: 0, fLogx: 0, fLogy: 0, fLogz: 0,
+                                 fTickx: JSROOT.gStyle.fPadTickX,
+                                 fTicky: JSROOT.gStyle.fPadTickY,
+                                 fPadPaint: 0, fCrosshair: 0, fCrosshairPos: 0, fBorderSize: 2,
+                                 fBorderMode: 0, fModified: false,
+                                 fGridx: JSROOT.gStyle.fPadGridX,
+                                 fGridy: JSROOT.gStyle.fPadGridY,
+                                 fAbsCoord: false, fEditable: true, fFixedAspectRatio: false,
+                                 fPrimitives: JSROOT.Create("TList"), fExecs: null,
+                                 fName: "pad", fTitle: "canvas" });
 
+            break;
+         case 'TAttCanvas':
+            JSROOT.extend(obj, { fXBetween: 2, fYBetween: 2, fTitleFromTop: 1.2,
+                                 fXdate: 0.2, fYdate: 0.3, fAdate: 1 });
+            break;
+         case 'TCanvas':
+            JSROOT.Create("TPad", obj);
+            JSROOT.extend(obj, { fDoubleBuffer: 0, fRetained: true, fXsizeUser: 0,
+                                 fYsizeUser: 0, fXsizeReal: 20, fYsizeReal: 10,
+                                 fWindowTopX: 0, fWindowTopY: 0, fWindowWidth: 0, fWindowHeight: 0,
+                                 fCw: 800, fCh : 500, fCatt: JSROOT.Create("TAttCanvas"),
+                                 kMoveOpaque: true, kResizeOpaque: true, fHighLightColor: 5,
+                                 fBatch: true, kShowEventStatus: false, kAutoExec: true, kMenuBar: true });
+            break;
+         case 'TGeoVolume':
+            JSROOT.Create("TNamed", obj);
+            JSROOT.Create("TAttLine", obj);
+            JSROOT.Create("TAttFill", obj);
+            JSROOT.extend(obj, { fGeoAtt:0, fFinder: null, fMedium: null, fNodes: null, fNtotal: 0, fNumber: 0, fRefCount: 0, fShape: null, fVoxels: null });
+            break;
+         case 'TGeoNode':
+            JSROOT.Create("TNamed", obj);
+            JSROOT.extend(obj, { fGeoAtt:0, fMother: null, fNovlp: 0, fNumber: 0, fOverlaps: null, fVolume: null });
+            break;
+         case 'TGeoNodeMatrix':
+            JSROOT.Create("TGeoNode", obj);
+            JSROOT.extend(obj, { fMatrix: null });
+            break;
       }
 
       obj._typename = typename;
@@ -1066,36 +1388,65 @@
    JSROOT.CreateTList = function() { return JSROOT.Create("TList"); }
    JSROOT.CreateTAxis = function() { return JSROOT.Create("TAxis"); }
 
-   JSROOT.CreateTH1 = function(nbinsx) {
-
-      var histo = JSROOT.extend(JSROOT.Create("TH1I"),
-                   { fName: "dummy_histo_" + this.id_counter++, fTitle: "dummytitle" });
-
-      if (nbinsx!==undefined) {
-         histo.fNcells = nbinsx+2;
-         for (var i=0;i<histo.fNcells;++i) histo.fArray.push(0);
-         JSROOT.extend(histo.fXaxis, { fNbins: nbinsx, fXmin: 0,  fXmax: nbinsx });
+   JSROOT.CreateHistogram = function(typename, nbinsx, nbinsy, nbinsz) {
+      // create histogram object of specified type
+      // if bins numbers are specified, appropriate typed array will be created
+      var histo = JSROOT.Create(typename);
+      if (!histo.fXaxis || !histo.fYaxis || !histo.fZaxis) return null;
+      histo.fName = "hist"; histo.fTitle = "title";
+      if (nbinsx) JSROOT.extend(histo.fXaxis, { fNbins: nbinsx, fXmin: 0, fXmax: nbinsx });
+      if (nbinsy) JSROOT.extend(histo.fYaxis, { fNbins: nbinsy, fXmin: 0, fXmax: nbinsy });
+      if (nbinsz) JSROOT.extend(histo.fZaxis, { fNbins: nbinsz, fXmin: 0, fXmax: nbinsz });
+      switch (parseInt(typename[2])) {
+         case 1: if (nbinsx) histo.fNcells = nbinsx+2; break;
+         case 2: if (nbinsx && nbinsy) histo.fNcells = (nbinsx+2) * (nbinsy+2); break;
+         case 3: if (nbinsx && nbinsy && nbinsz) histo.fNcells = (nbinsx+2) * (nbinsy+2) * (nbinsz+2); break;
+      }
+      if (histo.fNcells > 0) {
+         switch (typename[3]) {
+            case "C" : histo.fArray = new Int8Array(histo.fNcells); break;
+            case "S" : histo.fArray = new Int16Array(histo.fNcells); break;
+            case "I" : histo.fArray = new Int32Array(histo.fNcells); break;
+            case "F" : histo.fArray = new Float32Array(histo.fNcells); break;
+            case "L" : histo.fArray = new Float64Array(histo.fNcells); break;
+            case "D" : histo.fArray = new Float64Array(histo.fNcells); break;
+            default: histo.fArray = new Array(histo.fNcells); break;
+         }
+         for (var i=0;i<histo.fNcells;++i) histo.fArray[i] = 0;
       }
       return histo;
+   }
+
+   JSROOT.CreateTH1 = function(nbinsx) {
+      return JSROOT.CreateHistogram("TH1I", nbinsx);
    }
 
    JSROOT.CreateTH2 = function(nbinsx, nbinsy) {
+      return JSROOT.CreateHistogram("TH2I", nbinsx, nbinsy);
+   }
 
-      var histo = JSROOT.extend(JSROOT.Create("TH2I"),
-                    { fName: "dummy_histo_" + this.id_counter++, fTitle: "dummytitle" });
+   JSROOT.CreateTH3 = function(nbinsx, nbinsy, nbinsz) {
+      return JSROOT.CreateHistogram("TH3I", nbinsx, nbinsy, nbinsz);
+   }
 
-      if ((nbinsx!==undefined) && (nbinsy!==undefined)) {
-         histo.fNcells = (nbinsx+2) * (nbinsy+2);
-         for (var i=0;i<histo.fNcells;++i) histo.fArray.push(0);
-         JSROOT.extend(histo.fXaxis, { fNbins: nbinsx, fXmin: 0, fXmax: nbinsx });
-         JSROOT.extend(histo.fYaxis, { fNbins: nbinsy, fXmin: 0, fXmax: nbinsy });
+   JSROOT.CreateTPolyLine = function(npoints, use_int32) {
+      var poly = JSROOT.Create("TPolyLine");
+      if (npoints) {
+         poly.fN = npoints;
+         if (use_int32) {
+            poly.fX = new Int32Array(npoints);
+            poly.fY = new Int32Array(npoints);
+         } else {
+            poly.fX = new Float32Array(npoints);
+            poly.fY = new Float32Array(npoints);
+         }
       }
-      return histo;
+
+      return poly;
    }
 
    JSROOT.CreateTGraph = function(npoints, xpts, ypts) {
-      var graph = JSROOT.extend(JSROOT.Create("TGraph"),
-              { fBits: 0x3000408, fName: "dummy_graph_" + this.id_counter++, fTitle: "dummytitle" });
+      var graph = JSROOT.extend(JSROOT.Create("TGraph"), { fBits: 0x3000408, fName: "graph", fTitle: "title" });
 
       if (npoints>0) {
          graph.fMaxSize = graph.fNpoints = npoints;
@@ -1112,6 +1463,13 @@
       return graph;
    }
 
+   JSROOT.CreateTHStack = function() {
+      var stack = JSROOT.Create("THStack");
+      for(var i=0; i<arguments.length; ++i)
+         stack.fHists.Add(arguments[i], "");
+      return stack;
+   }
+
    JSROOT.CreateTMultiGraph = function() {
       var mgraph = JSROOT.Create("TMultiGraph");
       for(var i=0; i<arguments.length; ++i)
@@ -1122,16 +1480,22 @@
    JSROOT.methodsCache = {}; // variable used to keep methods for known classes
 
    JSROOT.getMethods = function(typename, obj) {
+
       var m = JSROOT.methodsCache[typename];
 
-      if (m !== undefined) return m;
+      var has_methods = (m!==undefined);
 
-      m = {};
+      if (!has_methods) m = {};
 
-      if ((typename=="TObject") || (typename=="TNamed") || ((obj!==undefined) && ('fBits' in obj))) {
-         m.TestBit = function (f) { return (this.fBits & f) != 0; };
-         m.InvertBit = function (f) { this.fBits = this.fBits ^ (f & 0xffffff); };
-      }
+      // Due to binary I/O such TObject methods may not be set for derived classes
+      // Therefore when methods requested for given object, check also that basic methods are there
+      if ((typename=="TObject") || (typename=="TNamed") || (obj && (obj.fBits!==undefined)))
+         if (m.TestBit === undefined) {
+            m.TestBit = function (f) { return (this.fBits & f) != 0; };
+            m.InvertBit = function (f) { this.fBits = this.fBits ^ (f & 0xffffff); };
+         }
+
+      if (has_methods) return m;
 
       if ((typename === 'TList') || (typename === 'THashList')) {
          m.Clear = function() {
@@ -1154,60 +1518,76 @@
 
       if ((typename === "TPaveText") || (typename === "TPaveStats")) {
          m.AddText = function(txt) {
-            this.fLines.Add({ fTitle: txt, fTextColor: 1 });
+            this.fLines.Add({ _typename: 'TText', fTitle: txt, fTextColor: 1 });
          }
          m.Clear = function() {
             this.fLines.Clear();
          }
       }
 
-      if (typename.indexOf("TF1") == 0) {
+      if ((typename.indexOf("TF1") == 0) || (typename === "TF2")) {
          m.addFormula = function(obj) {
-            if (obj==null) return;
-            if (!('formulas' in this)) this.formulas = [];
+            if (!obj) return;
+            if (this.formulas === undefined) this.formulas = [];
             this.formulas.push(obj);
          }
 
-         m.evalPar = function(x) {
+         m.evalPar = function(x, y) {
             if (! ('_func' in this) || (this._title !== this.fTitle)) {
 
-              var _func = this.fTitle;
+              var _func = this.fTitle, isformula = false;
               if (_func === "gaus") _func = "gaus(0)";
+              if (this.fFormula && typeof this.fFormula.fFormula == "string")
+                 if (this.fFormula.fFormula.indexOf("[](double*x,double*p)")==0) {
+                    isformula = true;
+                    _func = this.fFormula.fFormula.substr(21);
+                 }
 
               if ('formulas' in this)
                  for (var i=0;i<this.formulas.length;++i)
                     while (_func.indexOf(this.formulas[i].fName) >= 0)
                        _func = _func.replace(this.formulas[i].fName, this.formulas[i].fTitle);
-              _func = _func.replace(/\b(abs)\b/g, 'TMath::Abs');
-              _func = _func.replace('TMath::Exp(', 'Math.exp(');
-              _func = _func.replace('TMath::Abs(', 'Math.abs(');
+              _func = _func.replace(/\b(abs)\b/g, 'TMath::Abs')
+                           .replace(/TMath::Exp\(/g, 'Math.exp(')
+                           .replace(/TMath::Abs\(/g, 'Math.abs(');
               if (typeof JSROOT.Math == 'object') {
                  this._math = JSROOT.Math;
-                 _func = _func.replace('TMath::Prob(', 'this._math.Prob(');
-                 _func = _func.replace('TMath::Gaus(', 'this._math.Gaus(');
-                 _func = _func.replace('gaus(', 'this._math.gaus(this, x, ');
-                 _func = _func.replace('gausn(', 'this._math.gausn(this, x, ');
-                 _func = _func.replace('expo(', 'this._math.expo(this, x, ');
-                 _func = _func.replace('landau(', 'this._math.landau(this, x, ');
-                 _func = _func.replace('landaun(', 'this._math.landaun(this, x, ');
+                 _func = _func.replace(/TMath::Prob\(/g, 'this._math.Prob(')
+                              .replace(/TMath::Gaus\(/g, 'this._math.Gaus(')
+                              .replace(/xygaus\(/g, 'this._math.gausxy(this, x, y, ')
+                              .replace(/gaus\(/g, 'this._math.gaus(this, x, ')
+                              .replace(/gausn\(/g, 'this._math.gausn(this, x, ')
+                              .replace(/expo\(/g, 'this._math.expo(this, x, ')
+                              .replace(/landau\(/g, 'this._math.landau(this, x, ')
+                              .replace(/landaun\(/g, 'this._math.landaun(this, x, ')
+                              .replace(/ROOT::Math::/g, 'this._math.');
               }
-              _func = _func.replace('pi', 'Math.PI');
-              for (var i=0;i<this.fNpar;++i)
-                 while(_func.indexOf('['+i+']') != -1)
-                    _func = _func.replace('['+i+']', '('+this.GetParValue(i)+')');
-              _func = _func.replace(/\b(sin)\b/gi, 'Math.sin');
-              _func = _func.replace(/\b(cos)\b/gi, 'Math.cos');
-              _func = _func.replace(/\b(tan)\b/gi, 'Math.tan');
-              _func = _func.replace(/\b(exp)\b/gi, 'Math.exp');
+              for (var i=0;i<this.fNpar;++i) {
+                 var parname = (isformula ? "p[" : "[") + i + "]";
+                 while(_func.indexOf(parname) != -1)
+                    _func = _func.replace(parname, '('+this.GetParValue(i)+')');
+              }
+              _func = _func.replace(/\b(sin)\b/gi, 'Math.sin')
+                           .replace(/\b(cos)\b/gi, 'Math.cos')
+                           .replace(/\b(tan)\b/gi, 'Math.tan')
+                           .replace(/\b(exp)\b/gi, 'Math.exp')
+                           .replace(/pi/g, 'Math.PI');
               for (var n=2;n<10;++n)
                  _func = _func.replace('x^'+n, 'Math.pow(x,'+n+')');
 
-              this._func = new Function("x", "return " + _func).bind(this);
+              if (isformula) {
+                 _func = _func.replace(/x\[0\]/g,"x");
+                 this._func = new Function("x", _func).bind(this);
+              } else
+              if (this._typename==="TF2")
+                 this._func = new Function("x", "y", "return " + _func).bind(this);
+              else
+                 this._func = new Function("x", "return " + _func).bind(this);
 
               this._title = this.fTitle;
             }
 
-            return this._func(x);
+            return this._func(x, y);
          }
          m.GetParName = function(n) {
             if (('fFormula' in this) && ('fParams' in this.fFormula)) return this.fFormula.fParams[n].first;
@@ -1224,10 +1604,9 @@
       if ((typename.indexOf("TGraph") == 0) || (typename == "TCutG")) {
          // check if point inside figure specified by the TGrpah
          m.IsInside = function(xp,yp) {
-            var j = this.fNpoints - 1, x = this.fX, y = this.fY;
-            var oddNodes = false;
+            var i, j = this.fNpoints - 1, x = this.fX, y = this.fY, oddNodes = false;
 
-            for (var i=0; i<this.fNpoints; ++i) {
+            for (i=0; i<this.fNpoints; ++i) {
                if ((y[i]<yp && y[j]>=yp) || (y[j]<yp && y[i]>=yp)) {
                   if (x[i]+(yp-y[i])/(y[j]-y[i])*(x[j]-x[i])<xp) {
                      oddNodes = !oddNodes;
@@ -1266,26 +1645,73 @@
       if (typename.indexOf("TH1") == 0) {
          m.getBin = function(x) { return x; }
          m.getBinContent = function(bin) { return this.fArray[bin]; }
+         m.Fill = function(x, weight) {
+            var axis = this.fXaxis,
+                bin = 1 + Math.floor((x - axis.fXmin) / (axis.fXmax - axis.fXmin) * axis.fNbins);
+            if (bin < 0) bin = 0; else
+            if (bin > axis.fNbins + 1) bin = axis.fNbins + 1;
+            this.fArray[bin] += ((weight===undefined) ? 1 : weight);
+         }
       }
 
       if (typename.indexOf("TH2") == 0) {
          m.getBin = function(x, y) { return (x + (this.fXaxis.fNbins+2) * y); }
          m.getBinContent = function(x, y) { return this.fArray[this.getBin(x, y)]; }
+         m.Fill = function(x, y, weight) {
+            var axis1 = this.fXaxis, axis2 = this.fYaxis,
+                bin1 = 1 + Math.floor((x - axis1.fXmin) / (axis1.fXmax - axis1.fXmin) * axis1.fNbins),
+                bin2 = 1 + Math.floor((y - axis2.fXmin) / (axis2.fXmax - axis2.fXmin) * axis2.fNbins);
+            if (bin1 < 0) bin1 = 0; else
+            if (bin1 > axis1.fNbins + 1) bin1 = axis1.fNbins + 1;
+            if (bin2 < 0) bin2 = 0; else
+            if (bin2 > axis2.fNbins + 1) bin2 = axis2.fNbins + 1;
+            this.fArray[bin1 + (axis1.fNbins+2)*bin2] += ((weight===undefined) ? 1 : weight);
+         }
       }
 
       if (typename.indexOf("TH3") == 0) {
          m.getBin = function(x, y, z) { return (x + (this.fXaxis.fNbins+2) * (y + (this.fYaxis.fNbins+2) * z)); }
          m.getBinContent = function(x, y, z) { return this.fArray[this.getBin(x, y, z)]; };
+         m.Fill = function(x, y, z, weight) {
+            var axis1 = this.fXaxis, axis2 = this.fYaxis, axis3 = this.fZaxis,
+                bin1 = 1 + Math.floor((x - axis1.fXmin) / (axis1.fXmax - axis1.fXmin) * axis1.fNbins),
+                bin2 = 1 + Math.floor((y - axis2.fXmin) / (axis2.fXmax - axis2.fXmin) * axis2.fNbins),
+                bin2 = 1 + Math.floor((z - axis3.fXmin) / (axis3.fXmax - axis3.fXmin) * axis3.fNbins);
+            if (bin1 < 0) bin1 = 0; else
+            if (bin1 > axis1.fNbins + 1) bin1 = axis1.fNbins + 1;
+            if (bin2 < 0) bin2 = 0; else
+            if (bin2 > axis2.fNbins + 1) bin2 = axis2.fNbins + 1;
+            if (bin3 < 0) bin3 = 0; else
+            if (bin3 > axis3.fNbins + 1) bin3 = axis3.fNbins + 1;
+            this.fArray[bin1 + (axis1.fNbins+2)* (bin2+(axis2.fNbins+2)*bin3)] += ((weight===undefined) ? 1 : weight);
+         }
       }
 
       if (typename.indexOf("TProfile") == 0) {
-         m.getBin = function(x) { return x; }
-         m.getBinContent = function(bin) {
-            if (bin < 0 || bin >= this.fNcells) return 0;
-            if (this.fBinEntries[bin] < 1e-300) return 0;
-            if (!this.fArray) return 0;
-            return this.fArray[bin]/this.fBinEntries[bin];
-         };
+         if (typename.indexOf("TProfile2D") == 0) {
+            m.getBin = function(x, y) { return (x + (this.fXaxis.fNbins+2) * y); }
+            m.getBinContent = function(x, y) {
+               var bin = this.getBin(x, y);
+               if (bin < 0 || bin >= this.fNcells) return 0;
+               if (this.fBinEntries[bin] < 1e-300) return 0;
+               if (!this.fArray) return 0;
+               return this.fArray[bin]/this.fBinEntries[bin];
+            }
+            m.getBinEntries = function(x, y) {
+               var bin = this.getBin(x, y);
+               if (bin < 0 || bin >= this.fNcells) return 0;
+               return this.fBinEntries[bin];
+            }
+         }
+         else {
+            m.getBin = function(x) { return x; }
+            m.getBinContent = function(bin) {
+               if (bin < 0 || bin >= this.fNcells) return 0;
+               if (this.fBinEntries[bin] < 1e-300) return 0;
+               if (!this.fArray) return 0;
+               return this.fArray[bin]/this.fBinEntries[bin];
+            };
+         }
          m.getBinEffectiveEntries = function(bin) {
             if (bin < 0 || bin >= this.fNcells) return 0;
             var sumOfWeights = this.fBinEntries[bin];
@@ -1327,12 +1753,33 @@
          };
       }
 
+      if (typename == "TAxis") {
+         m.GetBinLowEdge = function(bin) {
+            if (this.fNbins <= 0) return 0;
+            if ((this.fXbins.length > 0) && (bin > 0) && (bin <= this.fNbins)) return this.fXbins[bin-1];
+            return this.fXmin + (bin-1) * (this.fXmax - this.fXmin) / this.fNbins;
+         }
+      }
+
+      if (typeof JSROOT.getMoreMethods == "function")
+         JSROOT.getMoreMethods(m, typename, obj);
+
       JSROOT.methodsCache[typename] = m;
       return m;
    };
 
-   JSROOT.addMethods = function(obj) {
-      this.extend(obj, JSROOT.getMethods(obj._typename, obj));
+   JSROOT.IsRootCollection = function(lst, typename) {
+      if (lst && (typeof lst === 'object')) {
+         if ((lst.$kind === "TList") || (lst.$kind === "TObjArray")) return true;
+         if (!typename) typename = lst._typename;
+      }
+      if (!typename) return false;
+      return (typename === 'TList') || (typename === 'THashList') || (typename === 'TMap') ||
+             (typename === 'TObjArray') || (typename === 'TClonesArray');
+   }
+
+   JSROOT.addMethods = function(obj, typename) {
+      this.extend(obj, JSROOT.getMethods(typename || obj._typename, obj));
    };
 
    JSROOT.lastFFormat = "";
@@ -1348,7 +1795,7 @@
       fmt = fmt.trim();
       var len = fmt.length;
       if (len<2) return value.toFixed(4);
-      var last = fmt.charAt(len-1);
+      var last = fmt[len-1];
       fmt = fmt.slice(0,len-1);
       var isexp = null;
       var prec = fmt.indexOf(".");
@@ -1361,9 +1808,9 @@
       if ((last=='f') || (last=='F')) { isexp = false; } else
       if (last=='W') { isexp = false; significance = true; } else
       if ((last=='g') || (last=='G')) {
-         var se = JSROOT.FFormat(value, fmt+'Q');
-         var _fmt = JSROOT.lastFFormat;
-         var sg = JSROOT.FFormat(value, fmt+'W');
+         var se = JSROOT.FFormat(value, fmt+'Q'),
+             _fmt = JSROOT.lastFFormat,
+             sg = JSROOT.FFormat(value, fmt+'W');
 
          if (se.length < sg.length) {
             JSROOT.lastFFormat = _fmt;
@@ -1395,7 +1842,7 @@
          }
 
          var l = 0;
-         while ((l<sg.length) && (sg.charAt(l) == '0' || sg.charAt(l) == '-' || sg.charAt(l) == '.')) l++;
+         while ((l<sg.length) && (sg[l] == '0' || sg[l] == '-' || sg[l] == '.')) l++;
 
          var diff = sg.length - l - prec;
          if (sg.indexOf(".")>l) diff--;
@@ -1417,7 +1864,7 @@
    }
 
    // dummy function, will be redefined when JSRootPainter is loaded
-   JSROOT.progress = function(msg) {
+   JSROOT.progress = function(msg, tmout) {
       if ((msg !== undefined) && (typeof msg=="string")) JSROOT.console(msg);
    }
 
@@ -1443,8 +1890,11 @@
       if ( typeof define === "function" && define.amd )
          return window_on_load( function() { JSROOT.BuildSimpleGUI('check_existing_elements'); } );
 
+      if (JSROOT.GetUrlOption('libs')!=null) JSROOT.use_full_libs = true;
+
       var prereq = "";
       if (JSROOT.GetUrlOption('io', src)!=null) prereq += "io;";
+      if (JSROOT.GetUrlOption('tree', src)!=null) prereq += "tree;";
       if (JSROOT.GetUrlOption('2d', src)!=null) prereq += "2d;";
       if (JSROOT.GetUrlOption('jq2d', src)!=null) prereq += "jq2d;";
       if (JSROOT.GetUrlOption('more2d', src)!=null) prereq += "more2d;";
@@ -1452,10 +1902,12 @@
       if (JSROOT.GetUrlOption('3d', src)!=null) prereq += "3d;";
       if (JSROOT.GetUrlOption('math', src)!=null) prereq += "math;";
       if (JSROOT.GetUrlOption('mathjax', src)!=null) prereq += "mathjax;";
-      var user = JSROOT.GetUrlOption('load', src);
-      if ((user!=null) && (user.length>0)) prereq += "load:" + user;
-      var onload = JSROOT.GetUrlOption('onload', src);
-      var bower = JSROOT.GetUrlOption('bower', src);
+      var user = JSROOT.GetUrlOption('load', src),
+          onload = JSROOT.GetUrlOption('onload', src),
+          bower = JSROOT.GetUrlOption('bower', src);
+
+      if (user) prereq += "io;2d;load:" + user;
+      if ((bower===null) && (JSROOT.source_dir.indexOf("bower_components/jsroot/")>=0)) bower = "";
       if (bower!==null) {
          if (bower.length>0) JSROOT.bower_dir = bower; else
             if (JSROOT.source_dir.indexOf("jsroot/") == JSROOT.source_dir.length - 7)

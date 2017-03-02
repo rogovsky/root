@@ -71,6 +71,7 @@ const char* s3_seckey_opt = "s3seckey=";
 const char* s3_acckey_opt = "s3acckey=";
 const char* s3_region_opt = "s3region=";
 const char* s3_token_opt = "s3token=";
+const char* s3_alternate_opt = "s3alternate=";
 const char* open_mode_read = "READ";
 const char* open_mode_create = "CREATE";
 const char* open_mode_new = "NEW";
@@ -90,6 +91,15 @@ bool isno(const char *str)
 
    return false;
 
+}
+
+bool strToBool(const char *str, bool defvalue) {
+    if(!str) return defvalue;
+
+    if(strcmp(str, "n") == 0 || strcmp(str, "no") == 0  || strcmp(str, "0") == 0 || strcmp(str, "false") == 0) return false;
+    if(strcmp(str, "y") == 0 || strcmp(str, "yes") == 0 || strcmp(str, "1") == 0 || strcmp(str, "true") == 0)  return true;
+
+    return defvalue;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -286,19 +296,83 @@ void TDavixFileInternal::enableGridMode()
 
 ////////////////////////////////////////////////////////////////////////////////
 
+// Only newer versions of davix support setting the S3 region and STS tokens.
+// But it's only possible to check the davix version through a #define starting from
+// 0.6.4.
+// I have no way to check if setAwsRegion is available, so let's use SFINAE. :-)
+// The first overload will always take priority - if "substitution" fails, meaning
+// setAwsRegion is not there, the compiler will pick the second overload with
+// the ellipses. (...)
+
+template<typename TRequestParams = Davix::RequestParams>
+static auto awsRegion(TRequestParams *parameters, const char *region)
+  -> decltype(parameters->setAwsRegion(region), void())
+{
+   if (gDebug > 1) Info("awsRegion", "Setting S3 Region to '%s' - v4 signature will be used", region);
+   parameters->setAwsRegion(region);
+}
+
+template<typename TRequestParams = Davix::RequestParams>
+static void awsRegion(...) {
+   Warning("setAwsRegion", "Unable to set AWS region, not supported by this version of davix");
+}
+
+// Identical SFINAE trick as above for setAwsToken
+template<typename TRequestParams = Davix::RequestParams>
+static auto awsToken(TRequestParams *parameters, const char *token)
+  -> decltype(parameters->setAwsToken(token), void())
+{
+   if (gDebug > 1) Info("awsToken", "Setting S3 STS temporary credentials");
+   parameters->setAwsToken(token);
+}
+
+template<typename TRequestParams = Davix::RequestParams>
+static void awsToken(...) {
+   Warning("awsToken", "Unable to set AWS token, not supported by this version of davix");
+}
+
+// Identical SFINAE trick as above for setAwsAlternate
+template<typename TRequestParams = Davix::RequestParams>
+static auto awsAlternate(TRequestParams *parameters, bool option)
+  -> decltype(parameters->setAwsAlternate(option), void())
+{
+   if (gDebug > 1) Info("awsAlternate", "Setting S3 path-based bucket option (s3alternate)");
+   parameters->setAwsAlternate(option);
+}
+
+template<typename TRequestParams = Davix::RequestParams>
+static void awsAlternate(...) {
+   Warning("awsAlternate", "Unable to set AWS path-based bucket option (s3alternate), not supported by this version of davix");
+}
+
+void TDavixFileInternal::setAwsRegion(const std::string & region) {
+   if(!region.empty()) {
+      awsRegion(davixParam, region.c_str());
+   }
+}
+
+void TDavixFileInternal::setAwsToken(const std::string & token) {
+   if(!token.empty()) {
+      awsToken(davixParam, token.c_str());
+   }
+}
+
+void TDavixFileInternal::setAwsAlternate(const bool & option) {
+   awsAlternate(davixParam, option);
+}
+
+
 void TDavixFileInternal::setS3Auth(const std::string &secret, const std::string &access,
                                    const std::string &region, const std::string &token)
 {
    if (gDebug > 1) {
       Info("setS3Auth", " Aws S3 tokens configured");
-      if (!region.empty()) Info("setS3Auth", " Aws region configured - using v4 signatures");
-      if (!token.empty()) Info("setS3Auth", " Aws STS token was provided");
    }
    davixParam->setAwsAuthorizationKeys(secret, access);
    davixParam->setProtocol(RequestProtocol::AwsS3);
 
-   davixParam->setAwsRegion(region);
-   davixParam->setAwsToken(token);
+   setAwsRegion(region);
+   setAwsToken(token);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -331,13 +405,15 @@ void TDavixFileInternal::parseConfig()
 
       // need to set region?
       if ( (env_var = gEnv->GetValue("Davix.S3.Region", getenv("S3_REGION"))) != NULL) {
-         Info("parseConfig", "Setting S3 Region to '%s' - v4 signature will be used", env_var);
-         davixParam->setAwsRegion(env_var);
+         setAwsRegion(env_var);
       }
       // need to set STS token?
       if( (env_var = gEnv->GetValue("Davix.S3.Token", getenv("S3_TOKEN"))) != NULL) {
-         Info("parseConfig", "Setting S3 STS temporary credentials");
-         davixParam->setAwsToken(env_var);
+         setAwsToken(env_var);
+      }
+      // need to set aws alternate?
+      if( (env_var = gEnv->GetValue("Davix.S3.Alternate", getenv("S3_ALTERNATE"))) != NULL) {
+         setAwsAlternate(strToBool(env_var, false));
       }
    }
 
@@ -385,6 +461,10 @@ void TDavixFileInternal::parseParams(Option_t *option)
       // s3 sts token
       if (strncasecmp(it->c_str(), s3_token_opt, strlen(s3_token_opt)) == 0) {
          s3token = std::string(it->c_str() + strlen(s3_token_opt));
+      }
+      // s3 alternate option
+      if (strncasecmp(it->c_str(), s3_alternate_opt, strlen(s3_alternate_opt)) == 0) {
+         setAwsAlternate(strToBool(it->c_str() + strlen(s3_alternate_opt), false));
       }
       // open mods
       oflags = configure_open_flag(*it, oflags);
@@ -649,13 +729,21 @@ Double_t TDavixFile::eventStart()
 ////////////////////////////////////////////////////////////////////////////////
 /// set TFile state info
 
-void TDavixFile::eventStop(Double_t t_start, Long64_t len)
+void TDavixFile::eventStop(Double_t t_start, Long64_t len, bool read)
 {
+  if(read) {
    fBytesRead += len;
    fReadCalls += 1;
 
+   SetFileBytesRead(GetFileBytesRead() + len);
+   SetFileReadCalls(GetFileReadCalls() + 1);
+
    if (gPerfStats)
       gPerfStats->FileReadEvent(this, (Int_t) len, t_start);
+  } else {
+    fBytesWrite += len;
+    SetFileBytesWritten(GetFileBytesWritten() + len);
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -692,7 +780,7 @@ Long64_t TDavixFile::DavixWriteBuffer(Davix_fd *fd, const char *buf, Int_t len)
       DavixError::clearError(&davixErr);
    } else {
       fOffset += ret;
-      eventStop(start_time, ret);
+      eventStop(start_time, ret, false);
    }
 
    return ret;
@@ -746,4 +834,3 @@ Long64_t TDavixFile::DavixReadBuffers(Davix_fd *fd, char *buf, Long64_t *pos, In
 
    return ret;
 }
-

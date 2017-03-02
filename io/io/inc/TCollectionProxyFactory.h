@@ -18,27 +18,15 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
-#ifndef ROOT_Rtypeinfo
-#include "Rtypeinfo.h"
-#endif
-
 #include <vector>
 
-#ifndef ROOT_TCollectionProxyInfo
 #include "TCollectionProxyInfo.h"
-#endif
 
-#ifndef ROOT_TClassStreamer
 #include "TClassStreamer.h"
-#endif
 
-#ifndef ROOT_TMemberStreamer
 #include "TMemberStreamer.h"
-#endif
 
-#ifndef ROOT_TGenCollectionProxy
 #include "TGenCollectionProxy.h"
-#endif
 
 // Forward declarations
 class TBuffer;

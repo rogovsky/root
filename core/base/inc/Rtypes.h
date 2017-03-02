@@ -20,21 +20,16 @@
 //////////////////////////////////////////////////////////////////////////
 
 
-#ifndef ROOT_RtypesCore
 #include "RtypesCore.h"
-#endif
-#ifndef ROOT_DllImport
 #include "DllImport.h"
-#endif
-#ifndef ROOT_Rtypeinfo
-#include "Rtypeinfo.h"
-#endif
 
-#include <stdio.h>
-#include <string.h>
 #include "snprintf.h"   // part of stdio.h on systems that have it
 #include "strlcpy.h"    // part of string.h on systems that have it
+
 #include <atomic>
+#include <stdio.h>
+#include <string.h>
+#include <typeinfo>
 
 
 //---- forward declared class types --------------------------------------------
@@ -74,46 +69,6 @@ class TVirtualCollectionProxy;
 typedef void    (*VoidFuncPtr_t)();  //pointer to void function
 typedef TClass* (*DictFuncPtr_t)();  //pointer to dictionary function
 // NOTE: the previous name must be changed.
-
-
-//---- constants ---------------------------------------------------------------
-
-#ifndef NULL
-#define NULL 0
-#endif
-
-#ifndef R__NULLPTR
-#ifndef nullptr
-#define nullptr 0
-#endif
-#endif
-
-const Bool_t kTRUE  = true;
-const Bool_t kFALSE = false;
-
-const Int_t     kMaxUChar    = 256;
-const Int_t     kMaxChar     = kMaxUChar >> 1;
-const Int_t     kMinChar     = -kMaxChar - 1;
-
-const Int_t     kMaxUShort   = 65534;
-const Int_t     kMaxShort    = kMaxUShort >> 1;
-const Int_t     kMinShort    = -kMaxShort - 1;
-
-const UInt_t    kMaxUInt     = UInt_t(~0);
-const Int_t     kMaxInt      = Int_t(kMaxUInt >> 1);
-const Int_t     kMinInt      = -kMaxInt - 1;
-
-const ULong_t   kMaxULong    = ULong_t(~0);
-const Long_t    kMaxLong     = Long_t(kMaxULong >> 1);
-const Long_t    kMinLong     = -kMaxLong - 1;
-
-const ULong64_t kMaxULong64  = ULong64_t(~0LL);
-const Long64_t  kMaxLong64   = Long64_t(kMaxULong64 >> 1);
-const Long64_t  kMinLong64   = -kMaxLong64 - 1;
-
-const size_t    kBitsPerByte = 8;
-const Ssiz_t    kNPOS        = ~(Ssiz_t)0;
-
 
 //--- bit manipulation ---------------------------------------------------------
 
@@ -225,43 +180,150 @@ namespace ROOT {
 
 } // namespace ROOT
 
-// The macros below use TGenericClassInfo, so let's ensure it is included
-#ifndef ROOT_TGenericClassInfo
+// The macros below use TGenericClassInfo and TInstrumentedIsAProxy, so let's
+// ensure they are included.
 #include "TGenericClassInfo.h"
-#endif
+#include "TIsAProxy.h"
 
 typedef std::atomic<TClass*> atomic_TClass_ptr;
+
+// Parts or ROOT are compiled with no-rtti and cannot use or even see typeid().
+// Hide the following declaration (that is only needed by ClassDefInline) for
+// these cases by #defining R__NO_INLINE_CLASSDEF:
+#ifndef R__NO_INLINE_CLASSDEF
+
+namespace ROOT { namespace Internal {
+struct TTypeNameExtractionBase {
+   // Implemented in TGenericClassInfo.cxx
+   static std::string GetImpl(const char* derived_funcname);
+};
+/// \class TypeNameExtraction
+/// Extracts the fully qualified type name by checking for the name of a
+/// member function as determined by the __PRETTY_FUNCTION__ macro.
+template <class T>
+   struct TTypeNameExtraction: TTypeNameExtractionBase {
+      static std::string Get() {
+#ifdef _MSC_VER // Visual Studio
+# define R__TNE_PRETTY_FUNCTION __FUNCTION__
+#else
+# define R__TNE_PRETTY_FUNCTION __PRETTY_FUNCTION__
+#endif
+         return GetImpl(R__TNE_PRETTY_FUNCTION);
+#undef R__TNE_PRETTY_FUNCTION
+      }
+   };
+
+
+class TCDGIILIBase {
+public:
+   // All implemented in TGenericClassInfo.cxx.
+   static void SetInstance(::ROOT::TGenericClassInfo& R__instance,
+                    NewFunc_t, NewArrFunc_t, DelFunc_t, DelArrFunc_t, DesFunc_t);
+   static void SetName(const std::string& name, std::string& nameMember);
+   static void SetfgIsA(atomic_TClass_ptr& isA, TClass*(*dictfun)());
+};
+
+template <typename T>
+class ClassDefGenerateInitInstanceLocalInjector:
+   public TCDGIILIBase {
+      static atomic_TClass_ptr fgIsA;
+      static std::string fgName;
+   public:
+      static void *New(void *p) { return p ? new(p) T : new T; };
+      static void *NewArray(Long_t nElements, void *p) {
+         return p ? new(p) T[nElements] : new T[nElements]; }
+      static void Delete(void *p) { delete ((T*)p); }
+      static void DeleteArray(void *p) { delete[] ((T*)p); }
+      static void Destruct(void *p) { ((T*)p)->~T();  }
+      static ::ROOT::TGenericClassInfo *GenerateInitInstanceLocal() {
+         static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy<T>(0);
+         static ::ROOT::TGenericClassInfo
+            R__instance(T::Class_Name(), T::Class_Version(),
+                        T::DeclFileName(), T::DeclFileLine(),
+                        typeid(T), ROOT::Internal::DefineBehavior((T*)0, (T*)0),
+                        &T::Dictionary, isa_proxy, 0, sizeof(T) );
+         SetInstance(R__instance, &New, &NewArray, &Delete, &DeleteArray, &Destruct);
+         return &R__instance;
+      }
+      static TClass *Dictionary() { fgIsA = GenerateInitInstanceLocal()->GetClass(); return fgIsA; }
+      static TClass *Class() { SetfgIsA(fgIsA, &Dictionary); return fgIsA; }
+      static const char* Name() {
+         if (fgName.empty())
+            SetName(TTypeNameExtraction<T>::Get(), fgName);
+         return fgName.c_str();
+      }
+   };
+
+   template<typename T>
+   atomic_TClass_ptr ClassDefGenerateInitInstanceLocalInjector<T>::fgIsA{};
+   template<typename T>
+   std::string ClassDefGenerateInitInstanceLocalInjector<T>::fgName{};
+
+}} // namespace ROOT::Internal
+#endif // R__NO_INLINE_CLASSDEF
+
 
 // Common part of ClassDef definition.
 // DeclFileLine() is not part of it since CINT uses that as trigger for
 // the class comment string.
-#define _ClassDef_(name,id, virtual_keyword, overrd) \
+#define _ClassDefBase_(name,id, virtual_keyword, overrd) \
+public: \
+   static Version_t Class_Version() { return id; } \
+   virtual_keyword TClass *IsA() const overrd { return name::Class(); } \
+   virtual_keyword void ShowMembers(TMemberInspector&insp) const overrd { ::ROOT::Class_ShowMembers(name::Class(), this, insp); } \
+   void StreamerNVirtual(TBuffer&ClassDef_StreamerNVirtual_b) { name::Streamer(ClassDef_StreamerNVirtual_b); } \
+   static const char *DeclFileName() { return __FILE__; }
+
+
+#define _ClassDefOutline_(name,id, virtual_keyword, overrd) \
+   _ClassDefBase_(name,id, virtual_keyword, overrd)       \
 private: \
    static atomic_TClass_ptr fgIsA; \
 public: \
-   static TClass *Class(); \
-   static const char *Class_Name(); \
-   static Version_t Class_Version() { return id; } \
-   static TClass *Dictionary(); \
-   virtual_keyword TClass *IsA() const overrd { return name::Class(); } \
-   virtual_keyword void ShowMembers(TMemberInspector&insp) const overrd { ::ROOT::Class_ShowMembers(name::Class(), this, insp); } \
-   virtual_keyword void Streamer(TBuffer&) overrd; \
-   void StreamerNVirtual(TBuffer&ClassDef_StreamerNVirtual_b) { name::Streamer(ClassDef_StreamerNVirtual_b); } \
-   static const char *DeclFileName() { return __FILE__; } \
    static int ImplFileLine(); \
-   static const char *ImplFileName();
+   static const char *ImplFileName(); \
+   static const char *Class_Name(); \
+   static TClass *Dictionary(); \
+   static TClass *Class(); \
+   virtual_keyword void Streamer(TBuffer&) overrd;
+
+#define _ClassDefInline_(name,id, virtual_keyword, overrd) \
+   _ClassDefBase_(name,id, virtual_keyword, overrd)       \
+public: \
+   static int ImplFileLine() { return -1; }     \
+   static const char *ImplFileName() { return 0; }      \
+   static const char *Class_Name() { return ROOT::Internal::ClassDefGenerateInitInstanceLocalInjector< name >::Name(); } \
+   static TClass *Dictionary() { return ROOT::Internal::ClassDefGenerateInitInstanceLocalInjector< name >::Dictionary(); } \
+   static TClass *Class() { return ROOT::Internal::ClassDefGenerateInitInstanceLocalInjector< name >::Class(); } \
+   virtual_keyword void Streamer(TBuffer& R__b) overrd {                \
+      if (R__b.IsReading()) R__b.ReadClassBuffer(name::Class(),this);   \
+      else R__b.WriteClassBuffer(name::Class(),this);}
 
 #define ClassDef(name,id) \
-   _ClassDef_(name,id,virtual,)   \
+   _ClassDefOutline_(name,id,virtual,)   \
    static int DeclFileLine() { return __LINE__; }
 
 #define ClassDefOverride(name,id) \
-   _ClassDef_(name,id,,override)   \
+   _ClassDefOutline_(name,id,,override)   \
    static int DeclFileLine() { return __LINE__; }
 
 #define ClassDefNV(name,id) \
-   _ClassDef_(name,id,,) \
+   _ClassDefOutline_(name,id,,) \
    static int DeclFileLine() { return __LINE__; }
+
+#define ClassDefInline(name,id) \
+   _ClassDefInline_(name,id,virtual,)                   \
+   static int DeclFileLine() { return __LINE__; }
+
+#define ClassDefInlineOverride(name,id)                       \
+   _ClassDefInline_(name,id,,override)                        \
+   static int DeclFileLine() { return __LINE__; }
+
+#define ClassDefInlineNV(name,id) \
+   _ClassDefInline_(name,id,,)                         \
+   static int DeclFileLine() { return __LINE__; }
+
+//#define _ClassDefInterp_(name,id) ClassDefInline(name,id)
 
 #define R__UseDummy(name) \
    class _NAME2_(name,_c) { public: _NAME2_(name,_c)() { if (name) { } } }
@@ -304,11 +366,11 @@ public: \
 // backward compatibility.
 
 #define ClassDefT(name,id) \
-   _ClassDef_(name,id,virtual,) \
+   _ClassDefOutline_(name,id,virtual,) \
    static int DeclFileLine() { return __LINE__; }
 
 #define ClassDefTNV(name,id) \
-   _ClassDef_(name,id,virtual,) \
+   _ClassDefOutline_(name,id,virtual,) \
    static int DeclFileLine() { return __LINE__; }
 
 

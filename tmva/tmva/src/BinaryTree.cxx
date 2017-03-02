@@ -28,16 +28,17 @@
  * (http://tmva.sourceforge.net/LICENSE)                                          *
  **********************************************************************************/
 
-//////////////////////////////////////////////////////////////////////////
-//                                                                      //
-// BinaryTree                                                           //
-//                                                                      //
-// Base class for BinarySearch and Decision Trees                       //
-//                                                                      //
-//////////////////////////////////////////////////////////////////////////
+/*! \class TMVA::BinaryTree
+\ingroup TMVA
+
+Base class for BinarySearch and Decision Trees.
+
+*/
 
 #include <string>
 #include <stdexcept>
+
+#include "ThreadLocalStorage.h"
 
 #include "TMVA/BinaryTree.h"
 #include "TMVA/MsgLogger.h"
@@ -152,7 +153,7 @@ void TMVA::BinaryTree::ReadXML(void* node, UInt_t tmva_Version_Code ) {
 
 
 ////////////////////////////////////////////////////////////////////////////////
-/// print the tree recursinvely using the << operator
+/// print the tree recursively using the << operator
 
 std::ostream& TMVA::operator<< (std::ostream& os, const TMVA::BinaryTree& tree)
 {

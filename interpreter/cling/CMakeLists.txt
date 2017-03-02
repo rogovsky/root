@@ -5,6 +5,13 @@ cmake_minimum_required(VERSION 3.4.3)
 if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
   project(Cling)
 
+  if(WIN32)
+    # We need cmake to support exporting of symbols not only from libraries but
+    # from executables too. This way cling can find symbols from its own
+    # executable during runtime.
+    cmake_minimum_required(VERSION 3.6.2)
+  endif(WIN32)
+
   # Rely on llvm-config.
   set(CONFIG_OUTPUT)
   find_program(LLVM_CONFIG "llvm-config")
@@ -178,6 +185,15 @@ if( CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR AND NOT MSVC_IDE )
 "`CMakeFiles'. Please delete them.")
 endif()
 
+# From ROOT:
+function(cling_add_cxx_flag var flag)
+  string(REGEX REPLACE "[-.+/:= ]" "_" flag_esc "${flag}")
+  CHECK_CXX_COMPILER_FLAG("${flag}" CXX_HAS${flag_esc})
+  if(CXX_HAS${flag_esc})
+    set(${var} "${${var}} ${flag}" PARENT_SCOPE)
+  endif()
+endfunction()
+
 # Add appropriate flags for GCC
 if (LLVM_COMPILER_IS_GCC_COMPATIBLE)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-common -Woverloaded-virtual")
@@ -185,12 +201,13 @@ if (LLVM_COMPILER_IS_GCC_COMPATIBLE)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-strict-aliasing")
   endif ()
 
-  check_cxx_compiler_flag("-Werror -Wnested-anon-types" CXX_SUPPORTS_NO_NESTED_ANON_TYPES_FLAG)
-  if( CXX_SUPPORTS_NO_NESTED_ANON_TYPES_FLAG )
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-nested-anon-types" )
-  endif()
+  foreach (check_flag "-Wno-nested-anon-types" "-Wno-covered-switch-default" "-Wno-unused-local-typedef")
+    cling_add_cxx_flag(CMAKE_CXX_FLAGS ${check_flag})
+  endforeach ()
 endif ()
 
+# Lots of cling is needed at runtime (e.g. Value, or Interpreter::Evaluate()).
+# The JIT needs to be able to resolve these symbols from cling; unhide them.
 string(REPLACE "-fvisibility=hidden" "" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
 # The package needs to be compiler without RTTI information
 if(MSVC)
@@ -273,7 +290,44 @@ macro(add_cling_library name)
   if(ARG_SHARED)
     set(ARG_ENABLE_SHARED SHARED)
   endif()
+
+  if (MSVC)
+    # On Windows exceptions aren’t as generic as an x64 ABI.
+    # Stack unwinding code must be generated for every function between the
+    # throw and catch blocks.
+    if (${name} STREQUAL "clingInterpreter")
+      # All of libClingInterpreter is compiled with exceptions, mostly because
+      # llvm_unreachable throws an exception. Otherwise it could be reduced:
+      #    Exception.cpp, Interpreter.cpp, IncrementalParser.cpp,
+      #    IncrementalExecutor.cpp
+      set(cling_ex_file_match ".cpp$")
+    elseif(${name} STREQUAL "clingUserInterface")
+      # For libClingUserInterface, only UserInterface.cpp uses exceptions.
+      set(cling_ex_file_match "^UserInterface.cpp$")
+    endif()
+    if(cling_ex_file_match)
+      # needs to be on before llvm_add_library so flags can be set below
+      set(LLVM_REQUIRES_EH ON)
+      set(LLVM_REQUIRES_RTTI ON)
+    endif()
+  endif()
+
   llvm_add_library(${name} ${ARG_ENABLE_SHARED} ${ARG_UNPARSED_ARGUMENTS} ${srcs})
+
+  if (MSVC AND cling_ex_file_match)
+    # /EHs because cling_runtime_internal_throwIfInvalidPointer is extern “C”
+    if (cling_ex_file_match)
+      foreach(file_var ${ARGN})
+        if (file_var MATCHES ${cling_ex_file_match})
+          set_property(SOURCE ${file_var} APPEND_STRING PROPERTY COMPILE_FLAGS
+                       " /D _HAS_EXCEPTIONS=1 /EHs /GR /wd4714 ")
+        elseif (file_var MATCHES ".cpp$")
+          set_property(SOURCE ${file_var} APPEND_STRING PROPERTY COMPILE_FLAGS
+                       " /D _HAS_EXCEPTIONS=0 /EHs-c- /GR- ")
+        endif()
+      endforeach()
+    endif()
+  endif()
 
   if(TARGET ${name})
     target_link_libraries(${name} ${INTERFACE} ${LLVM_COMMON_LIBS})
@@ -312,13 +366,15 @@ endmacro(add_cling_executable)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
+option(ROOT_CLASSIC "Building as part of the ROOT (classic)." OFF)
+
 if(DEFINED ROOT_BINARY_DIR)
   # Building as part of ROOT (CMake)
   include_directories(BEFORE
     ${CMAKE_CURRENT_BINARY_DIR}/../llvm/src/tools/clang/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../llvm/src/tools/clang/include
     )
-elseif(DEFINED ROOT_CLASSIC)
+elseif(ROOT_CLASSIC)
   # Building as part of ROOT (classic)
   include_directories(BEFORE
     ${CMAKE_CURRENT_BINARY_DIR}/../llvm/obj/tools/clang/include
@@ -356,13 +412,48 @@ if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
     )
 endif()
 
-add_definitions( -D_GNU_SOURCE
-  -DCLING_VERSION=${CLING_VERSION}
-  -DCLING_INCLUDE_PATHS="${CMAKE_INSTALL_PREFIX}/include:${CMAKE_CURRENT_SOURCE_DIR}/include:${CMAKE_CURRENT_SOURCE_DIR}/../clang/include:${CMAKE_CURRENT_SOURCE_DIR}/../../include" )
+add_definitions( -D_GNU_SOURCE -DCLING_VERSION=${CLING_VERSION})
 
 option(CLING_INCLUDE_TESTS
        "Generate build targets for the Cling unit tests."
        ${LLVM_INCLUDE_TESTS})
+
+if (NOT WIN32)
+  set(cling_path_delim ":")
+else()
+  set(cling_path_delim ";")
+endif()
+
+#Allow user to prepend to list via cmake -DCLING_INCLUDE_PATHS=
+if(DEFINED ROOT_BINARY_DIR)
+  if( CLING_INCLUDE_TESTS )
+     set(cling_include_deflt "${CMAKE_INSTALL_PREFIX}/include${cling_path_delim}\
+${CMAKE_CURRENT_SOURCE_DIR}/include${cling_path_delim}\
+${CMAKE_CURRENT_SOURCE_DIR}/../llvm/src/tools/clang/include${cling_path_delim}\
+${CMAKE_CURRENT_SOURCE_DIR}/../llvm/src/include"
+     )
+  endif()
+else()
+  if( CLING_INCLUDE_TESTS )
+    set(cling_include_deflt "${CMAKE_INSTALL_PREFIX}/include${cling_path_delim}\
+${CMAKE_CURRENT_SOURCE_DIR}/include${cling_path_delim}\
+${CMAKE_CURRENT_SOURCE_DIR}/../clang/include${cling_path_delim}\
+${CMAKE_CURRENT_SOURCE_DIR}/../../include"
+    )
+    if (WIN32)
+      set(cling_include_deflt "${cling_include_deflt}${cling_path_delim}\
+${CMAKE_BINARY_DIR}/include${cling_path_delim}\
+${CMAKE_BINARY_DIR}/tools/clang/include"
+      )
+    endif()
+  endif()
+endif()
+
+if(NOT CLING_INCLUDE_PATHS)
+ set(CLING_INCLUDE_PATHS "${cling_include_deflt}")
+else()
+ set(CLING_INCLUDE_PATHS "${CLING_INCLUDE_PATHS}${cling_path_delim}${cling_include_deflt}")
+endif()
 
 # All targets below may depend on all tablegen'd files.
 get_property(CLANG_TABLEGEN_TARGETS GLOBAL PROPERTY CLANG_TABLEGEN_TARGETS)
@@ -370,6 +461,7 @@ list(APPEND LLVM_COMMON_DEPENDS ${CLANG_TABLEGEN_TARGETS})
 
 # And llvm-intrinsics.
 list(APPEND LLVM_COMMON_DEPENDS intrinsics_gen)
+list(APPEND LLVM_COMMON_DEPENDS clang-headers)
 
 add_subdirectory(lib)
 add_subdirectory(tools)

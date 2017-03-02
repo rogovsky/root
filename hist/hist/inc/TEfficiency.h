@@ -6,21 +6,13 @@
 #include <utility>
 
 //ROOT header
-#ifndef ROOT_TNamed
 #include "TNamed.h"
-#endif
 
-#ifndef ROOT_TAttLine
 #include "TAttLine.h"
-#endif
 
-#ifndef ROOT_TAttFill
 #include "TAttFill.h"
-#endif
 
-#ifndef ROOT_TAttMarker
 #include "TAttMarker.h"
-#endif
 
 class TCollection;
 class TF1;
@@ -156,7 +148,7 @@ public:
       void          SetTitle(const char* title);
       Bool_t        SetTotalEvents(Int_t bin,Int_t events);
       Bool_t        SetTotalHistogram(const TH1& rTotal,Option_t* opt);
-      void          SetUseWeightedEvents();
+      void          SetUseWeightedEvents(Bool_t on = kTRUE);
       void          SetWeight(Double_t weight);
       Bool_t        UsesBayesianStat() const {return TestBit(kIsBayesian);}
       Bool_t        UsesPosteriorMode() const   {return TestBit(kPosteriorMode) && TestBit(kIsBayesian);}
@@ -168,6 +160,7 @@ public:
       static Bool_t CheckBinning(const TH1& pass,const TH1& total);
       static Bool_t CheckConsistency(const TH1& pass,const TH1& total,Option_t* opt="");
       static Bool_t CheckEntries(const TH1& pass,const TH1& total,Option_t* opt="");
+      static Bool_t CheckWeights(const TH1& pass,const TH1& total);
       static Double_t Combine(Double_t& up,Double_t& low,Int_t n,const Int_t* pass,const Int_t* total,
                               Double_t alpha,Double_t beta,Double_t level=0.683,
                               const Double_t* w=0,Option_t* opt="");

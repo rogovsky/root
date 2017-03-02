@@ -12,9 +12,7 @@
 #ifndef ROOT_TMemFile
 #define ROOT_TMemFile
 
-#ifndef ROOT_TFile
 #include "TFile.h"
-#endif
 
 class TMemFile : public TFile {
 
@@ -48,6 +46,8 @@ private:
    // Overload TFile interfaces.
    Int_t    SysOpen(const char *pathname, Int_t flags, UInt_t mode);
    Int_t    SysClose(Int_t fd);
+   Int_t    SysReadImpl(Int_t fd, void *buf, Long64_t len);
+   Int_t    SysWriteImpl(Int_t fd, const void *buf, Long64_t len);
    Int_t    SysRead(Int_t fd, void *buf, Int_t len);
    Int_t    SysWrite(Int_t fd, const void *buf, Int_t len);
    Long64_t SysSeek(Int_t fd, Long64_t offset, Int_t whence);

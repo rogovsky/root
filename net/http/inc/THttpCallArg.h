@@ -4,18 +4,14 @@
 #ifndef ROOT_THttpCallArg
 #define ROOT_THttpCallArg
 
-#ifndef ROOT_TObject
 #include "TObject.h"
-#endif
 
-#ifndef ROOT_TString
 #include "TString.h"
-#endif
 
 #include <condition_variable>
 
-
 class THttpServer;
+class TNamed;
 
 class THttpCallArg : public TObject {
 
@@ -31,6 +27,8 @@ protected:
 
    void *fPostData;              //! binary data received with post request
    Long_t fPostDataLength;       //! length of binary data
+
+   TNamed *fWSHandle;            //!  web-socket handle, derived from TNamed class
 
    std::condition_variable fCond; //! condition used to wait for processing
 
@@ -104,6 +102,10 @@ public:
    }
 
    void SetPostData(void *data, Long_t length);
+
+   void SetWSHandle(TNamed* handle);
+
+   TNamed* TakeWSHandle();
 
    void SetRequestHeader(const char* h)
    {

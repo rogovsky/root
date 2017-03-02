@@ -38,6 +38,7 @@ The concrete implementation of TBuffer for writing/reading to/from a ROOT file o
 #include "TInterpreter.h"
 #include "TVirtualMutex.h"
 #include "TArrayC.h"
+#include "TROOT.h"
 
 #if (defined(__linux) || defined(__APPLE__)) && defined(__i386__) && \
      defined(__GNUC__)
@@ -294,9 +295,12 @@ void TBufferFile::WriteTString(const TString &s)
 ////////////////////////////////////////////////////////////////////////////////
 /// Read std::string from TBuffer.
 
-void TBufferFile::ReadStdString(std::string &s)
+void TBufferFile::ReadStdString(std::string *obj)
 {
-   std::string *obj = &s;
+   if (obj == 0) {
+      Error("TBufferFile::ReadStdString","The std::string address is nullptr but should not");
+      return;
+   }
    Int_t   nbig;
    UChar_t nwh;
    *this >> nwh;
@@ -322,10 +326,14 @@ void TBufferFile::ReadStdString(std::string &s)
 ////////////////////////////////////////////////////////////////////////////////
 /// Write std::string to TBuffer.
 
-void TBufferFile::WriteStdString(const std::string &s)
+void TBufferFile::WriteStdString(const std::string *obj)
 {
-   if (s==0) return;
-   const std::string *obj = &s;
+   if (obj==0) {
+      *this << (UChar_t)0;
+      WriteFastArray("",0);
+      return;
+   }
+
    UChar_t nwh;
    Int_t nbig = obj->length();
    if (nbig > 254) {
@@ -337,6 +345,39 @@ void TBufferFile::WriteStdString(const std::string &s)
       *this << nwh;
    }
    WriteFastArray(obj->data(),nbig);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Read char* from TBuffer.
+
+void TBufferFile::ReadCharStar(char* &s)
+{
+   delete [] s;
+   s = 0;
+
+   Int_t nch;
+   *this >> nch;
+   if (nch > 0) {
+      s = new char[nch+1];
+      ReadFastArray(s, nch);
+      s[nch] = 0;
+   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Write char* into TBuffer.
+
+void TBufferFile::WriteCharStar(char *s)
+{
+   Int_t nch = 0;
+   if (s) {
+      nch = strlen(s);
+      *this  << nch;
+      WriteFastArray(s,nch);
+   } else {
+      *this << nch;
+   }
+
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -492,7 +533,7 @@ void TBufferFile::ReadDouble32(Double_t *d, TStreamerElement *ele)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Read a Float16_t from the buffer when the factor and minimun value have been specified
+/// Read a Float16_t from the buffer when the factor and minimum value have been specified
 /// see comments about Double32_t encoding at TBufferFile::WriteDouble32().
 
 void TBufferFile::ReadWithFactor(Float_t *ptr, Double_t factor, Double_t minvalue)
@@ -527,7 +568,7 @@ void TBufferFile::ReadWithNbits(Float_t *ptr, Int_t nbits)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Read a Double32_t from the buffer when the factor and minimun value have been specified
+/// Read a Double32_t from the buffer when the factor and minimum value have been specified
 /// see comments about Double32_t encoding at TBufferFile::WriteDouble32().
 
 void TBufferFile::ReadWithFactor(Double_t *ptr, Double_t factor, Double_t minvalue)
@@ -2985,7 +3026,7 @@ Version_t TBufferFile::ReadVersionNoCheckSum(UInt_t *startpos, UInt_t *bcnt)
 ////////////////////////////////////////////////////////////////////////////////
 /// Read class version from I/O buffer
 ///
-/// To be used when streaming out emberwise streamed collection where we do not
+/// To be used when streaming out member-wise streamed collection where we do not
 /// care (not save) about the byte count and can safely ignore missing streamerInfo
 /// (since they usually indicate empty collections).
 
@@ -3014,7 +3055,7 @@ Version_t TBufferFile::ReadVersionForMemberWise(const TClass *cl)
                      version = cl->GetClassVersion();
                   } else {
                      // If we can not find the streamerInfo this means that
-                     // we do not actully need it (the collection is always empty
+                     // we do not actually need it (the collection is always empty
                      // in this file), so no need to issue a warning.
                      return 0;
                   }
@@ -3038,7 +3079,7 @@ Version_t TBufferFile::ReadVersionForMemberWise(const TClass *cl)
                   version = vinfo->GetClassVersion();
                } else {
                   // If we can not find the streamerInfo this means that
-                  // we do not actully need it (the collection is always empty
+                  // we do not actually need it (the collection is always empty
                   // in this file), so no need to issue a warning.
                   return 0;
                }
@@ -3278,7 +3319,7 @@ Bool_t TBufferFile::CheckObject(const void *obj, const TClass *ptrClass)
 ////////////////////////////////////////////////////////////////////////////////
 /// This offset is used when a key (or basket) is transfered from one
 /// file to the other.  In this case the TRef and TObject might have stored a
-/// pid index (to retrieve TProcessIDs) which refered to their order on the original
+/// pid index (to retrieve TProcessIDs) which referred to their order on the original
 /// file, the fPidOffset is to be added to those values to correctly find the
 /// TProcessID.  This fPidOffset needs to be increment if the key/basket is copied
 /// and need to be zero for new key/basket.

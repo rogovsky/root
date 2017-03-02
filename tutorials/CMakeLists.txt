@@ -71,7 +71,8 @@ endif()
 
 if(NOT ROOT_xml_FOUND)
   set(xml_veto  xml/*.C
-                histfactory/*.C)   # histfactory requires xml
+                histfactory/*.C    # histfactory requires xml
+                unfold/*.C)        # unfold requires xml
 endif()
 
 # variables identifying the package must have the package name  in lower case (it corresponds to the CMake option name)
@@ -82,7 +83,10 @@ endif()
 if(WIN32)
   set(histfactory_veto histfactory/*.C
                        roostats/StandardFrequentistDiscovery.C) # histfactory doesn't work on Windows
+else()
+  set(histfactory_veto histfactory/makeExample.C)
 endif()
+
 
 if(NOT ROOT_fitsio_FOUND)
   set(fitsio_veto  fitsio/*.C)
@@ -117,8 +121,12 @@ if(NOT GRAPHVIZ_FOUND)
   set(gviz_veto graphs/graphstruct.C)
 endif()
 
-if(NOT TBB_FOUND)
+if(NOT TBB_FOUND AND NOT builtin_tbb)
   set(tbb_veto  multicore/mtbb*.C)
+endif()
+
+if(NOT ROOT_imt_FOUND)
+  set(imt_veto multicore/imt*.C)
 endif()
 
 #---These ones requires a display to run-----------------------------
@@ -136,8 +144,12 @@ set(gui_veto fit/fitpanel_playback.C
              tree/tvdemo.C
              eve/*.C)
 
-#---These do not need to run for TMVA
-set (tmva_veto tmva/createData.C)
+if (NOT ROOT_tmva_FOUND)
+  set(tmva_veto tmva/*.C tmva/*.py tmva/keras/*.C tmva/keras/*.py)
+else()
+  #---These do not need to run for TMVA
+  set(tmva_veto tmva/createData.C)
+endif()
 
 #---These ones are disabled !!! ------------------------------------
 set(extra_veto
@@ -183,7 +195,8 @@ set(all_veto hsimple.C
              ${gviz_veto}
              ${r_veto}
              ${histfactory_veto}
-             ${tbb_veto})
+             ${tbb_veto}
+             ${imt_veto})
 
 file(GLOB_RECURSE tutorials RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} *.C)
 file(GLOB tutorials_veto RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} ${all_veto})
@@ -204,7 +217,7 @@ set(returncode_1 fit/fit2a.C fit/graph2dfit.C
                  graphs/timeonaxis.C
                  graphs/timeonaxis2.C
                  graphs/timeonaxis3.C
-                 graphs/exclusiongraph.C graphs/multigraph.C
+                 graphs/exclusiongraph.C
                  graphs/multipalette.C
                  graphs/graphstruct.C
                  hist/ContourList.C
@@ -220,12 +233,15 @@ set(returncode_1 fit/fit2a.C fit/graph2dfit.C
                  math/chi2test.C
                  r/SimpleFitting.C)
 #---Dependencies------------------------------------------------------
-set(math-testUnfold5d-depends tutorial-math-testUnfold5c)
-set(math-testUnfold5c-depends tutorial-math-testUnfold5b)
-set(math-testUnfold5b-depends tutorial-math-testUnfold5a)
+set(unfold-testUnfold5d-depends tutorial-unfold-testUnfold5c)
+set(unfold-testUnfold5c-depends tutorial-unfold-testUnfold5b)
+set(unfold-testUnfold5b-depends tutorial-unfold-testUnfold5a)
+set(unfold-testUnfold7d-depends tutorial-unfold-testUnfold7c)
+set(unfold-testUnfold7c-depends tutorial-unfold-testUnfold7b)
+set(unfold-testUnfold7b-depends tutorial-unfold-testUnfold7a)
 set(xml-xmlreadfile-depends tutorial-xml-xmlnewfile)
 set(roofit-rf503_wspaceread-depends tutorial-roofit-rf502_wspacewrite)
-set(histfactory-example-depends tutorial-histfactory-makeExample)
+set(histfactory-example-depends tutorial-roostats-CreateExampleFile)
 set(io-readCode-depends tutorial-io-importCode)
 set(fit-fit1-depends tutorial-hist-fillrandom)
 set(fit-myfit-depends tutorial-fit-fitslicesy)
@@ -247,13 +263,14 @@ set(benchmarks-depends tutorial-hsimple
 set(geom-na49view-depends tutorial-geom-geometry)
 set(multicore-mt102_readNtuplesFillHistosAndFit-depends tutorial-multicore-mt101_fillNtuples)
 set(multicore-mp102_readNtuplesFillHistosAndFit-depends tutorial-multicore-mp101_fillNtuples)
+set(tmva-TMVAClassificationApplication-depends tutorial-tmva-TMVAClassification)
 
-#--many roostats tutorials depending on having creating the file first with histfactory
+#--many roostats tutorials depending on having creating the file first with histfactory and example_combined_GaussExample_model.root
 foreach(tname  ModelInspector OneSidedFrequentistUpperLimitWithBands StandardBayesianMCMCDemo StandardBayesianNumericalDemo
                StandardFeldmanCousinsDemo  StandardFrequentistDiscovery StandardHistFactoryPlotsWithCategories StandardHypoTestDemo
                StandardHypoTestInvDemo StandardProfileInspectorDemo StandardTestStatDistributionDemo
-               OneSidedFrequentistUpperLimitWithBands TwoSidedFrequentistUpperLimitWithBands)
-  set(roostats-${tname}-depends tutorial-roostats-StandardProfileLikelihoodDemo)
+               OneSidedFrequentistUpperLimitWithBands TwoSidedFrequentistUpperLimitWithBands StandardProfileLikelihoodDemo)
+  set(roostats-${tname}-depends tutorial-roostats-CreateExampleFile)
 endforeach()
 
 #--dependency for TMVA tutorials
@@ -286,10 +303,8 @@ foreach(t ${tutorials})
   string(REPLACE "/" "-" tname ${tname})
 
    # These tests on ARM64 need much more than 20 minutes - increase the timeout
-   if (${tname} STREQUAL "tmva-TMVAClassification" OR
-       ${tname} STREQUAL "tmva-TMVARegression" OR
-       ${tname} STREQUAL "tmva-TMVAMulticlass")
-     set(thisTestTimeout 3600) # 1h
+   if(ROOT_ARCHITECTURE MATCHES arm64)
+     set(thisTestTimeout 2400) # 40m
    else()
      set(thisTestTimeout 1200) # 20m
    endif()

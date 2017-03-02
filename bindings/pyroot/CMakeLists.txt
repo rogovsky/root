@@ -5,9 +5,8 @@ include_directories(${PYTHON_INCLUDE_DIRS})
 
 ROOT_GENERATE_DICTIONARY(G__PyROOT *.h MODULE PyROOT LINKDEF LinkDef.h OPTIONS "-writeEmptyRootPCM")
 
-if(GCC_MAJOR EQUAL 4)
-  add_definitions(-fno-strict-aliasing)
-endif()
+ROOT_ADD_CXX_FLAG(CMAKE_CXX_FLAGS -fno-strict-aliasing)
+ROOT_ADD_CXX_FLAG(CMAKE_CXX_FLAGS -Wno-parentheses-equality)
 
 if(WIN32)
   set(ROOTULIBS -include:_G__cpp_setupG__Net
@@ -37,14 +36,23 @@ endif()
 file(GLOB pyfiles RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} *.py)
 foreach(pyfile ${pyfiles})
   install(FILES ${pyfile} DESTINATION ${runtimedir})
-  install(CODE "execute_process(COMMAND python -m py_compile \$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${runtimedir}/${pyfile} )")
-  install(CODE "execute_process(COMMAND python -O -m py_compile \$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${runtimedir}/${pyfile} )")
-  file(COPY ${pyfile} DESTINATION ${CMAKE_BINARY_DIR}/${runtimedir})
+  if(IS_ABSOLUTE ${runtimedir})
+    set(absruntimedir ${runtimedir})
+  else()
+    set(absruntimedir ${CMAKE_INSTALL_PREFIX}/${runtimedir})
+  endif()
+  install(CODE "execute_process(COMMAND ${PYTHON_EXECUTABLE} -m py_compile \$ENV{DESTDIR}${absruntimedir}/${pyfile})")
+  install(CODE "execute_process(COMMAND ${PYTHON_EXECUTABLE} -O -m py_compile \$ENV{DESTDIR}${absruntimedir}/${pyfile})")
+  file(COPY ${pyfile} DESTINATION ${localruntimedir})
 endforeach()
 
-set( JupyROOTDirName "JupyROOT")
+set(JupyROOTDirName "JupyROOT")
 install (DIRECTORY ${JupyROOTDirName} DESTINATION ${runtimedir})
-file(COPY ${JupyROOTDirName} DESTINATION ${CMAKE_BINARY_DIR}/${runtimedir})
+file(COPY ${JupyROOTDirName} DESTINATION ${localruntimedir})
+
+set( JsMVADirName "JsMVA")
+install (DIRECTORY ${JsMVADirName} DESTINATION ${runtimedir})
+file(COPY ${JsMVADirName} DESTINATION ${localruntimedir})
 
 #---Install headers----------------------------------------------------------
 ROOT_INSTALL_HEADERS()

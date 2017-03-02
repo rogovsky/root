@@ -1,5 +1,6 @@
 /// \file
 /// \ingroup tutorial_tree
+/// \notebook
 /// Illustrates how to retrieve  TTree variables in arrays.
 ///
 /// This example:
@@ -18,7 +19,7 @@
 /// with GetVal with a length corresponding to the parameter `fEstimate`.
 /// By default fEstimate=1000000 and can be modified
 /// via TTree::SetEstimate. To keep in memory all the results use:
-/// ~~~ {.cpp}
+/// ~~~{.cpp}
 ///   tree->SetEstimate(-1);
 /// ~~~
 /// SetEstimate should be called if the expected number of selected rows
@@ -55,15 +56,10 @@ void treegetval() {
    Int_t n = T->Draw("x:y:z:Run:Event:sin(x):cos(x)","Run==1","goff");
    printf("The arrays' dimension is %d\n",n);
 
-   // Retrieve variables 5 et 6
+   // Retrieve variables 0, 5 et 6
+   Double_t *vx  = T->GetVal(0);
    Double_t *vxs = T->GetVal(5);
    Double_t *vxc = T->GetVal(6);
-
-   // Draw with option goff and generate only one variable
-   T->Draw("x","Run==1","goff");
-
-   // Retrieve variable 0
-   Double_t *vx  = T->GetVal(0);
 
    // Create and draw graphs
    TGraph *gs = new TGraph(n,vx,vxs);

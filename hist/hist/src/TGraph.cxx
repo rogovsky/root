@@ -65,6 +65,7 @@ class. All details about the various painting options are given in this class.
     That’s why it did not have any title and name parameters in the constructors.
 
 The picture below gives an example:
+
 Begin_Macro(source)
 {
    TCanvas *c1 = new TCanvas("c1","A Simple Graph Example",200,10,700,500);
@@ -74,9 +75,8 @@ Begin_Macro(source)
      x[i] = i*0.1;
      y[i] = 10*sin(x[i]+0.2);
    }
-   gr = new TGraph(n,x,y);
+   TGraph* gr = new TGraph(n,x,y);
    gr->Draw("AC*");
-   return c1;
 }
 End_Macro
 */
@@ -551,10 +551,8 @@ Double_t** TGraph::AllocateArrays(Int_t Narrays, Int_t arraySize)
 
 void TGraph::Apply(TF1 *f)
 {
-   if (fHistogram) {
-      delete fHistogram;
-      fHistogram = 0;
-   }
+   if (fHistogram) SetBit(kResetHisto);
+
    for (Int_t i = 0; i < fNpoints; i++) {
       fY[i] = f->Eval(fX[i], fY[i]);
    }
@@ -777,6 +775,9 @@ void TGraph::Draw(Option_t *option)
    }
 
    AppendPad(opt);
+
+   gPad->IncrementPaletteColor(1, opt);
+
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1478,14 +1479,18 @@ TH1F *TGraph::GetHistogram() const
    // should not be returned.
    TH1F *historg = 0;
    if (fHistogram) {
-      if (gPad && gPad->GetLogx()) {
-         if (rwxmin <= 0 || fHistogram->GetXaxis()->GetXmin() != 0) return fHistogram;
-      } else if (gPad && gPad->GetLogy()) {
-         if (rwymin <= 0 || fHistogram->GetMinimum() != 0) return fHistogram;
+      if (!TestBit(kResetHisto)) {
+         if (gPad && gPad->GetLogx()) {
+            if (rwxmin <= 0 || fHistogram->GetXaxis()->GetXmin() != 0) return fHistogram;
+         } else if (gPad && gPad->GetLogy()) {
+            if (rwymin <= 0 || fHistogram->GetMinimum() != 0) return fHistogram;
+         } else {
+            return fHistogram;
+         }
       } else {
-         return fHistogram;
+         historg = fHistogram;
+         const_cast <TGraph*>(this)->ResetBit(kResetHisto);
       }
-      historg = fHistogram;
    }
 
    if (rwxmin == rwxmax) rwxmax += 1.;
@@ -2150,10 +2155,8 @@ void TGraph::SetMinimum(Double_t minimum)
 void TGraph::SetPoint(Int_t i, Double_t x, Double_t y)
 {
    if (i < 0) return;
-   if (fHistogram) {
-      delete fHistogram;
-      fHistogram = 0;
-   }
+   if (fHistogram) SetBit(kResetHisto);
+
    if (i >= fMaxSize) {
       Double_t **ps = ExpandAndCopy(i + 1, fNpoints);
       CopyAndRelease(ps, 0, 0, 0);

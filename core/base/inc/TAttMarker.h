@@ -13,12 +13,7 @@
 #define ROOT_TAttMarker
 
 
-#ifndef ROOT_Rtypes
 #include "Rtypes.h"
-#endif
-#ifndef ROOT_Riosfwd
-#include "Riosfwd.h"
-#endif
 
 
 class TAttMarker {

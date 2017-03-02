@@ -19,15 +19,14 @@ add_cling_library(clingMetaProcessor OBJECT
   MetaProcessor.cpp
   MetaSema.cpp
 
+  DEPENDS
+  ClangDriverOptions
+
   LINK_LIBS
   clangLex
   clangAST
   clangBasic
 
   clingInterpreter
+  clingUtils
 )
-
-if ( MSVC )
-  set_target_properties(clingMetaProcessor PROPERTIES
-  COMPILE_FLAGS "/D_HAS_EXCEPTIONS=0")
-endif ()

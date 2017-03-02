@@ -9,6 +9,9 @@ if(fortran)
     set(CMAKE_Fortran_COMPILER CMAKE_Fortran_COMPILER-NOTFOUND)
   endif()
   enable_language(Fortran OPTIONAL)
+  if(NOT CMAKE_Fortran_COMPILER)
+    set(CMAKE_Fortran_COMPILER_LOADED)   # FindBLAS/LAPACK tests CMAKE_Fortran_COMPILER_LOADED
+  endif()
 else()
   set(CMAKE_Fortran_COMPILER CMAKE_Fortran_COMPILER-NOTFOUND)
 endif()
@@ -29,6 +32,11 @@ if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
   string(REGEX REPLACE "^.*[ ]version[ ][0-9]+\\.([0-9]+).*" "\\1" CLANG_MINOR "${_clang_version_info}")
   message(STATUS "Found Clang. Major version ${CLANG_MAJOR}, minor version ${CLANG_MINOR}")
   set(COMPILER_VERSION clang${CLANG_MAJOR}${CLANG_MINOR})
+  if(ccache)
+    # https://bugzilla.samba.org/show_bug.cgi?id=8118 and color.
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Qunused-arguments -fcolor-diagnostics")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Qunused-arguments -fcolor-diagnostics")
+  endif()
 else()
   set(CLANG_MAJOR 0)
   set(CLANG_MINOR 0)
@@ -126,14 +134,41 @@ if(cxxmodules)
                              int main() { assert(this code is not compiled); }"
                              CXX_SUPPORTS_MODULES)
   set(CMAKE_REQUIRED_FLAGS ${OLD_CMAKE_REQUIRED_FLAGS})
-  if (CXX_SUPPORTS_MODULES)
-    file(COPY ${CMAKE_SOURCE_DIR}/build/unix/module.modulemap DESTINATION ${ROOT_INCLUDE_DIR})
+  if(CXX_SUPPORTS_MODULES)
+    set(ROOT_CXXMODULES_COMMONFLAGS "-fmodules -fmodules-cache-path=${CMAKE_BINARY_DIR}/include/pcms/ -fno-autolink -fdiagnostics-show-note-include-stack -Rmodule-build")
+    if (APPLE)
+      # FIXME: TGLIncludes and alike depend on glew.h doing special preprocessor
+      # trickery to override the contents of system's OpenGL.
+      # On OSX #include TGLIncludes.h will trigger the creation of the system
+      # OpenGL.pcm. Once it is built, glew cannot use preprocessor trickery to 'fix'
+      # the translation units which it needs to 'rewrite'. The translation units
+      # which need glew support are in graf3d. However, depending on the modulemap
+      # organization we could request it implicitly (eg. one big module for ROOT).
+      # In these cases we need to 'prepend' this include path to the compiler in order
+      # for glew.h to it its trick.
+      #set(ROOT_CXXMODULES_COMMONFLAGS "${ROOT_CXXMODULES_COMMONFLAGS} -isystem ${CMAKE_SOURCE_DIR}/graf3d/glew/isystem"
 
-    # This var is useful when we want to compile things without cxxmodules.
-    set(ROOT_CXXMODULES_CXXFLAGS "-fmodules -fcxx-modules -Xclang -fmodules-local-submodule-visibility -fmodules-cache-path=${CMAKE_BINARY_DIR}/include/pcms/")
-    set(ROOT_CXXMODULES_CFLAGS "-fmodules -fmodules-cache-path=${CMAKE_BINARY_DIR}/include/pcms/")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${ROOT_CXXMODULES_FLAGS}")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${ROOT_CXXMODULES_FLAGS}")
+      # Workaround the issue described above by not picking up the system module
+      # maps. In this way we can use the -fmodules-local-submodule-visibility
+      # flag.
+      set(ROOT_CXXMODULES_COMMONFLAGS "${ROOT_CXXMODULES_COMMONFLAGS} -fno-implicit-module-maps -fmodule-map-file=${CMAKE_BINARY_DIR}/include/module.modulemap")
+    endif(APPLE)
+
+    # Provide our own modulemap for implementations other than libcxx.
+    if (NOT libcxx)
+      # Write a empty overlay file to the output directory that CMake can run its compiler tests.
+      # We will create the actual overlay later in the configuration.
+      file(WRITE ${CMAKE_BINARY_DIR}/include/modulemap.overlay.yaml "{'version' : 0, 'roots' : []}")
+      set(__vfs_overlay "-ivfsoverlay ${CMAKE_BINARY_DIR}/include/modulemap.overlay.yaml")
+      set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${__vfs_overlay}")
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${__vfs_overlay}")
+    endif()
+
+    # These vars are useful when we want to compile things without cxxmodules.
+    set(ROOT_CXXMODULES_CXXFLAGS "${ROOT_CXXMODULES_COMMONFLAGS} -fcxx-modules -Xclang -fmodules-local-submodule-visibility" CACHE STRING "Useful to filter out the modules-related cxxflags.")
+    set(ROOT_CXXMODULES_CFLAGS "${ROOT_CXXMODULES_COMMONFLAGS}" CACHE STRING "Useful to filter out the modules-related cflags.")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${ROOT_CXXMODULES_CFLAGS}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${ROOT_CXXMODULES_CXXFLAGS}")
   else()
     message(FATAL_ERROR "cxxmodules is not supported by this compiler")
   endif()
@@ -161,19 +196,13 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${CMAKE_THREAD_FLAG}")
 
 if(cxx11)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-  if(CMAKE_COMPILER_IS_GNUCXX)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations")
-  endif()
-  if(${CMAKE_CXX_COMPILER_ID} STREQUAL Clang)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations -Wc++11-narrowing -Wsign-compare -Wsometimes-uninitialized -Wconditional-uninitialized -Wheader-guard -Warray-bounds -Wcomment -Wtautological-compare -Wstrncat-size -Wloop-analysis -Wbool-conversion")
+  if(${CMAKE_CXX_COMPILER_ID} MATCHES Clang)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wc++11-narrowing -Wsign-compare -Wsometimes-uninitialized -Wconditional-uninitialized -Wheader-guard -Warray-bounds -Wcomment -Wtautological-compare -Wstrncat-size -Wloop-analysis -Wbool-conversion")
   endif()
 endif()
 
 if(cxx14)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14")
-  if(CMAKE_COMPILER_IS_GNUCXX)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations")
-  endif()
 endif()
 
 if(libcxx)

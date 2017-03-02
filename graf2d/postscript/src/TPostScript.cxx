@@ -1568,12 +1568,7 @@ void TPostScript::FontEmbed(void)
 
    // try to load font (font must be in Root.TTFontPath resource)
    const char *ttpath = gEnv->GetValue("Root.TTFontPath",
-#ifdef TTFFONTDIR
-                                       TTFFONTDIR
-#else // TTFFONTDIR
-                                       "$(ROOTSYS)/fonts"
-#endif // TTFFONTDIR
-                                       );
+                                       TROOT::GetTTFFontDir());
 
    for (Int_t fontid = 1; fontid < 30; fontid++) {
       if (fontid != 15 && MustEmbed[fontid-1]) {
@@ -1813,12 +1808,15 @@ void TPostScript::Initialize()
          case 100 :
             width  = (11.*2.54)-2.*rpxmin;
             heigth = (8.5*2.54)-2.*rpymin;
+            break;
          case 200 :
             width  = (14.*2.54)-2.*rpxmin;
             heigth = (8.5*2.54)-2.*rpymin;
+            break;
          case 300 :
             width  = (17.*2.54)-2.*rpxmin;
             heigth = (11.*2.54)-2.*rpymin;
+            break;
          default  :
             width  = 29.7-2.*rpxmin;
             heigth = 21-2.*rpymin;
@@ -1842,12 +1840,15 @@ void TPostScript::Initialize()
          case 100 :
             width  = (8.5*2.54)-2.*rpxmin;
             heigth = (11.*2.54)-2.*rpymin;
+            break;
          case 200 :
             width  = (8.5*2.54)-2.*rpxmin;
             heigth = (14.*2.54)-2.*rpymin;
+            break;
          case 300 :
             width  = (11.*2.54)-2.*rpxmin;
             heigth = (17.*2.54)-2.*rpymin;
+            break;
          default  :
             width  = (21.0-2*rpxmin);
             heigth = (29.7-2.*rpymin);
@@ -1862,12 +1863,15 @@ void TPostScript::Initialize()
          case 100 :
             width  = (11.*2.54)-2.*rpxmin;
             heigth = (8.5*2.54)-2.*rpymin;
+            break;
          case 200 :
             width  = (14.*2.54)-2.*rpxmin;
             heigth = (8.5*2.54)-2.*rpymin;
+            break;
          case 300 :
             width  = (17.*2.54)-2.*rpxmin;
             heigth = (11.*2.54)-2.*rpymin;
+            break;
          default  :
             width  = (29.7-2*rpxmin);
             heigth = (21-2.*rpymin);
@@ -2419,7 +2423,7 @@ void TPostScript::SetLineColor( Color_t cindex )
 ///
 /// To change the line join behaviour just do:
 /// ~~~ {.cpp}
-/// gStyle->SetLineJoinPS(2); // Set the PS line join to bevel.
+/// gStyle->SetJoinLinePS(2); // Set the PS line join to bevel.
 /// ~~~
 
 void TPostScript::SetLineJoin( Int_t linejoin )

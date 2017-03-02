@@ -53,19 +53,11 @@
 #include <string>
 #include <vector>
 #include <map>
-#ifndef ROOT_TCut
 #include "TCut.h"
-#endif
 
-#ifndef ROOT_TMVA_Configurable
 #include "TMVA/Configurable.h"
-#endif
-#ifndef ROOT_TMVA_Types
 #include "TMVA/Types.h"
-#endif
-#ifndef ROOT_TMVA_DataSet
 #include "TMVA/DataSet.h"
-#endif
 
 class TFile;
 class TTree;
@@ -128,9 +120,6 @@ namespace TMVA {
       void EvaluateAllVariables(DataLoader *loader, TString options = "" ); 
   
       TH1F* EvaluateImportance( DataLoader *loader,VIType vitype, Types::EMVA theMethod,  TString methodTitle, const char *theOption = "" );
-
-      float CrossValidate(DataLoader *loader, Types::EMVA theMethod,  TString methodTitle, const char *theOption = "", bool optParams = false, int NumFolds = 5, bool remakeDataSet = true, float *
-      rocIntegrals = nullptr);
 
       // delete all methods and reset the method vector
       void DeleteAllMethods( void );

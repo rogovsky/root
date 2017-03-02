@@ -10,14 +10,16 @@
 #ifndef CLING_INCREMENTAL_EXECUTOR_H
 #define CLING_INCREMENTAL_EXECUTOR_H
 
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringRef.h"
-#include "llvm/ADT/StringRef.h"
-
 #include "IncrementalJIT.h"
+#include "BackendPasses.h"
 
 #include "cling/Interpreter/Transaction.h"
 #include "cling/Interpreter/Value.h"
+#include "cling/Utils/Casting.h"
+
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/StringRef.h"
 
 #include <vector>
 #include <set>
@@ -28,6 +30,7 @@
 namespace clang {
   class DiagnosticsEngine;
   class CodeGenOptions;
+  class CompilerInstance;
 }
 
 namespace llvm {
@@ -37,8 +40,8 @@ namespace llvm {
 }
 
 namespace cling {
-  class Value;
   class IncrementalJIT;
+  class Value;
 
   class IncrementalExecutor {
   public:
@@ -48,6 +51,9 @@ namespace cling {
     ///\brief Our JIT interface.
     ///
     std::unique_ptr<IncrementalJIT> m_JIT;
+
+    // optimizer etc passes
+    std::unique_ptr<BackendPasses> m_BackendPasses;
 
     ///\brier A pointer to the IncrementalExecutor of the parent Interpreter.
     ///
@@ -109,10 +115,6 @@ namespace cling {
     ///
     AtExitFunctions m_AtExitFuncs;
 
-    ///\brief Module for which registration of static destructors currently
-    /// takes place.
-    llvm::Module* m_CurrentAtExitModule;
-
     ///\brief Modules to emit upon the next call to the JIT.
     ///
     std::vector<llvm::Module*> m_ModulesToJIT;
@@ -132,8 +134,6 @@ namespace cling {
     clang::DiagnosticsEngine& m_Diags;
 #endif
 
-    std::unique_ptr<llvm::TargetMachine>
-       CreateHostTargetMachine(const clang::CodeGenOptions& CGOpt) const;
 
   public:
     enum ExecutionResult {
@@ -144,7 +144,7 @@ namespace cling {
     };
 
     IncrementalExecutor(clang::DiagnosticsEngine& diags,
-                        const clang::CodeGenOptions& CGOpt);
+                        const clang::CompilerInstance& CI);
 
     ~IncrementalExecutor();
 
@@ -203,17 +203,22 @@ namespace cling {
     /// Allows runtime declaration of a function passing its pointer for being
     /// used by JIT generated code.
     ///
-    /// @param[in] symbolName - The name of the symbol as required by the
+    /// @param[in] Name - The name of the symbol as required by the
     ///                         linker (mangled if needed)
-    /// @param[in] symbolAddress - The function pointer to register
+    /// @param[in] Address - The function pointer to register
+    /// @param[in] JIT - Add to the JIT injected symbol table
     /// @returns true if the symbol is successfully registered, false otherwise.
     ///
-    bool addSymbol(const char* symbolName,  void* symbolAddress);
+    bool addSymbol(const char* Name, void* Address, bool JIT = false);
 
     ///\brief Add a llvm::Module to the JIT.
     ///
     /// @param[in] module - The module to pass to the execution engine.
-    void addModule(llvm::Module* module) { m_ModulesToJIT.push_back(module); }
+    void addModule(llvm::Module* module) {
+      if (m_BackendPasses)
+        m_BackendPasses->runOnModule(*module);
+      m_ModulesToJIT.push_back(module);
+    }
 
     ///\brief Tells the execution context that we are shutting down the system.
     ///
@@ -242,7 +247,7 @@ namespace cling {
 
     ///\brief Keep track of the entities whose dtor we need to call.
     ///
-    void AddAtExitFunc(void (*func) (void*), void* arg);
+    void AddAtExitFunc(void (*func) (void*), void* arg, llvm::Module* M);
 
     ///\brief Try to resolve a symbol through our LazyFunctionCreators;
     /// print an error message if that fails.
@@ -270,20 +275,13 @@ namespace cling {
 
     template <class T>
     ExecutionResult executeInitOrWrapper(llvm::StringRef funcname, T& fun) {
-      union {
-        T fun;
-        void* address;
-      } p2f;
-      p2f.address = (void*)m_JIT->getSymbolAddress(funcname,
-                                                   false /*no dlsym*/);
+      fun = utils::UIntToFunctionPtr<T>(m_JIT->getSymbolAddress(funcname,
+                                                              false /*dlsym*/));
 
       // check if there is any unresolved symbol in the list
-      if (diagnoseUnresolvedSymbols(funcname, "function") || !p2f.address) {
-        fun = 0;
+      if (diagnoseUnresolvedSymbols(funcname, "function") || !fun)
         return IncrementalExecutor::kExeUnresolvedSymbols;
-      }
 
-      fun = p2f.fun;
       return IncrementalExecutor::kExeSuccess;
     }
   };

@@ -65,7 +65,6 @@
 #include "TImage.h"
 #include "TCandle.h"
 
-////////////////////////////////////////////////////////////////////////////////
 /*! \class THistPainter
 \ingroup Histpainter
 \brief The histogram painter class. Implements all histograms' drawing's options.
@@ -83,6 +82,7 @@
 - [Giving titles to the X, Y and Z axis](#HP05)
 - [The option "SAME"](#HP060)
    - [Limitations](#HP060a)
+- [Colors automatically picked in palette](#HP061)
 - [Superimposing two histograms with different scales in the same pad](#HP06)
 - [Statistics Display](#HP07)
 - [Fit Statistics](#HP08)
@@ -93,8 +93,9 @@
 - [The ARRow option](#HP12)
 - [The BOX option](#HP13)
 - [The COLor option](#HP14)
-- [The CANDLE option](#HP140)
-- [The VIOLIN option](#HP141)
+- [The CANDLE and VIOLIN options](#HP140)
+   - [The CANDLE option](#HP140a)
+   - [The VIOLIN option](#HP140b)
 - [The TEXT and TEXTnn Option](#HP15)
 - [The CONTour options](#HP16)
    - [The LIST option](#HP16a)
@@ -220,6 +221,9 @@ using `TH1::GetOption`:
 | <a name="OPTHIST">"HIST"</a>   | When an histogram has errors it is visualized by default with error bars. To visualize it without errors use the option "HIST" together with the required option (eg "hist same c").  The "HIST" option can also be used to plot only the histogram and not the associated function(s). |
 | "FUNC"   | When an histogram has a fitted function, this option allows to draw the fit result only. |
 | "SAME"   | Superimpose on previous picture in the same pad. |
+| "PFC"    | Palette Fill Color: histogram's fill color is taken in the current palette. |
+| "PLC"    | Palette Line Color: histogram's line color is taken in the current palette. |
+| "PMC"    | Palette Marker Color: histogram's marker color is taken in the current palette. |
 | "LEGO"   | Draw a lego plot with hidden line removal. |
 | "LEGO1"  | Draw a lego plot with hidden surface removal. |
 | "LEGO2"  | Draw a lego plot using colors to show the cell contents When the option "0" is used with any LEGO option, the empty bins are not drawn.|
@@ -272,9 +276,13 @@ using `TH1::GetOption`:
 | "CANDLE"  | Draw a candle plot along X axis.|
 | "CANDLEX" | Same as "CANDLE".|
 | "CANDLEY" | Draw a candle plot along Y axis.|
+| "CANDLEXn"| Draw a candle plot along X axis. Different candle-styles with n from 1 to 6.|
+| "CANDLEYn"| Draw a candle plot along Y axis. Different candle-styles with n from 1 to 6.|
 | "VIOLIN"  | Draw a violin plot along X axis.|
 | "VIOLINX" | Same as "VIOLIN".|
 | "VIOLINY" | Draw a violin plot along Y axis.|
+| "VIOLINXn"| Draw a violin plot along X axis. Different violin-styles with n being 1 or 2.|
+| "VIOLINYn"| Draw a violin plot along Y axis. Different violin-styles with n being 1 or 2.|
 | "CONT"    | Draw a contour plot (same as CONT0).|
 | "CONT0"   | Draw a contour plot using surface colors to distinguish contours.|
 | "CONT1"   | Draw a contour plot using line styles to distinguish contours.|
@@ -306,7 +314,10 @@ using `TH1::GetOption`:
 |----------|-------------------------------------------------------------------|
 | " "      | Default (scatter plot).|
 | "ISO"    | Draw a Gouraud shaded 3d iso surface through a 3d histogram. It paints one surface at the value computed as follow: `SumOfWeights/(NbinsX*NbinsY*NbinsZ)`.|
-| "BOX"    | Draw a for each cell with volume proportional to the content's absolute value.|
+| "BOX"    | Draw a for each cell with volume proportional to the content's absolute value. An hidden line removal algorithm is used|
+| "BOX1"   | Same as BOX but an hidden surface removal algorithm is used|
+| "BOX2"   | The boxes' colors are picked in the current palette according to the bins' contents|
+| "BOX3"   | Same as BOX1, but the border lines of each lego-bar are not drawn.|
 | "LEGO"   | Same as `BOX`.|
 
 
@@ -318,6 +329,9 @@ using `TH1::GetOption`:
 | "NOSTACK"  | Histograms in the stack are all paint in the same pad as if the option `SAME` had been specified.|
 | "NOSTACKB" | Histograms are  drawn next to each other as bar charts.|
 | "PADS"     | The current pad/canvas is subdivided into a number of pads equal to the number of histograms in the stack and each histogram is paint into a separate pad.|
+| "PFC"      | Palette Fill Color: stack's fill color is taken in the current palette. |
+| "PLC"      | Palette Line Color: stack's line color is taken in the current palette. |
+| "PMC"      | Palette Marker Color: stack's marker color is taken in the current palette. |
 
 
 
@@ -368,7 +382,6 @@ the histograms by calling:
     gPad->RedrawAxis();
 
 
-
 ### <a name="HP05"></a> Giving titles to the X, Y and Z axis
 
 
@@ -397,6 +410,32 @@ some combinations must be use with care.
   ranges on the X, Y and Z axis as the currently drawn histogram. To superimpose
   lego plots [histograms' stacks](#HP26) should be used.</li>
 
+
+### <a name="HP061"></a> Colors automatically picked in palette
+
+\since **ROOT version 6.09/01**
+
+When several histograms are painted in the same canvas thanks to the option "SAME"
+or via a `THStack` it might be useful to have an easy and automatic way to choose
+their color. The simplest way is to pick colors in the current active color
+palette. Palette coloring for histogram is activated thanks to the options `PFC`
+(Palette Fill Color), `PLC` (Palette Line Color) and `AMC` (Palette Marker Color).
+When one of these options is given to `TH1::Draw` the histogram get its color
+from the current color palette defined by `gStyle->SetPalette(…)`. The color
+is determined according to the number of objects having palette coloring in
+the current pad.
+
+Begin_Macro(source)
+../../../tutorials/hist/histpalettecolor.C
+End_Macro
+
+Begin_Macro(source)
+../../../tutorials/hist/thstackpalettecolor.C
+End_Macro
+
+Begin_Macro(source)
+../../../tutorials/hist/thstack2palettecolor.C
+End_Macro
 
 ### <a name="HP06"></a> Superimposing two histograms with different scales in the same pad
 
@@ -820,7 +859,7 @@ End_Macro
 
 For each cell (i,j) a box is drawn. The size (surface) of the box is
 proportional to the absolute value of the cell content.
-The cells with a negative content draw with a `X` on top of the boxes.
+The cells with a negative content are drawn with a `X` on top of the box.
 
 Begin_Macro(source)
 {
@@ -1006,6 +1045,35 @@ Begin_Macro(source)
 }
 End_Macro
 
+\since **ROOT version 6.09/01:**
+When the option SAME (or "SAMES") is used with the option COL, the boxes' color
+are computing taking the previous plots into account. The range along the Z axis
+is imposed by the first plot (the one without option SAME); therefore the order
+in which the plots are done is relevant.
+
+Begin_Macro(source)
+{
+   c = new TCanvas("c","Example of col plots with option SAME",200,10,700,500);
+   TH2F *h1 = new TH2F("h1","h1",40,-3,3,40,-3,3);
+   TH2F *h2 = new TH2F("h2","h2",40,-3,3,40,-3,3);
+   TH2F *h3 = new TH2F("h3","h3",40,-3,3,40,-3,3);
+   TH2F *h4 = new TH2F("h4","h4",40,-3,3,40,-3,3);
+   h1->SetBit(TH1::kNoStats);
+   for (Int_t i=0;i<5000;i++) {
+      double x,y;
+      gRandom->Rannor(x,y);
+      if(x>0 && y>0) h1->Fill(x,y,4);
+      if(x<0 && y<0) h2->Fill(x,y,3);
+      if(x>0 && y<0) h3->Fill(x,y,2);
+      if(x<0 && y>0) h4->Fill(x,y,1);
+   }
+   h1->Draw("colz");
+   h2->Draw("col same");
+   h3->Draw("col same");
+   h4->Draw("col same");
+}
+End_Macro
+
 The option `COL` can be combined with the option `POL`:
 
 Begin_Macro(source)
@@ -1046,8 +1114,71 @@ and COLZ options. There is one major difference and that concerns the treatment 
 bins with zero content. The COL2 and COLZ2 options color these bins the color of zero.
 
 
-### <a name="HP140"></a> The CANDLE option
+### <a name="HP140"></a> The CANDLE and VIOLIN options
 
+The mechanism behind Candle plots and Violin plots is very similar. Because of this they are
+implemented in the same class TCandle. The keywords CANDLE or VIOLIN will initiate the drawing of
+the corresponding plots. Followed by the keyword the user can select a plot direction (X or V for
+vertical projections, or Y or H for horizontal projections) and/or predefined definitions
+(1-6 for candles, 1-2 for violins). The order doesn't matter. Default is X and 1.
+
+Instead of using the predefined representations, the candle and violin parameters can be
+changed individually. In that case the option have the following form:
+
+    CANDLEX(<option-string>)
+    CANDLEY(<option-string>)
+    VIOLINX(<option-string>)
+    VIOLINY(<option-string>).
+
+All zeros at the beginning of `option-string` can be omitted.
+
+`option-string` consists eight values, defined as follow:
+
+    "CANDLEX(zhpawMmb)"
+
+Where:
+
+  -  `b = 0`;  no box drawn
+  -  `b = 1`;  the box is drawn. As the candle-plot is also called a box-plot it
+               makes sense in the very most cases to always draw the box
+  -  `b = 2`;  draw a filled box with border
+
+  -  `m = 0`;  no median drawn
+  -  `m = 1`;  median is drawn as a line
+  -  `m = 2`;  median is drawn with errors (notches)
+  -  `m = 3`;  median is drawn as a circle
+
+  -  `M = 0`;  no mean drawn
+  -  `M = 1`;  mean is drawn as a dashed line
+  -  `M = 3`;  mean is drawn as a circle
+
+  -  `w = 0`;  no whisker drawn
+  -  `w = 1`;  whisker is drawn to end of distribution.
+  -  `w = 2`;  whisker is drawn to max 1.5*iqr
+
+  -  `a = 0`;  no anchor drawn
+  -  `a = 1`;  the anchors are drawn
+
+  -  `p = 0`;  no points drawn
+  -  `p = 1`;  only outliers are drawn
+  -  `p = 2`;  all datapoints are drawn
+  -  `p = 3`:  all datapoints are drawn scattered
+
+  -  `h = 0`;  no histogram is drawn
+  -  `h = 1`;  histogram at the left or bottom side is drawn
+  -  `h = 2`;  histogram at the right or top side is drawn
+  -  `h = 3`;  histogram at left and right or top and bottom (violin-style) is drawn
+
+  -  `z = 0`;  no zero indicator line is drawn
+  -  `z = 1`;  zero indicator line is drawn.
+
+As one can see all individual options for both candle and violin plots can be accessed by this
+mechanism. In deed the keywords CANDLE(<option-string>) and VIOLIN(<option-string>) have the same
+meaning. So you can parametrise an option-string for a candle plot and use the keywords VIOLIN and
+vice versa, if you wish.
+
+
+#### <a name="HP140a"></a> The CANDLE option
 
 <a href="http://en.wikipedia.org/wiki/Box_plot">A Candle plot</a> (also known as
 a "box plot" or "whisker plot") was invented in 1977 by John Tukey. It is a convenient
@@ -1061,9 +1192,9 @@ way to describe graphically a data distribution (D) with only five numbers:
 
 In this implementation a TH2 is considered as a collection of TH1 along
 X (option `CANDLE` or `CANDLEX`) or Y (option `CANDLEY`).
-Each TH1 is represented as a candle plot.
+Each TH1 is represented as one candle.
 
-Begin_Macro
+Begin_Macro(source)
 ../../../tutorials/hist/candleplotwhiskers.C
 End_Macro
 
@@ -1204,6 +1335,10 @@ Depending on the configuration the points can have different meanings:
     drawn as dots and will be scattered within the width of the candle. The color
     of the points will be the color of the candle-chart.
 
+##### Other Options
+Is is possible to combine all options of candle and violin plots with each other. E.g. a box-plot
+with a histogram.
+
 
 #### How to use the candle-plots drawing option
 
@@ -1222,16 +1357,6 @@ There are six predefined candle-plot representations:
   - "CANDLEX6": Like candle2 but showing all datapoints scattered.
                 For huge datasets
 
-Of course "CANDLEY" works as well. X shows vertical candles, Y shows
-horizontal candles
-
-The option "CANDLE" is equivalent to "CANDLE1X" or "CANDLEX".
-
-The option "CANDLEY" is equivalent to "CANDLEY1"
-
-There is no difference between options "CANDLE1X" and "CANDLEX1".
-
-Instead of "X" or "Y" one can use "V" or "H"
 
 The following picture shows how the six predefined representations look.
 
@@ -1258,51 +1383,7 @@ Begin_Macro
 }
 End_Macro
 
-Instead of using the predefined representations, the candle parameters can be
-changed individually. In that case the option has the following form:
 
-    CANDLEX(<option-string>)
-
-or
-
-    CANDLEY(<option-string>).
-
-All zeros at the beginning of `option-string` can be omitted.
-
-`option-string` consists six values, defined as follow:
-
-    "CANDLEX(pawMmb)"
-
-Where:
-
-  -  `b = 0`;  no box drawn
-  -  `b = 1`;  the box is drawn. As the candle-plot is also called a box-plot it
-               makes sense in the very most cases to always draw the box.
-     `b = 2`; draw a filled box with border.
-
-  -  `m = 0`;  no median drawn
-  -  `m = 1`;  median is drawn as a line
-  -  `m = 2`;  median is drawn with errors (notches)
-  -  `m = 3`;  median is drawn as a circle
-
-  -  `M = 0`;  no mean drawn
-  -  `M = 1`;  mean is drawn as a dashed line
-  -  `M = 3`;  mean is drawn as a circle
-
-  -  `w = 0`;  no whisker drawn
-  -  `w = 1`;  whisker is drawn to end of distribution.
-  -  `w = 2`;  whisker is drawn to max 1.5*iqr
-
-  -  `a = 0`;  no anchor drawn
-  -  `a = 1`;  the anchors are drawn
-
-  -  `p = 0`;  no points drawn
-  -  `p = 1`;  only outliers are drawn
-  -  `p = 2`;  all datapoints are drawn
-  -  `p = 3`:  all datapoints are drawn scattered
-
-The values on the left of `option-string` are in the middle of the candle,
-the values on the right of `option-string` are in the outer part of the candle.
 
 #### Example 1
 Box and improved whisker, no mean, no median, no anchor no outliers
@@ -1324,8 +1405,7 @@ Begin_Macro(source)
 ../../../tutorials/hist/candleplot.C
 End_Macro
 
-### <a name="HP141"></a> The VIOLIN option
-
+#### <a name="HP140b"></a> The VIOLIN option
 
 <a href="http://en.wikipedia.org/wiki/Violin_plot">A violin plot</a> is a candle plot
 that also encodes the pdf information at each point.
@@ -1336,6 +1416,47 @@ and two lines.
 
 In this implementation a TH2 is considered as a collection of TH1 along
 X (option `VIOLIN` or `VIOLINX`) or Y (option `VIOLINY`).
+
+#### What a violin is made of
+
+\since **ROOT version 6.09/02**
+
+##### The histogram
+The histogram is typically drawn to both directions with respect to the middle-line of the
+corresponding bin. This can be achieved by using h=3. It is possible to draw a histogram only to
+one side (h=1, or h=2).
+The maximum number of bins in the histogram is limited to 500, if the number of bins in the used
+histogram is higher it will be rebinned automatically. The maximum height of the histogram can
+be modified by using SetBarWidth() and the position can be changed with SetBarOffset().
+A solid fill style is recommended.
+
+##### The zero indicator line
+Typical for violin charts is a line in the background over the whole histogram indicating
+the bins with zero entries. The zero indicator line can be activated with z=1. The line color
+will always be the same as the fill-color of the histogram.
+
+##### The Mean
+The Mean is illustrated with the same mechanism as used for candle plots. Usually a circle is used.
+
+##### Whiskers
+The whiskers are illustrated by the same mechanism as used for candle plots. There is only one
+difference. When using the simple whisker definition (w=1) and the zero indicator line (z=1), then
+the whiskers will be forced to be solid (usually hashed)
+
+##### Points
+The points are illustrated by the same mechanism as used for candle plots. E.g. VIOLIN2 uses
+better whisker definition (w=2) and outliers (p=1).
+
+##### Other options
+It is possible to combine all options of candle or violin plots with each other. E.g. a violin plot
+including a box-plot.
+
+#### How to use the violin-plots drawing option
+
+There are two predefined violin-plot representations:
+  - "VIOLINX1": Standard violin (histogram, mean, whisker over full distribution,
+                zero indicator line)
+  - "VIOLINX2": Line VIOLINX1 both with better whisker definition + outliers.
 
 A solid fill style is recommended for this plot (as opposed to a hollow or
 hashed style).
@@ -1366,6 +1487,12 @@ Begin_Macro(source)
 }
 End_Macro
 
+The next example illustrates a time development of a certain value:
+
+Begin_Macro(source)
+../../../tutorials/hist/candledecay.C
+End_Macro
+
 
 ### <a name="HP15"></a> The TEXT and TEXTnn Option
 
@@ -1385,7 +1512,7 @@ It is also possible to use `TEXTnn` in order to draw the text with
 the angle `nn` (`0 < nn < 90`).
 
 For 2D histograms the text is plotted in the center of each non empty cells.
-It is possible to plot empty cells by calling gStyle->SetHistMinimumZero().
+It is possible to plot empty cells by calling `gStyle->SetHistMinimumZero()`.
 For 1D histogram the text is plotted at a y position equal to the bin content.
 
 For 2D histograms when the option "E" (errors) is combined with the option
@@ -1400,7 +1527,7 @@ Begin_Macro(source)
    Float_t px, py;
    for (Int_t i = 0; i < 25000; i++) {
       gRandom->Rannor(px,py);
-        htext1->Fill(px,0.1);
+      htext1->Fill(px,0.1);
       htext2->Fill(px,5*py,0.1);
    }
    gStyle->SetPaintTextFormat("4.1f m");
@@ -1411,6 +1538,38 @@ Begin_Macro(source)
    htext1->Draw();
    htext1->Draw("HIST TEXT0 SAME");
    return c01;
+}
+End_Macro
+
+\since **ROOT version 6.07/07:**
+In case several histograms are drawn on top ot each other (using option `SAME`),
+the text can be shifted using `SetBarOffset()`. It specifies an offset for the
+text position in each cell, in percentage of the bin width.
+
+Begin_Macro(source)
+{
+   TCanvas *c03 = new TCanvas("c03","c03",700,400);
+   gStyle->SetOptStat(0);
+   TH2F *htext3 = new TH2F("htext3","Several 2D histograms drawn with option TEXT",10,-4,4,10,-20,20);
+   TH2F *htext4 = new TH2F("htext4","htext4",10,-4,4,10,-20,20);
+   TH2F *htext5 = new TH2F("htext5","htext5",10,-4,4,10,-20,20);
+   Float_t px, py;
+   for (Int_t i = 0; i < 25000; i++) {
+      gRandom->Rannor(px,py);
+      htext3->Fill(4*px,20*py,0.1);
+      htext4->Fill(4*px,20*py,0.5);
+      htext5->Fill(4*px,20*py,1.0);
+   }
+   //gStyle->SetPaintTextFormat("4.1f m");
+   htext4->SetMarkerSize(1.8);
+   htext5->SetMarkerSize(1.8);
+   htext5->SetMarkerColor(kRed);
+   htext3->Draw("COL");
+   htext4->SetBarOffset(0.2);
+   htext4->Draw("TEXT SAME");
+   htext5->SetBarOffset(-0.2);
+   htext5->Draw("TEXT SAME");
+   return c03;
 }
 End_Macro
 
@@ -1699,7 +1858,7 @@ Begin_Macro(source)
    hlego3->SetFillColor(kRed);
    hlego3->Draw("LEGO3");
    return c2;
- }
+}
 End_Macro
 
 The following example shows a 2D histogram plotted with the option
@@ -2080,8 +2239,9 @@ The following options are supported:
 | Option   | Description                                                       |
 |----------|-------------------------------------------------------------------|
 | "SCAT"   | Draw a scatter plot (default).|
-| "COL"    | Draw a color plot. All the none empty bins are painted. Empty bins are not painted.|
+| "COL"    | Draw a color plot. All the bins are painted even the empty bins.|
 | "COLZ"   | Same as "COL". In addition the color palette is also drawn.|
+| "0"      | When used with any COL options, the empty bins are not drawn.|
 | "TEXT"   | Draw bin contents as text (format set via `gStyle->SetPaintTextFormat`).|
 | "TEXTN"  | Draw bin names as text.|
 | "TEXTnn" | Draw bin contents as text at angle nn (0 < nn < 90).|
@@ -2120,7 +2280,6 @@ Begin_Macro(source)
    h2p->FillN(4, fx, fy, fw);
    gStyle->SetPalette(kBird);
    h2p->Draw("col");
-   return ch2p1;
 }
 End_Macro
 
@@ -2190,12 +2349,30 @@ Begin_Macro(source)
    gStyle->SetOptStat(11);
    gStyle->SetPalette(kBird);
    p->Draw("COLZ L");
-   return ch2p2;
 }
 End_Macro
 
 `TH2Poly` histograms can also be plotted using the GL interface using
 the option "GLLEGO".
+
+\since **ROOT version 6.09/01**
+
+In some cases it can be useful to not draw the empty bins. the option "0"
+combined with the option "COL" et COLZ allows to do that.
+
+Begin_Macro(source)
+{
+   TCanvas *chc = new TCanvas("chc","chc",600,400);
+
+   TH2Poly *hc = new TH2Poly();
+   hc->Honeycomb(0,0,.1,25,25);
+   hc->SetName("hc");
+   hc->SetTitle("Option COLZ 0");
+   TRandom ran;
+   for (int i = 0; i<300; i++) hc->Fill(ran.Gaus(2.,1), ran.Gaus(2.,1));
+   hc->Draw("colz 0");
+}
+End_Macro
 
 ### <a name="HP21"></a> The SPEC option
 
@@ -2296,9 +2473,12 @@ End_Macro
 | Option   | Description                                                       |
 |----------|-------------------------------------------------------------------|
 | "ISO"    | Draw a Gouraud shaded 3d iso surface through a 3d histogram. It paints one surface at the value computed as follow: `SumOfWeights/(NbinsX*NbinsY*NbinsZ)`|
-| "BOX"    | Draw a for each cell with volume proportional to the content's absolute value.|
+| "BOX"    | Draw a for each cell with volume proportional to the content's absolute value. An hidden line removal algorithm is used|
+| "BOX1"   | Same as BOX but an hidden surface removal algorithm is used|
+| "BOX2"   | The boxes' colors are picked in the current palette according to the bins' contents|
+| "BOX3"   | Same as BOX1, but the border lines of each lego-bar are not drawn.|
 
-
+Note that instead of `BOX` one can also use `LEGO`.
 
 By default, like 2D histograms, 3D histograms are drawn as scatter plots.
 
@@ -2306,9 +2486,9 @@ The following example shows a 3D histogram plotted as a scatter plot.
 
 Begin_Macro(source)
 {
-   TCanvas *c06 = new TCanvas("c06","c06",600,400);
+   auto c06 = new TCanvas("c06","c06",600,400);
    gStyle->SetOptStat(kFALSE);
-   TH3F *h3scat = new TH3F("h3scat","Option SCAT (default) ",15,-2,2,15,-2,2,15,0,4);
+   auto h3scat = new TH3F("h3scat","Option SCAT (default) ",15,-2,2,15,-2,2,15,0,4);
    Double_t x, y, z;
    for (Int_t i=0;i<10000;i++) {
       gRandom->Rannor(x, y);
@@ -2316,7 +2496,6 @@ Begin_Macro(source)
       h3scat->Fill(x,y,z);
    }
    h3scat->Draw();
-   return c06;
 }
 End_Macro
 
@@ -2324,9 +2503,9 @@ The following example shows a 3D histogram plotted with the option `BOX`.
 
 Begin_Macro(source)
 {
-   TCanvas *c16 = new TCanvas("c16","c16",600,400);
+   auto c16 = new TCanvas("c16","c16",600,400);
    gStyle->SetOptStat(kFALSE);
-   TH3F *h3box = new TH3F("h3box","Option BOX",15,-2,2,15,-2,2,15,0,4);
+   auto h3box = new TH3F("h3box","Option BOX",15,-2,2,15,-2,2,15,0,4);
    Double_t x, y, z;
    for (Int_t i=0;i<10000;i++) {
       gRandom->Rannor(x, y);
@@ -2334,7 +2513,78 @@ Begin_Macro(source)
       h3box->Fill(x,y,z);
    }
    h3box->Draw("BOX");
-   return c16;
+}
+End_Macro
+
+The following example shows a 3D histogram plotted with the option `BOX1`.
+
+Begin_Macro(source)
+{
+   auto c36 = new TCanvas("c36","c36",600,400);
+   gStyle->SetOptStat(kFALSE);
+   auto h3box = new TH3F("h3box","Option BOX1",10,-2.,2.,10,-2.,2.,10,-0.5,2.);
+   Double_t x, y, z;
+   for (Int_t i=0;i<10000;i++) {
+      gRandom->Rannor(x, y);
+      z = abs(sin(x)/x + cos(y)*y);
+      h3box->Fill(x,y,z);
+   }
+   h3box->SetFillColor(9);
+   h3box->Draw("BOX1");
+}
+End_Macro
+
+The following example shows a 3D histogram plotted with the option `BOX2`.
+
+Begin_Macro(source)
+{
+   auto c56 = new TCanvas("c56","c56",600,400);
+   gStyle->SetOptStat(kFALSE);
+   auto h3box = new TH3F("h3box","Option BOX2",10,-2.,2.,10,-2.,2.,10,-0.5,2.);
+   Double_t x, y, z;
+   for (Int_t i=0;i<10000;i++) {
+      gRandom->Rannor(x, y);
+      z = abs(sin(x)/x + cos(y)*y);
+      h3box->Fill(x,y,z);
+   }
+   h3box->Draw("BOX2");
+}
+End_Macro
+
+The following example shows a 3D histogram plotted with the option `BOX3`.
+
+Begin_Macro(source)
+{
+   auto c46 = new TCanvas("c46","c46",600,400);
+   c46->SetFillColor(38);
+   gStyle->SetOptStat(kFALSE);
+   auto h3box = new TH3F("h3box","Option BOX3",15,-2,2,15,-2,2,15,0,4);
+   Double_t x, y, z;
+   for (Int_t i=0;i<10000;i++) {
+      gRandom->Rannor(x, y);
+      z = x*x + y*y;
+      h3box->Fill(x,y,z);
+   }
+   h3box->Draw("BOX3");
+}
+End_Macro
+
+For all the `BOX` options each bin is drawn as a 3D box with a volume proportional
+to the absolute value of the bin content. The bins with a negative content are
+drawn with a X on each face of the box as shown in the following example:
+
+Begin_Macro(source)
+{
+   auto c = new TCanvas("c","c",600,400);
+   gStyle->SetOptStat(kFALSE);
+   auto h3box = new TH3F("h3box","Option BOX1 with negative bins",3, 0., 4., 3, 0.,4., 3, 0., 4.);
+   h3box->Fill(0., 2., 2.,  10.);
+   h3box->Fill(2., 2., 2.,   5.);
+   h3box->Fill(2., 2., .5,   2.);
+   h3box->Fill(2., 2., 3.,   -1.);
+   h3box->Fill(3., 2., 2., -10.);
+   h3box->SetFillColor(8);
+   h3box->Draw("box1");
 }
 End_Macro
 
@@ -2342,9 +2592,9 @@ The following example shows a 3D histogram plotted with the option `ISO`.
 
 Begin_Macro(source)
 {
-   TCanvas *c26 = new TCanvas("c26","c26",600,400);
+   auto c26 = new TCanvas("c26","c26",600,400);
    gStyle->SetOptStat(kFALSE);
-   TH3F *h3iso = new TH3F("h3iso","Option ISO",15,-2,2,15,-2,2,15,0,4);
+   auto h3iso = new TH3F("h3iso","Option ISO",15,-2,2,15,-2,2,15,0,4);
    Double_t x, y, z;
    for (Int_t i=0;i<10000;i++) {
       gRandom->Rannor(x, y);
@@ -2353,7 +2603,6 @@ Begin_Macro(source)
    }
    h3iso->SetFillColor(kCyan);
    h3iso->Draw("ISO");
-   return c26;
 }
 End_Macro
 
@@ -3416,7 +3665,7 @@ Int_t THistPainter::MakeChopt(Option_t *choptin)
    Hoption.Char = Hoption.Color  = Hoption.Contour = Hoption.Logx    = 0;
    Hoption.Logy = Hoption.Logz   = Hoption.Lego    = Hoption.Surf    = 0;
    Hoption.Off  = Hoption.Tri    = Hoption.Proj    = Hoption.AxisPos = 0;
-   Hoption.Spec = Hoption.Pie    = Hoption.Candle  = Hoption.Violin  = 0;
+   Hoption.Spec = Hoption.Pie    = Hoption.Candle  = 0;
 
    //    special 2D options
    Hoption.List     = 0;
@@ -3435,6 +3684,16 @@ Int_t THistPainter::MakeChopt(Option_t *choptin)
    if (!nch) Hoption.Hist = 1;
    if (fFunctions->First()) Hoption.Func = 1;
    if (fH->GetSumw2N() && hdim == 1) Hoption.Error = 2;
+
+   char *l1 = strstr(chopt,"PFC"); // Automatic Fill Color
+   char *l2 = strstr(chopt,"PLC"); // Automatic Line Color
+   char *l3 = strstr(chopt,"PMC"); // Automatic Marker Color
+   if (l1 || l2 || l3) {
+      Int_t i = gPad->NextPaletteColor();
+      if (l1) {strncpy(l1,"   ",3); fH->SetFillColor(i);}
+      if (l2) {strncpy(l2,"   ",3); fH->SetLineColor(i);}
+      if (l3) {strncpy(l3,"   ",3); fH->SetMarkerColor(i);}
+   }
 
    l = strstr(chopt,"SPEC");
    if (l) {
@@ -3495,18 +3754,16 @@ Int_t THistPainter::MakeChopt(Option_t *choptin)
 
    l = strstr(chopt,"CANDLE");
    if (l) {
-	   TCandle candle;
-	   Hoption.Candle = candle.ParseOption(l);
-	   Hoption.Scat = 0;
+      TCandle candle;
+      Hoption.Candle = candle.ParseOption(l);
+      Hoption.Scat = 0;
    }
 
    l = strstr(chopt,"VIOLIN");
    if (l) {
+      TCandle candle;
+      Hoption.Candle = candle.ParseOption(l);
       Hoption.Scat = 0;
-      Hoption.Violin = 1;
-      strncpy(l,"   ",6);
-      if (l[6] == 'X') { Hoption.Violin = 1; l[6] = ' '; }
-      if (l[6] == 'Y') { Hoption.Violin = 2; l[6] = ' '; }
    }
 
    l = strstr(chopt,"LEGO");
@@ -3994,11 +4251,6 @@ paintstat:
 
 void THistPainter::PaintArrows(Option_t *)
 {
-
-   Style_t linesav   = fH->GetLineStyle();
-   Width_t widthsav  = fH->GetLineWidth();
-   fH->SetLineStyle(1);
-   fH->SetLineWidth(1);
    fH->TAttLine::Modify();
 
    Double_t xk, xstep, yk, ystep;
@@ -4073,9 +4325,6 @@ void THistPainter::PaintArrows(Option_t *)
    }
 
    if (Hoption.Zscale) PaintPalette();
-   fH->SetLineStyle(linesav);
-   fH->SetLineWidth(widthsav);
-   fH->TAttLine::Modify();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -4500,7 +4749,7 @@ void THistPainter::PaintBoxes(Option_t *)
    Double_t dxmin = 0.51*(gPad->PadtoX(ux1)-gPad->PadtoX(ux0));
    Double_t dymin = 0.51*(gPad->PadtoY(uy0)-gPad->PadtoY(uy1));
 
-   Double_t zmin = fH->GetMinimum();
+   Double_t zmin = TMath::Max(fH->GetMinimum(),0.);
    Double_t zmax = TMath::Max(TMath::Abs(fH->GetMaximum()),
                               TMath::Abs(fH->GetMinimum()));
 
@@ -4511,31 +4760,33 @@ void THistPainter::PaintBoxes(Option_t *)
       TIter next(gPad->GetListOfPrimitives());
       while ((h2 = (TH2 *)next())) {
          if (!h2->InheritsFrom(TH2::Class())) continue;
-         zmin = h2->GetMinimum();
+         zmin = TMath::Max(h2->GetMinimum(), 0.);
          zmax = TMath::Max(TMath::Abs(h2->GetMaximum()),
                            TMath::Abs(h2->GetMinimum()));
          if (Hoption.Logz) {
-            zmax = TMath::Log10(zmax);
             if (zmin <= 0) {
                zmin = TMath::Log10(zmax*0.001);
             } else {
                zmin = TMath::Log10(zmin);
             }
+            zmax = TMath::Log10(zmax);
          }
          break;
       }
-   }
-
-   if (Hoption.Logz) {
-      if (zmin > 0) {
-         zmin = TMath::Log10(zmin*0.1);
-         zmax = TMath::Log10(zmax);
-      } else {
-         return;
+   } else {
+      if (Hoption.Logz) {
+         if (zmin > 0) {
+            zmin = TMath::Log10(zmin);
+            zmax = TMath::Log10(zmax);
+         } else {
+            return;
+         }
       }
    }
 
    Double_t zratio, dz = zmax - zmin;
+   Bool_t kZminNeg     = kFALSE;
+   if (fH->GetMinimum()<0) kZminNeg = kTRUE;
    Bool_t kZNeg        = kFALSE;
 
    // Define the dark and light colors the "button style" boxes.
@@ -4560,8 +4811,9 @@ void THistPainter::PaintBoxes(Option_t *)
          z     = Hparam.factor*fH->GetBinContent(bin);
          kZNeg = kFALSE;
 
-         if (z <  zmin) continue; // Can be the case with
-         if (z >  zmax) z = zmax; // option Same
+         if (TMath::Abs(z) <  zmin) continue; // Can be the case with ...
+         if (TMath::Abs(z) >  zmax) z = zmax; // ... option Same
+         if (kZminNeg && z==0) continue;      // Do not draw empty bins if case of histo with netgative bins.
 
          if (z < 0) {
             if (Hoption.Logz) continue;
@@ -4659,23 +4911,22 @@ void THistPainter::PaintBoxes(Option_t *)
 
 
 ////////////////////////////////////////////////////////////////////////////////
-/// [Control function to draw a 2D histogram as a candle (box) plot.](#HP14)
+/// [Control function to draw a 2D histogram as a candle (box) plot or violin plot](#HP14)
 
 void THistPainter::PaintCandlePlot(Option_t *)
 {
    TH1D *hproj;
    TH2D *h2 = (TH2D*)fH;
 
-
-	TCandle myCandle;
-	myCandle.SetOption((TCandle::CandleOption)Hoption.Candle);
-	myCandle.SetMarkerColor(fH->GetLineColor());
-	myCandle.SetLineColor(fH->GetLineColor());
-	myCandle.SetFillColor(fH->GetFillColor());
-	myCandle.SetFillStyle(fH->GetFillStyle());
-	myCandle.SetMarkerSize(fH->GetMarkerSize());
-	myCandle.SetMarkerStyle(fH->GetMarkerStyle());
-	myCandle.SetLog(Hoption.Logx,Hoption.Logy);
+   TCandle myCandle;
+   myCandle.SetOption((TCandle::CandleOption)Hoption.Candle);
+   myCandle.SetMarkerColor(fH->GetLineColor());
+   myCandle.SetLineColor(fH->GetLineColor());
+   myCandle.SetFillColor(fH->GetFillColor());
+   myCandle.SetFillStyle(fH->GetFillStyle());
+   myCandle.SetMarkerSize(fH->GetMarkerSize());
+   myCandle.SetMarkerStyle(fH->GetMarkerStyle());
+   myCandle.SetLog(Hoption.Logx,Hoption.Logy);
 
    Bool_t swapXY = myCandle.IsHorizontal();
    const Double_t standardCandleWidth = 0.66;
@@ -4688,7 +4939,7 @@ void THistPainter::PaintCandlePlot(Option_t *)
          if (hproj->GetEntries() !=0) {
             Double_t width = fH->GetBarWidth();
             Double_t offset = fH->GetBarOffset()*binWidth;
-            if (width > 0.999) width = standardCandleWidth;
+            if (width > 0.999 && width < 1.001) width = standardCandleWidth;
             myCandle.SetAxisPosition(binPosX+binWidth/2. + offset);
             myCandle.SetWidth(width*binWidth);
             myCandle.SetHistogram(hproj);
@@ -4703,7 +4954,7 @@ void THistPainter::PaintCandlePlot(Option_t *)
          if (hproj->GetEntries() !=0) {
             Double_t width = fH->GetBarWidth();
             Double_t offset = fH->GetBarOffset()*binWidth;
-            if (width > 0.999) width = standardCandleWidth;
+            if (width > 0.999 && width < 1.001) width = standardCandleWidth;
             myCandle.SetAxisPosition(binPosY+binWidth/2. + offset);
             myCandle.SetWidth(width*binWidth);
             myCandle.SetHistogram(hproj);
@@ -4713,117 +4964,7 @@ void THistPainter::PaintCandlePlot(Option_t *)
    }
 }
 
-////////////////////////////////////////////////////////////////////////////////
-/// [Control function to draw a 2D histogram as a violin plot](#HP141)
 
-void THistPainter::PaintViolinPlot(Option_t *)
-{
-   Double_t x,y,w;
-   Double_t bw, bcen, bcon;
-   Double_t xpm[1], ypm[1];
-
-   TH1D *hp;
-   TH2D *h2 = (TH2D*)fH;
-
-   Double_t *quantiles = new Double_t[5];
-   quantiles[0]=0.; quantiles[1]=0.; quantiles[2] = 0.; quantiles[3] = 0.; quantiles[4] = 0.;
-   Double_t *prob = new Double_t[5];
-   prob[0]=1E-15; prob[1]=0.25; prob[2]=0.5; prob[3]=0.75; prob[4]=1-1E-15;
-
-   Style_t fillsav   = h2->GetFillStyle();
-   Style_t colsav    = h2->GetFillColor();
-   Style_t linesav   = h2->GetLineStyle();
-   Style_t widthsav  = h2->GetLineWidth();
-   Style_t pmssav    = h2->GetMarkerStyle();
-
-   if (h2->GetFillColor() == 0)  h2->SetFillStyle(0);
-
-   h2->SetMarkerStyle(pmssav);
-   h2->TAttLine::Modify();
-   h2->TAttFill::Modify();
-   h2->TAttMarker::Modify();
-
-   // Violin plot along X
-   if (Hoption.Violin == 1) {
-      for (Int_t i=Hparam.xfirst; i<=Hparam.xlast; i++) {
-         x = fXaxis->GetBinCenter(i);
-         w = fXaxis->GetBinWidth(i);
-         hp = h2->ProjectionY("_px", i, i);
-         if (hp->GetEntries() !=0 && hp->GetMaximum()!=0) {
-             hp->Scale(1.0/hp->Integral());
-             hp->Scale(w/hp->GetMaximum());
-             hp->GetQuantiles(5, quantiles, prob);
-             ypm[0] = hp->GetMean();
-
-             TAxis *ax = hp->GetXaxis();
-             for(Int_t j=ax->GetFirst(); j<ax->GetLast(); ++j){
-                 bw = ax->GetBinWidth(j);
-                 bcen = ax->GetBinCenter(j);
-                 bcon = hp->GetBinContent(j);
-                 gPad->PaintBox(x-0.5*bcon, bcen-0.5*bw, x+0.5*bcon, bcen+0.5*bw);
-             }
-
-             h2->SetLineWidth(widthsav);
-             h2->TAttLine::Modify();
-
-             h2->SetLineStyle(linesav);
-             h2->TAttLine::Modify();
-             gPad->PaintLine(x, quantiles[3], x, quantiles[4]);
-             gPad->PaintLine(x, quantiles[0], x, quantiles[1]);
-
-             xpm[0] = x;
-             gPad->PaintPolyMarker(1,xpm,ypm);
-         }
-      }
-   // Violin plot along Y
-   } else {
-       for (Int_t i=Hparam.yfirst; i<=Hparam.ylast; i++) {
-           y = fYaxis->GetBinCenter(i);
-           w = fYaxis->GetBinWidth(i);
-           hp = h2->ProjectionX("_py", i, i);
-           if (hp->GetEntries() !=0 && hp->GetMaximum()!=0) {
-             hp->Scale(1.0/hp->Integral());
-             hp->Scale(w/hp->GetMaximum());
-             hp->GetQuantiles(5, quantiles, prob);
-             xpm[0] = hp->GetMean();
-
-             h2->SetLineWidth(1);
-             h2->TAttLine::Modify();
-             TAxis *ax = hp->GetXaxis();
-             for(Int_t j=ax->GetFirst(); j<ax->GetLast(); ++j){
-                 bw = ax->GetBinWidth(j);
-                 bcen = ax->GetBinCenter(j);
-                 bcon = hp->GetBinContent(j);
-                 gPad->PaintBox(bcen-0.5*bw, y-0.5*bcon, bcen+0.5*bw, y+0.5*bcon);
-             }
-
-             hp->GetQuantiles(5, quantiles, prob);
-             xpm[0] = hp->GetMean();
-
-             h2->SetLineWidth(widthsav);
-             h2->SetLineStyle(2);
-             h2->TAttLine::Modify();
-             gPad->PaintLine(quantiles[3], y, quantiles[4], y);
-             gPad->PaintLine(quantiles[0], y, quantiles[1], y);
-
-             ypm[0] = y;
-             gPad->PaintPolyMarker(1,xpm,ypm);
-           }
-       }
-   }
-
-   h2->SetFillStyle(fillsav);
-   h2->SetFillColor(colsav);
-   h2->SetLineStyle(linesav);
-   h2->SetMarkerStyle(pmssav);
-   h2->SetLineWidth(widthsav);
-   h2->TAttFill::Modify();
-   h2->TAttLine::Modify();
-   h2->TAttMarker::Modify();
-
-   delete [] prob;
-   delete [] quantiles;
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Returns the rendering regions for an axis to use in the COL2 option
@@ -4961,6 +5102,8 @@ void THistPainter::PaintColorLevelsFast(Option_t*)
    // the appropriate value to use.
    Double_t zmin = fH->GetMinimumStored();
    Double_t zmax = fH->GetMaximumStored();
+   Double_t originalZMin = zmin;
+   Double_t originalZMax = zmax;
    if ((zmin == -1111) && (zmax == -1111)) {
       fH->GetMinimumAndMaximum(zmin, zmax);
       fH->SetMinimum(zmin);
@@ -5122,10 +5265,16 @@ void THistPainter::PaintColorLevelsFast(Option_t*)
 
    if (Hoption.Zscale) PaintPalette();
 
+   // Reset the maximum and minimum values to their original values
+   // when this function was called. If we don't do this, an initial
+   // value of -1111 will be replaced with the true max or min values.
+   fH->SetMinimum(originalZMin);
+   fH->SetMaximum(originalZMax);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 /// [Control function to draw a 2D histogram as a color plot.](#HP14)
+
 void THistPainter::PaintColorLevels(Option_t*)
 {
    Double_t z, zc, xk, xstep, yk, ystep, xlow, xup, ylow, yup;
@@ -5140,13 +5289,35 @@ void THistPainter::PaintColorLevels(Option_t*)
       dz = zmax - zmin;
    }
 
-   if (Hoption.Logz) {
-      if (zmin > 0) {
-         zmin = TMath::Log10(zmin);
-         zmax = TMath::Log10(zmax);
+   // In case of option SAME, zmin and zmax values are taken from the
+   // first plotted 2D histogram.
+   if (Hoption.Same) {
+      TH2 *h2;
+      TIter next(gPad->GetListOfPrimitives());
+      while ((h2 = (TH2 *)next())) {
+         if (!h2->InheritsFrom(TH2::Class())) continue;
+         zmin = h2->GetMinimum();
+         zmax = h2->GetMaximum();
+         if (Hoption.Logz) {
+            if (zmin <= 0) {
+               zmin = TMath::Log10(zmax*0.001);
+            } else {
+               zmin = TMath::Log10(zmin);
+            }
+            zmax = TMath::Log10(zmax);
+         }
          dz = zmax - zmin;
-      } else {
-         return;
+         break;
+      }
+   } else {
+      if (Hoption.Logz) {
+         if (zmin > 0) {
+            zmin = TMath::Log10(zmin);
+            zmax = TMath::Log10(zmax);
+            dz   = zmax - zmin;
+         } else {
+            return;
+         }
       }
    }
 
@@ -6314,7 +6485,16 @@ void THistPainter::PaintH3(Option_t *option)
    Int_t irep;
 
    if (fH->GetDrawOption() && (strstr(opt,"box") ||  strstr(opt,"lego"))) {
-      cmd = Form("TMarker3DBox::PaintH3((TH1 *)0x%lx,\"%s\");",(Long_t)fH,option);
+      if (strstr(opt,"1")) {
+         PaintH3Box(1);
+      } else if (strstr(opt,"2")) {
+         PaintH3Box(2);
+      } else if (strstr(opt,"3")) {
+         PaintH3Box(3);
+      } else {
+         PaintH3BoxRaster();
+      }
+      return;
    } else if (fH->GetDrawOption() && strstr(opt,"iso")) {
       PaintH3Iso();
       return;
@@ -6783,6 +6963,357 @@ Int_t THistPainter::PaintInitH()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// [Control function to draw a 3D histogram with boxes.](#HP25)
+
+void THistPainter::PaintH3Box(Int_t iopt)
+{
+   //       Predefined box structure
+   Double_t wxyz[8][3] = { {-1,-1,-1}, {1,-1,-1}, {1,1,-1}, {-1,1,-1},
+                           {-1,-1, 1}, {1,-1, 1}, {1,1, 1}, {-1,1, 1} };
+   Int_t iface[6][4] = { {0,3,2,1}, {4,5,6,7},
+                         {0,1,5,4}, {1,2,6,5}, {2,3,7,6}, {3,0,4,7} };
+
+   //       Define dimensions of world space
+   TGaxis *axis = new TGaxis();
+   TAxis *xaxis = fH->GetXaxis();
+   TAxis *yaxis = fH->GetYaxis();
+   TAxis *zaxis = fH->GetZaxis();
+
+   fXbuf[0] = xaxis->GetBinLowEdge(xaxis->GetFirst());
+   fYbuf[0] = xaxis->GetBinUpEdge(xaxis->GetLast());
+   fXbuf[1] = yaxis->GetBinLowEdge(yaxis->GetFirst());
+   fYbuf[1] = yaxis->GetBinUpEdge(yaxis->GetLast());
+   fXbuf[2] = zaxis->GetBinLowEdge(zaxis->GetFirst());
+   fYbuf[2] = zaxis->GetBinUpEdge(zaxis->GetLast());
+
+   fLego = new TPainter3dAlgorithms(fXbuf, fYbuf);
+
+   //       Set view
+   TView *view = gPad->GetView();
+   if (!view) {
+      Error("PaintH3", "no TView in current pad");
+      return;
+   }
+   Double_t thedeg =  90 - gPad->GetTheta();
+   Double_t phideg = -90 - gPad->GetPhi();
+   Double_t psideg = view->GetPsi();
+   Int_t irep;
+   view->SetView(phideg, thedeg, psideg, irep);
+
+   Int_t backcolor = gPad->GetFrameFillColor();
+   view->PadRange(backcolor);
+
+   //       Draw back surfaces of frame box
+   fLego->InitMoveScreen(-1.1,1.1);
+   if (Hoption.BackBox) {
+      fLego->DefineGridLevels(fZaxis->GetNdivisions()%100);
+      fLego->SetDrawFace(&TPainter3dAlgorithms::DrawFaceMove1);
+      fLego->BackBox(90);
+   }
+
+   fLego->SetDrawFace(&TPainter3dAlgorithms::DrawFaceMode1);
+
+   //       Define order of drawing
+   Double_t *tnorm = view->GetTnorm();
+   if (!tnorm) return;
+   Int_t incrx = (tnorm[ 8] < 0.) ? -1 : +1;
+   Int_t incry = (tnorm[ 9] < 0.) ? -1 : +1;
+   Int_t incrz = (tnorm[10] < 0.) ? -1 : +1;
+   Int_t ix1 = (incrx == +1) ? xaxis->GetFirst() : xaxis->GetLast();
+   Int_t iy1 = (incry == +1) ? yaxis->GetFirst() : yaxis->GetLast();
+   Int_t iz1 = (incrz == +1) ? zaxis->GetFirst() : zaxis->GetLast();
+   Int_t ix2 = (incrx == +1) ? xaxis->GetLast()  : xaxis->GetFirst();
+   Int_t iy2 = (incry == +1) ? yaxis->GetLast()  : yaxis->GetFirst();
+   Int_t iz2 = (incrz == +1) ? zaxis->GetLast()  : zaxis->GetFirst();
+
+   //       Set graphic attributes (colour, style, etc.)
+   Style_t fillsav   = fH->GetFillStyle();
+   Style_t colsav    = fH->GetFillColor();
+   Style_t coldark   = TColor::GetColorDark(colsav);
+   Style_t colbright = TColor::GetColorBright(colsav);
+
+   fH->SetFillStyle(1001);
+   fH->TAttFill::Modify();
+   fH->TAttLine::Modify();
+   Int_t ncolors  = gStyle->GetNumberOfColors();
+   Int_t theColor;
+
+   //       Create bin boxes and draw
+   Double_t wmin = TMath::Max(fH->GetMinimum(),0.);
+   Double_t wmax = TMath::Max(TMath::Abs(fH->GetMaximum()),
+                              TMath::Abs(fH->GetMinimum()));
+
+   Double_t pmin[3], pmax[3], sxyz[8][3];
+   for (Int_t ix = ix1; ix !=ix2+incrx; ix += incrx) {
+      pmin[0] = xaxis->GetBinLowEdge(ix);
+      pmax[0] = xaxis->GetBinUpEdge(ix);
+      for (Int_t iy = iy1; iy != iy2+incry; iy += incry) {
+         pmin[1] = yaxis->GetBinLowEdge(iy);
+         pmax[1] = yaxis->GetBinUpEdge(iy);
+         for (Int_t iz = iz1; iz != iz2+incrz; iz += incrz) {
+            pmin[2]    = zaxis->GetBinLowEdge(iz);
+            pmax[2]    = zaxis->GetBinUpEdge(iz);
+            Double_t w = fH->GetBinContent(fH->GetBin(ix,iy,iz));
+            Bool_t neg = kFALSE;
+            Int_t n = 5;
+            if (w<0) {
+               w   = -w;
+               neg = kTRUE;
+            }
+            if (w < wmin) continue;
+            if (w > wmax) w = wmax;
+            Double_t scale = (TMath::Power((w-wmin)/(wmax-wmin),1./3.))/2.;
+            if (scale == 0) continue;
+            for (Int_t i=0; i<3; ++i) {
+               Double_t c = (pmax[i] + pmin[i])*0.5;
+               Double_t d = (pmax[i] - pmin[i])*scale;
+               for (Int_t k=0; k<8; ++k) { // set bin box vertices
+                  sxyz[k][i] = wxyz[k][i]*d + c;
+               }
+            }
+            for (Int_t k=0; k<8; ++k) { // transform to normalized space
+               view->WCtoNDC(&sxyz[k][0],&sxyz[k][0]);
+            }
+            Double_t x[8], y[8]; // draw bin box faces
+            for (Int_t k=0; k<6; ++k) {
+               for (Int_t i=0; i<4; ++i) {
+                  Int_t iv = iface[k][i];
+                  x[i]     = sxyz[iv][0];
+                  y[i]     = sxyz[iv][1];
+               }
+               x[4] = x[0] ; y[4] = y[0];
+               if (neg) {
+                  x[5] = x[2] ; y[5] = y[2];
+                  x[6] = x[3] ; y[6] = y[3];
+                  x[7] = x[1] ; y[7] = y[1];
+                  n = 8;
+               } else {
+                  n = 5;
+               }
+               Double_t z = (x[2]-x[0])*(y[3]-y[1]) - (y[2]-y[0])*(x[3]-x[1]);
+               if (z <= 0.) continue;
+               if (iopt == 2) {
+                  theColor = ncolors*((w-wmin)/(wmax-wmin)) -1;
+                  fH->SetFillColor(gStyle->GetColorPalette(theColor));
+               } else {
+                  if (k == 3 || k == 5) {
+                     fH->SetFillColor(coldark);
+                  } else if (k == 0 || k == 1) {
+                     fH->SetFillColor(colbright);
+                  } else {
+                     fH->SetFillColor(colsav);
+                  }
+               }
+               fH->TAttFill::Modify();
+               gPad->PaintFillArea(4, x, y);
+               if (iopt != 3)gPad->PaintPolyLine(n, x, y);
+            }
+         }
+      }
+   }
+
+   //       Draw front surfaces of frame box
+   if (Hoption.FrontBox) fLego->FrontBox(90);
+
+   //       Draw axis and title
+   if (!Hoption.Axis && !Hoption.Same) PaintLegoAxis(axis, 90);
+   PaintTitle();
+
+   delete axis;
+   delete fLego; fLego = 0;
+
+   fH->SetFillStyle(fillsav);
+   fH->SetFillColor(colsav);
+   fH->TAttFill::Modify();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// [Control function to draw a 3D histogram with boxes.](#HP25)
+
+void THistPainter::PaintH3BoxRaster()
+{
+   //       Predefined box structure
+   Double_t wxyz[8][3] = {
+      {-1,-1,-1}, {1,-1,-1}, {1,1,-1}, {-1,1,-1}, // bottom vertices
+      {-1,-1, 1}, {1,-1, 1}, {1,1, 1}, {-1,1, 1}  // top vertices
+   };
+   Int_t iface[6][4] = {
+      {0,3,2,1}, {4,5,6,7},                       // bottom and top faces
+      {0,1,5,4}, {1,2,6,5}, {2,3,7,6}, {3,0,4,7}  // side faces
+   };
+   Double_t normal[6][3] = {
+      {0,0,-1}, {0,0,1},                          // Z-, Z+
+      {0,-1,0}, {1,0,0}, {0,1,0}, {-1,0,0}        // Y-, X+, Y+, X-
+   };
+
+   //       Define dimensions of world space
+   TGaxis *axis = new TGaxis();
+   TAxis *xaxis = fH->GetXaxis();
+   TAxis *yaxis = fH->GetYaxis();
+   TAxis *zaxis = fH->GetZaxis();
+
+   fXbuf[0] = xaxis->GetBinLowEdge(xaxis->GetFirst());
+   fYbuf[0] = xaxis->GetBinUpEdge(xaxis->GetLast());
+   fXbuf[1] = yaxis->GetBinLowEdge(yaxis->GetFirst());
+   fYbuf[1] = yaxis->GetBinUpEdge(yaxis->GetLast());
+   fXbuf[2] = zaxis->GetBinLowEdge(zaxis->GetFirst());
+   fYbuf[2] = zaxis->GetBinUpEdge(zaxis->GetLast());
+
+   fLego = new TPainter3dAlgorithms(fXbuf, fYbuf);
+
+   //       Set view
+   TView *view = gPad->GetView();
+   if (!view) {
+      Error("PaintH3", "no TView in current pad");
+      return;
+   }
+   Double_t thedeg =  90 - gPad->GetTheta();
+   Double_t phideg = -90 - gPad->GetPhi();
+   Double_t psideg = view->GetPsi();
+   Int_t irep;
+   view->SetView(phideg, thedeg, psideg, irep);
+
+   Int_t backcolor = gPad->GetFrameFillColor();
+   view->PadRange(backcolor);
+
+   //       Draw front surfaces of frame box
+   if (Hoption.FrontBox) {
+      fLego->InitMoveScreen(-1.1,1.1);
+      fLego->SetDrawFace(&TPainter3dAlgorithms::DrawFaceMove2);
+   }
+
+   //       Initialize hidden line removal algorithm "raster screen"
+   fLego->InitRaster(-1.1,-1.1,1.1,1.1,1000,800);
+
+   //       Define order of drawing
+   Double_t *tnorm = view->GetTnorm();
+   if (!tnorm) return;
+   Int_t incrx = (tnorm[ 8] < 0.) ? +1 : -1;
+   Int_t incry = (tnorm[ 9] < 0.) ? +1 : -1;
+   Int_t incrz = (tnorm[10] < 0.) ? +1 : -1;
+   Int_t ix1 = (incrx == +1) ? xaxis->GetFirst() : xaxis->GetLast();
+   Int_t iy1 = (incry == +1) ? yaxis->GetFirst() : yaxis->GetLast();
+   Int_t iz1 = (incrz == +1) ? zaxis->GetFirst() : zaxis->GetLast();
+   Int_t ix2 = (incrx == +1) ? xaxis->GetLast()  : xaxis->GetFirst();
+   Int_t iy2 = (incry == +1) ? yaxis->GetLast()  : yaxis->GetFirst();
+   Int_t iz2 = (incrz == +1) ? zaxis->GetLast()  : zaxis->GetFirst();
+
+   //       Set line attributes (colour, style, etc.)
+   fH->TAttLine::Modify();
+
+   //       Create bin boxes and draw
+   const Int_t NTMAX = 100;
+   Double_t tt[NTMAX][2];
+   Double_t wmin = TMath::Max(fH->GetMinimum(),0.);
+   Double_t wmax = TMath::Max(TMath::Abs(fH->GetMaximum()),
+                              TMath::Abs(fH->GetMinimum()));
+   Double_t pmin[3], pmax[3], sxyz[8][3], pp[4][2];
+   for (Int_t ix = ix1; ix !=ix2+incrx; ix += incrx) {
+      pmin[0] = xaxis->GetBinLowEdge(ix);
+      pmax[0] = xaxis->GetBinUpEdge(ix);
+      for (Int_t iy = iy1; iy != iy2+incry; iy += incry) {
+         pmin[1] = yaxis->GetBinLowEdge(iy);
+         pmax[1] = yaxis->GetBinUpEdge(iy);
+         for (Int_t iz = iz1; iz != iz2+incrz; iz += incrz) {
+            pmin[2] = zaxis->GetBinLowEdge(iz);
+            pmax[2] = zaxis->GetBinUpEdge(iz);
+            Double_t w = fH->GetBinContent(fH->GetBin(ix,iy,iz));
+            Bool_t neg = kFALSE;
+            if (w<0) {
+               w   = -w;
+               neg = kTRUE;
+            }
+            if (w < wmin) continue;
+            if (w > wmax) w = wmax;
+            Double_t scale = (TMath::Power((w-wmin)/(wmax-wmin),1./3.))/2.;
+            if (scale == 0) continue;
+            for (Int_t i=0; i<3; ++i) {
+               Double_t c = (pmax[i] + pmin[i])*0.5;
+               Double_t d = (pmax[i] - pmin[i])*scale;
+               for (Int_t k=0; k<8; ++k) { // set bin box vertices
+                  sxyz[k][i] = wxyz[k][i]*d + c;
+               }
+            }
+            for (Int_t k=0; k<8; ++k) { // transform to normalized space
+               view->WCtoNDC(&sxyz[k][0],&sxyz[k][0]);
+            }
+            for (Int_t k=0; k<6; ++k) { // draw box faces
+               Double_t zn;
+               view->FindNormal(normal[k][0], normal[k][1], normal[k][2], zn);
+               if (zn <= 0) continue;
+               for (Int_t i=0; i<4; ++i) {
+                  Int_t ip = iface[k][i];
+                  pp[i][0] = sxyz[ip][0];
+                  pp[i][1] = sxyz[ip][1];
+               }
+               for (Int_t i=0; i<4; ++i) {
+                  Int_t i1 = i;
+                  Int_t i2 = (i == 3) ? 0 : i + 1;
+                  Int_t nt;
+                  fLego->FindVisibleLine(&pp[i1][0], &pp[i2][0], NTMAX, nt, &tt[0][0]);
+                  Double_t xdel = pp[i2][0] - pp[i1][0];
+                  Double_t ydel = pp[i2][1] - pp[i1][1];
+                  Double_t x[2], y[2];
+                  for (Int_t it = 0; it < nt; ++it) {
+                     x[0] = pp[i1][0] + xdel*tt[it][0];
+                     y[0] = pp[i1][1] + ydel*tt[it][0];
+                     x[1] = pp[i1][0] + xdel*tt[it][1];
+                     y[1] = pp[i1][1] + ydel*tt[it][1];
+                     gPad->PaintPolyLine(2, x, y);
+                  }
+               }
+               if (neg) {
+                  Int_t i1 = 0;
+                  Int_t i2 = 2;
+                  Int_t nt;
+                  fLego->FindVisibleLine(&pp[i1][0], &pp[i2][0], NTMAX, nt, &tt[0][0]);
+                  Double_t xdel = pp[i2][0] - pp[i1][0];
+                  Double_t ydel = pp[i2][1] - pp[i1][1];
+                  Double_t x[2], y[2];
+                  for (Int_t it = 0; it < nt; ++it) {
+                     x[0] = pp[i1][0] + xdel*tt[it][0];
+                     y[0] = pp[i1][1] + ydel*tt[it][0];
+                     x[1] = pp[i1][0] + xdel*tt[it][1];
+                     y[1] = pp[i1][1] + ydel*tt[it][1];
+                     gPad->PaintPolyLine(2, x, y);
+                  }
+                  i1 = 1;
+                  i2 = 3;
+                  fLego->FindVisibleLine(&pp[i1][0], &pp[i2][0], NTMAX, nt, &tt[0][0]);
+                  xdel = pp[i2][0] - pp[i1][0];
+                  ydel = pp[i2][1] - pp[i1][1];
+                  for (Int_t it = 0; it < nt; ++it) {
+                     x[0] = pp[i1][0] + xdel*tt[it][0];
+                     y[0] = pp[i1][1] + ydel*tt[it][0];
+                     x[1] = pp[i1][0] + xdel*tt[it][1];
+                     y[1] = pp[i1][1] + ydel*tt[it][1];
+                     gPad->PaintPolyLine(2, x, y);
+                  }
+               }
+               fLego->FillPolygonBorder(4, &pp[0][0]); // update raster screen
+            }
+         }
+      }
+   }
+
+   //       Draw frame box
+   if (Hoption.BackBox) {
+      fLego->DefineGridLevels(fZaxis->GetNdivisions()%100);
+      fLego->SetDrawFace(&TPainter3dAlgorithms::DrawFaceRaster1);
+      fLego->BackBox(90);
+   }
+
+   if (Hoption.FrontBox) fLego->FrontBox(90);
+
+   //       Draw axis and title
+   if (!Hoption.Axis && !Hoption.Same) PaintLegoAxis(axis, 90);
+   PaintTitle();
+
+   delete axis;
+   delete fLego; fLego = 0;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// [Control function to draw a 3D histogram with Iso Surfaces.](#HP25)
 
 void THistPainter::PaintH3Iso()
@@ -7178,7 +7709,8 @@ void THistPainter::PaintLegoAxis(TGaxis *axis, Double_t ang)
    else               strlcpy(chopax, "SDH=-",8);
    if (y1[0] > y2[0]) strlcpy(chopay, "SDH=+",8);
    else               strlcpy(chopay, "SDH=-",8);
-   strlcpy(chopaz, "SDH+=",8);
+   if (z2[1] > z1[1]) strlcpy(chopaz, "SDH=+",8);
+   else               strlcpy(chopaz, "SDH=-",8);
 
    // Option LOG is required ?
    if (Hoption.Logx) strlcat(chopax,"G",8);
@@ -7419,8 +7951,8 @@ void THistPainter::PaintScatterPlot(Option_t *option)
                   gPad->PaintPolyMarker(marker, fXbuf, fYbuf);
                   marker=0;
                }
-               fXbuf[marker] = (random.Rndm(loop)*xstep) + xk;
-               fYbuf[marker] = (random.Rndm(loop)*ystep) + yk;
+               fXbuf[marker] = (random.Rndm()*xstep) + xk;
+               fYbuf[marker] = (random.Rndm()*ystep) + yk;
                if (Hoption.Logx) {
                   if (fXbuf[marker] > 0) fXbuf[marker] = TMath::Log10(fXbuf[marker]);
                   else                   break;
@@ -8364,7 +8896,7 @@ void THistPainter::PaintSurface(Option_t *)
       fLego->DefineGridLevels(fZaxis->GetNdivisions()%100);
       Hoption.Surf = 23;
       fLego->SetSurfaceFunction(&TPainter3dAlgorithms::SurfaceFunction);
-      fLego->SetDrawFace(&TPainter3dAlgorithms::DrawFaceMove3);
+      fLego->SetDrawFace(&TPainter3dAlgorithms::DrawLevelLines);
       if (Hoption.System == kPOLAR)       fLego->SurfacePolar(1,nx,ny,"FB");
       if (Hoption.System == kCYLINDRICAL) fLego->SurfaceCylindrical(1,nx,ny,"FB");
       if (Hoption.System == kSPHERICAL)   fLego->SurfaceSpherical(0,1,nx,ny,"FB");
@@ -8570,7 +9102,6 @@ void THistPainter::PaintTable(Option_t *option)
          if (Hoption.Text)         PaintText(option);
          if (Hoption.Error >= 100) Paint2DErrors(option);
          if (Hoption.Candle)       PaintCandlePlot(option);
-         if (Hoption.Violin)       PaintViolinPlot(option);
       }
       if (Hoption.Lego)                     PaintLego(option);
       if (Hoption.Surf && !Hoption.Contour) PaintSurface(option);
@@ -8627,12 +9158,15 @@ void THistPainter::PaintTH2PolyBins(Option_t *option)
    if (opt.Contains("p")) mark = kTRUE;
 
    TH2PolyBin  *b;
+   Double_t z;
 
    TIter next(((TH2Poly*)fH)->GetBins());
    TObject *obj, *poly;
 
    while ((obj=next())) {
-      b     = (TH2PolyBin*)obj;
+      b = (TH2PolyBin*)obj;
+      z = b->GetContent();
+      if (z==0 && Hoption.Zero) continue; // Do not draw empty bins in case of option "COL0 L"
       poly  = b->GetPolygon();
 
       // Paint the TGraph bins.
@@ -8641,7 +9175,15 @@ void THistPainter::PaintTH2PolyBins(Option_t *option)
          g->TAttLine::Modify();
          g->TAttMarker::Modify();
          g->TAttFill::Modify();
-         if (line) g->Paint("L");
+         if (line) {
+            Int_t fs = g->GetFillStyle();
+            Int_t fc = g->GetFillColor();
+            g->SetFillStyle(0);
+            g->SetFillColor(g->GetLineColor());
+            g->Paint("F");
+            g->SetFillStyle(fs);
+            g->SetFillColor(fc);
+         }
          if (fill) g->Paint("F");
          if (mark) g->Paint("P");
       }
@@ -8657,7 +9199,15 @@ void THistPainter::PaintTH2PolyBins(Option_t *option)
             g->TAttLine::Modify();
             g->TAttMarker::Modify();
             g->TAttFill::Modify();
-            if (line) g->Paint("L");
+            if (line) {
+               Int_t fs = g->GetFillStyle();
+               Int_t fc = g->GetFillColor();
+               g->SetFillStyle(0);
+               g->SetFillColor(g->GetLineColor());
+               g->Paint("F");
+               g->SetFillStyle(fs);
+               g->SetFillColor(fc);
+            }
             if (fill) g->Paint("F");
             if (mark) g->Paint("P");
          }
@@ -8711,6 +9261,7 @@ void THistPainter::PaintTH2PolyColorLevels(Option_t *)
       poly  = b->GetPolygon();
 
       z = b->GetContent();
+      if (z==0 && Hoption.Zero) continue;
       if (Hoption.Logz) {
          if (z > 0) z = TMath::Log10(z);
          else       z = zmin;
@@ -8835,8 +9386,8 @@ void THistPainter::PaintTH2PolyScatterPlot(Option_t *)
                gPad->PaintPolyMarker(marker, fXbuf, fYbuf);
                marker=0;
             }
-            xp = (random.Rndm(loop)*xstep) + xk;
-            yp = (random.Rndm(loop)*ystep) + yk;
+            xp = (random.Rndm()*xstep) + xk;
+            yp = (random.Rndm()*ystep) + yk;
             if (g->IsInside(xp,yp)) {
                fXbuf[marker] = xp;
                fYbuf[marker] = yp;
@@ -8859,8 +9410,8 @@ void THistPainter::PaintTH2PolyScatterPlot(Option_t *)
                gPad->PaintPolyMarker(marker, fXbuf, fYbuf);
                marker=0;
             }
-            xp = (random.Rndm(loop)*xstep) + xk;
-            yp = (random.Rndm(loop)*ystep) + yk;
+            xp = (random.Rndm()*xstep) + xk;
+            yp = (random.Rndm()*ystep) + yk;
             if (mg->IsInside(xp,yp)) {
                fXbuf[marker] = xp;
                fYbuf[marker] = yp;
@@ -9023,7 +9574,8 @@ void THistPainter::PaintText(Option_t *)
             } else {
                snprintf(value,50,format,z);
             }
-            text.PaintLatex(x,y,angle,0.02*fH->GetMarkerSize(),value);
+            text.PaintLatex(x,y+fH->GetBarOffset()*fYaxis->GetBinWidth(j),
+                            angle,0.02*fH->GetMarkerSize(),value);
          }
       }
    }
@@ -10645,9 +11197,7 @@ void THistPainter::ShowProjection3(Int_t px, Int_t py)
             }
          }
          break;
-
    }
    c->Update();
    padsav->cd();
 }
-

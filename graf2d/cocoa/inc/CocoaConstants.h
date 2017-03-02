@@ -19,12 +19,16 @@ namespace MacOSX {
 namespace Details {
 
 // Key modifiers
-extern const NSEventModifierFlags kAlphaShiftKeyMask;
-extern const NSEventModifierFlags kShiftKeyMask;
-extern const NSEventModifierFlags kControlKeyMask;
-extern const NSEventModifierFlags kAlternateKeyMask;
-extern const NSEventModifierFlags kCommandKeyMask;
-extern const NSEventModifierFlags kDeviceIndependentModifierFlagsMask;
+extern const NSUInteger kEventMaskAny;
+extern const NSUInteger kAlphaShiftKeyMask;
+extern const NSUInteger kShiftKeyMask;
+extern const NSUInteger kControlKeyMask;
+extern const NSUInteger kAlternateKeyMask;
+extern const NSUInteger kCommandKeyMask;
+extern const NSUInteger kDeviceIndependentModifierFlagsMask;
+
+// Application event types
+extern const NSEventType kApplicationDefined;
 
 // Key event types
 extern const NSEventType kKeyDown;

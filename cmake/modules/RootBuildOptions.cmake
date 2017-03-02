@@ -62,7 +62,7 @@ endfunction()
 
 ROOT_BUILD_OPTION(afdsmgrd OFF "Dataset manager for PROOF-based analysis facilities")
 ROOT_BUILD_OPTION(afs OFF "AFS support, requires AFS libs and objects")
-ROOT_BUILD_OPTION(alien ON "AliEn support, requires libgapiUI from ALICE")
+ROOT_BUILD_OPTION(alien OFF "AliEn support, requires libgapiUI from ALICE")
 ROOT_BUILD_OPTION(asimage ON "Image processing support, requires libAfterImage")
 ROOT_BUILD_OPTION(astiff ON "Include tiff support in image processing")
 ROOT_BUILD_OPTION(bonjour ON "Bonjour support, requires libdns_sd and/or Avahi")
@@ -83,6 +83,7 @@ ROOT_BUILD_OPTION(builtin_cfitsio OFF "Build the FITSIO library internally (down
 ROOT_BUILD_OPTION(builtin_xrootd OFF "Build the XROOTD internally (downloading tarfile from the Web)")
 ROOT_BUILD_OPTION(builtin_llvm ON "Build the LLVM internally")
 ROOT_BUILD_OPTION(builtin_tbb OFF "Build the TBB internally")
+ROOT_BUILD_OPTION(builtin_vdt OFF "Build the VDT package internally")
 ROOT_BUILD_OPTION(builtin_vc OFF "Build the Vc package internally")
 ROOT_BUILD_OPTION(cxx11 ON "Build using C++11 compatible mode, requires gcc > 4.7.x or clang")
 ROOT_BUILD_OPTION(cxx14 OFF "Build using C++14 compatible mode, requires gcc > 4.9.x or clang")
@@ -93,6 +94,7 @@ ROOT_BUILD_OPTION(ccache OFF "Enable ccache usage for speeding up builds")
 ROOT_BUILD_OPTION(chirp ON "Chirp support (Condor remote I/O), requires libchirp_client")
 ROOT_BUILD_OPTION(cling ON "Enable new CLING C++ interpreter")
 ROOT_BUILD_OPTION(cocoa OFF "Use native Cocoa/Quartz graphics backend (MacOS X only)")
+ROOT_BUILD_OPTION(cuda OFF "Use CUDA if it is found in the system")
 ROOT_BUILD_OPTION(davix ON "DavIx library for HTTP/WEBDAV access")
 ROOT_BUILD_OPTION(dcache ON "dCache support, requires libdcap from DESY")
 ROOT_BUILD_OPTION(exceptions ON "Turn on compiler exception handling capability")
@@ -116,6 +118,7 @@ ROOT_BUILD_OPTION(imt OFF "Implicit multi-threading support")
 ROOT_BUILD_OPTION(jemalloc OFF "Using the jemalloc allocator")
 ROOT_BUILD_OPTION(krb5 ON "Kerberos5 support, requires Kerberos libs")
 ROOT_BUILD_OPTION(ldap ON "LDAP support, requires (Open)LDAP libs")
+ROOT_BUILD_OPTION(macos_native OFF "Disable looking for libraries, includes and binaries in locations other than a native installation (MacOS only)")
 ROOT_BUILD_OPTION(mathmore ON "Build the new libMathMore extended math library, requires GSL (vers. >= 1.8)")
 ROOT_BUILD_OPTION(memstat ON "A memory statistics utility, helps to detect memory leaks")
 ROOT_BUILD_OPTION(minuit2 OFF "Build the new libMinuit2 minimizer library")
@@ -153,7 +156,7 @@ ROOT_BUILD_OPTION(tmva ON "Build TMVA multi variate analysis library")
 ROOT_BUILD_OPTION(unuran OFF "UNURAN - package for generating non-uniform random numbers")
 ROOT_BUILD_OPTION(vecgeom OFF "VecGeom is a vectorized geometry library enhancing the performance of geometry navigation.")
 ROOT_BUILD_OPTION(vc OFF "Vc adds a few new types for portable and intuitive SIMD programming")
-ROOT_BUILD_OPTION(vdt ON "VDT adds a set of fast and vectorisable mathematical functions")
+ROOT_BUILD_OPTION(vdt OFF "VDT adds a set of fast and vectorisable mathematical functions")
 ROOT_BUILD_OPTION(winrtdebug OFF "Link against the Windows debug runtime library")
 ROOT_BUILD_OPTION(xft ON "Xft support (X11 antialiased fonts)")
 ROOT_BUILD_OPTION(xml ON "XML parser interface")
@@ -175,7 +178,6 @@ if(WIN32)
 elseif(APPLE)
   set(x11_defvalue OFF)
   set(cocoa_defvalue ON)
-  set(davix_defvalue OFF)
 endif()
 
 #--- The 'all' option swithes ON major options---------------------------------------------------
@@ -191,6 +193,30 @@ if(all)
  set(table_defvalue ON)
  set(unuran_defvalue ON)
  set(vc_defvalue ON)
+ set(vdt_defvalue ON)
+endif()
+
+#--- The 'builtin_all' option swithes ON old the built in options-------------------------------
+if(builtin_all)
+  set(builtin_afterimage_defvalue ON)
+  set(builtin_fftw3_defvalue ON)
+  set(builtin_ftgl_defvalue ON)
+  set(builtin_freetype_defvalue ON)
+  set(builtin_gl2ps_defvalue ON)
+  set(builtin_glew_defvalue ON)
+  set(builtin_openssl_defvalue ON)
+  set(builtin_pcre_defvalue ON)
+  set(builtin_unuran_defvalue ON)
+  set(builtin_zlib_defvalue ON)
+  set(builtin_lzma_defvalue ON)
+  set(builtin_davix_defvalue ON)
+  set(builtin_gsl_defvalue ON)
+  set(builtin_cfitsio_defvalue ON)
+  set(builtin_xrootd_defvalue ON)
+  set(builtin_llvm_defvalue ON)
+  set(builtin_tbb_defvalue ON)
+  set(builtin_vdt_defvalue ON)
+  set(builtin_vc_defvalue ON)
 endif()
 
 #---VC does not support yet Arm and PPC processors----------------------------------------------
@@ -232,15 +258,32 @@ set(CMAKE_MACOSX_RPATH TRUE)              # use RPATH for MacOSX
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE) # point to directories outside the build tree to the install RPATH
 
 # Check whether to add RPATH to the installation (the build tree always has the RPATH enabled)
-if(rpath OR gnuinstall)
+if(rpath)
   set(CMAKE_INSTALL_RPATH ${CMAKE_INSTALL_FULL_LIBDIR}) # install LIBDIR
   set(CMAKE_SKIP_INSTALL_RPATH FALSE)          # don't skip the full RPATH for the install tree
 elseif(APPLE)
   set(CMAKE_INSTALL_NAME_DIR "@rpath")
-  set(CMAKE_INSTALL_RPATH "@loader_path/../lib")    # self relative LIBDIR
+  if(gnuinstall)
+    set(CMAKE_INSTALL_RPATH ${CMAKE_INSTALL_FULL_LIBDIR}) # install LIBDIR
+  else()
+    set(CMAKE_INSTALL_RPATH "@loader_path/../lib")    # self relative LIBDIR
+  endif()
   set(CMAKE_SKIP_INSTALL_RPATH FALSE)          # don't skip the full RPATH for the install tree
 else()
   set(CMAKE_SKIP_INSTALL_RPATH TRUE)           # skip the full RPATH for the install tree
 endif()
+
+#---deal with the DCMAKE_IGNORE_PATH------------------------------------------------------------
+if(macos_native)
+  if(APPLE)
+    set(CMAKE_IGNORE_PATH)
+    foreach(_prefix /sw /opt/local /usr/local) # Fink installs in /sw, and MacPort in /opt/local and Brew in /usr/local
+      list(APPEND CMAKE_IGNORE_PATH ${_prefix}/bin ${_prefix}/include ${_prefix}/lib)
+    endforeach()
+  else()
+    message(STATUS "Option 'macos_native' is only for MacOS systems. Ignoring it.")
+  endif()
+endif()
+
 
 

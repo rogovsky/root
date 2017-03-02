@@ -22,12 +22,8 @@
 //                                                                        //
 ////////////////////////////////////////////////////////////////////////////
 
-#ifndef ROOT_TTreeReaderValue
 #include "TTreeReaderValue.h"
-#endif
-#ifndef ROOT_TTreeReaderUtils
 #include "TTreeReaderUtils.h"
-#endif
 
 namespace ROOT {
 namespace Internal {
@@ -46,9 +42,12 @@ namespace Internal {
    protected:
       void* UntypedAt(size_t idx) const { return fImpl->At(GetProxy(), idx); }
       virtual void CreateProxy();
+      bool GetBranchAndLeaf(TBranch* &branch, TLeaf* &myLeaf,
+                            TDictionary* &branchActualType);
+      void SetImpl(TBranch* branch, TLeaf* myLeaf);
       const char* GetBranchContentDataType(TBranch* branch,
                                            TString& contentTypeName,
-                                           TDictionary* &dict) const;
+                                           TDictionary* &dict);
 
       TVirtualCollectionReader* fImpl; // Common interface to collections
 
@@ -116,6 +115,8 @@ public:
          R__ASSERT(fArray && "invalid iterator!");
          return fArray->At(fIndex);
       }
+
+      operator const T*() const { return &fArray->At(fIndex); }
    };
 
    typedef Iterator_t iterator;

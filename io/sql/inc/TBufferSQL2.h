@@ -5,17 +5,11 @@
 #ifndef ROOT_TBufferSQL2
 #define ROOT_TBufferSQL2
 
-#ifndef ROOT_TBufferFile
 #include "TBufferFile.h"
-#endif
 
-#ifndef ROOT_TString
 #include "TString.h"
-#endif
 
-#ifndef ROOT_TObjArray
 #include "TObjArray.h"
-#endif
 
 class TMap;
 class TExMap;
@@ -278,7 +272,9 @@ public:
    virtual   void     ReadDouble(Double_t   &d);
    virtual   void     ReadCharP(Char_t      *c);
    virtual   void     ReadTString(TString   &s);
-   virtual   void     ReadStdString(std::string &s);
+   virtual   void     ReadStdString(std::string *s);
+   using              TBuffer::ReadStdString;
+   virtual   void     ReadCharStar(char* &s);
 
    virtual   void     WriteBool(Bool_t       b);
    virtual   void     WriteChar(Char_t       c);
@@ -295,7 +291,9 @@ public:
    virtual   void     WriteDouble(Double_t   d);
    virtual   void     WriteCharP(const Char_t *c);
    virtual   void     WriteTString(const TString  &s);
-   virtual   void     WriteStdString(const std::string &s);
+   virtual   void     WriteStdString(const std::string *s);
+   using              TBuffer::WriteStdString;
+   virtual   void     WriteCharStar(char *s);
 
    virtual Int_t ApplySequence(const TStreamerInfoActions::TActionSequence &sequence, void *object);
    virtual Int_t ApplySequenceVecPtr(const TStreamerInfoActions::TActionSequence &sequence, void *start_collection, void *end_collection);

@@ -73,17 +73,7 @@ namespace cling {
   // pin the vtable here.
   DeclCollector::~DeclCollector() { }
 
-  void DeclCollector::AddedCXXImplicitMember(const CXXRecordDecl *RD,
-                                             const Decl *D) {
-    assert(D->isImplicit());
-    // We need to mark the decls coming from the modules
-    if (comesFromASTReader(RD) || comesFromASTReader(D)) {
-      Decl* implicitD = const_cast<Decl*>(D);
-      implicitD->addAttr(UsedAttr::CreateImplicit(implicitD->getASTContext()));
-    }
-  }
-
-  ASTTransformer::Result DeclCollector::TransformDecl(Decl* D) const {
+ ASTTransformer::Result DeclCollector::TransformDecl(Decl* D) const {
     // We are sure it's safe to pipe it through the transformers
     // Consume late transformers init
     for (size_t i = 0; D && i < m_TransactionTransformers.size(); ++i) {
@@ -111,7 +101,19 @@ namespace cling {
     return ASTTransformer::Result(D, true);
   }
 
-  bool DeclCollector::Transform(DeclGroupRef& DGR) const {
+  bool DeclCollector::Transform(DeclGroupRef& DGR) {
+    // Do not tranform recursively, e.g. when emitting a DeclExtracted decl.
+    if (m_Transforming)
+      return true;
+
+    struct TransformingRAII {
+      bool& m_Transforming;
+      TransformingRAII(bool& Transforming): m_Transforming(Transforming) {
+        m_Transforming = true;
+      }
+      ~TransformingRAII() { m_Transforming = false; }
+    } transformingUpdater(m_Transforming);
+
     llvm::SmallVector<Decl*, 4> ReplacedDecls;
     bool HaveReplacement = false;
     for (Decl* D: DGR) {

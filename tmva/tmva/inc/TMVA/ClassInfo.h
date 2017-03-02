@@ -37,18 +37,10 @@
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-#ifndef ROOT_Rtypes
 #include "Rtypes.h"
-#endif
-#ifndef ROOT_TString
 #include "TString.h"
-#endif
-#ifndef ROOT_TCut
 #include "TCut.h"
-#endif
-#ifndef ROOT_TMatrixDfwd
 #include "TMatrixDfwd.h"
-#endif
 
 namespace TMVA {
    
@@ -81,7 +73,7 @@ namespace TMVA {
 
       TMatrixD*          fCorrMatrix;       // Correlation matrix for this class
 
-      mutable MsgLogger* fLogger;   // message logger
+      mutable MsgLogger* fLogger;           //! message logger
       MsgLogger& Log() const { return *fLogger; }
    public:
        

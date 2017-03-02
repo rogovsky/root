@@ -81,6 +81,12 @@ static void CallEndOfProcessCleanups()
 {
    // Insure that the files, canvases and sockets are closed.
 
+   // If we get here, the tear down has started.  We have no way to know what
+   // has or has not yet been done.  In particular on Ubuntu, this was called
+   // after the function static in TSystem.cxx has been destructed.  So we
+   // set gROOT in its end-of-life mode which prevents executing code, like
+   // autoloading libraries (!) that is pointless ...
+   gROOT->SetBit(kInvalidObject);
    gROOT->EndOfProcessCleanups();
 }
 
@@ -270,11 +276,7 @@ void TApplication::InitializeGraphics()
    // mode and Root.UseTTFonts is true and Root.TTFontPath exists. Abort silently
    // if libttf or libGX11TTF are not found in $ROOTSYS/lib or $ROOTSYS/ttf/lib.
    const char *ttpath = gEnv->GetValue("Root.TTFontPath",
-#ifdef TTFFONTDIR
-                                       TTFFONTDIR);
-#else
-                                       "$(ROOTSYS)/fonts");
-#endif
+                                       TROOT::GetTTFFontDir());
    char *ttfont = gSystem->Which(ttpath, "arialbd.ttf", kReadPermission);
    // Check for use of DFSG - fonts
    if (!ttfont)
@@ -882,29 +884,19 @@ Long_t TApplication::ProcessLine(const char *line, Bool_t sync, Int_t *err)
          Error("ProcessLine", "Cannot show demos in batch mode!");
          return 1;
       }
-#ifdef ROOTTUTDIR
-      ProcessLine(".x " ROOTTUTDIR "/demos.C");
-#else
-      ProcessLine(".x $(ROOTSYS)/tutorials/demos.C");
-#endif
+      ProcessLine(".x " + TROOT::GetTutorialDir() + "/demos.C");
       return 0;
    }
 
    if (!strncmp(line, ".license", 8)) {
-#ifdef ROOTDOCDIR
-      return PrintFile(ROOTDOCDIR "/LICENSE");
-#else
-      return PrintFile("$(ROOTSYS)/LICENSE");
-#endif
+      return PrintFile(TROOT::GetDocDir() + "/LICENSE");
    }
 
    if (!strncmp(line, ".credits", 8)) {
-#ifdef ROOTDOCDIR
-      return PrintFile(ROOTDOCDIR "/CREDITS");
-#else
-      return PrintFile("$(ROOTSYS)/README/CREDITS");
-#endif
-
+      TString credits = TROOT::GetDocDir() + "/CREDITS";
+      if (gSystem->AccessPathName(credits, kReadPermission))
+         credits = TROOT::GetDocDir() + "/README/CREDITS";
+      return PrintFile(credits);
    }
 
    if (!strncmp(line, ".pwd", 4)) {
@@ -1027,12 +1019,16 @@ Long_t TApplication::ExecuteFile(const char *file, Int_t *error, Bool_t keep)
       ::Error("TApplication::ExecuteFile", "macro %s not found in path %s", fname.Data(),
               TROOT::GetMacroPath());
       delete [] exnam;
+      if (error)
+         *error = (Int_t)TInterpreter::kRecoverable;
       return 0;
    }
 
    ::std::ifstream macro(exnam, std::ios::in);
    if (!macro.good()) {
       ::Error("TApplication::ExecuteFile", "%s no such file", exnam);
+      if (error)
+         *error = (Int_t)TInterpreter::kRecoverable;
       delete [] exnam;
       return 0;
    }
@@ -1262,22 +1258,20 @@ void TApplication::SetEchoMode(Bool_t)
 void TApplication::CreateApplication()
 {
    R__LOCKGUARD2(gROOTMutex);
+   // gApplication is set at the end of 'new TApplication.
    if (!gApplication) {
-      // gApplication is set at the end of 'new TApplication.
-      if (!gApplication) {
-         char *a = StrDup("RootApp");
-         char *b = StrDup("-b");
-         char *argv[2];
-         Int_t argc = 2;
-         argv[0] = a;
-         argv[1] = b;
-         new TApplication("RootApp", &argc, argv, 0, 0);
-         if (gDebug > 0)
-            Printf("<TApplication::CreateApplication>: "
-                   "created default TApplication");
-         delete [] a; delete [] b;
-         gApplication->SetBit(kDefaultApplication);
-      }
+      char *a = StrDup("RootApp");
+      char *b = StrDup("-b");
+      char *argv[2];
+      Int_t argc = 2;
+      argv[0] = a;
+      argv[1] = b;
+      new TApplication("RootApp", &argc, argv, 0, 0);
+      if (gDebug > 0)
+         Printf("<TApplication::CreateApplication>: "
+                "created default TApplication");
+      delete [] a; delete [] b;
+      gApplication->SetBit(kDefaultApplication);
    }
 }
 

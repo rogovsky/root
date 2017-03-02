@@ -589,6 +589,10 @@ TLatex::TLatexFormSize TLatex::Analyse(Double_t x, Double_t y, TextSpec_t spec, 
    // make a copy of the current processed chain of characters
    // removing leading and trailing blanks
    length -= nBlancFin+nBlancDeb; // length of string without blanks
+   if (length <=0) {
+      Error("Analyse", "It seems there is a syntax error in the TLatex string");
+      return TLatexFormSize(0,0,0);
+   }
    Char_t* text = new Char_t[length+1];
    strncpy(text,t+nBlancDeb,length);
    text[length] = 0;
@@ -2035,6 +2039,8 @@ void TLatex::Paint(Option_t *)
 
 void TLatex::PaintLatex(Double_t x, Double_t y, Double_t angle, Double_t size, const Char_t *text1)
 {
+   if (size<=0 || strlen(text1) <= 0) return; // do not paint empty text or text with size <= 0
+
    TAttText::Modify();  // Change text attributes only if necessary.
 
    TVirtualPS *saveps = gVirtualPS;
@@ -2059,6 +2065,7 @@ void TLatex::PaintLatex(Double_t x, Double_t y, Double_t angle, Double_t size, c
             t.ReplaceAll("#void1","R");
             t.ReplaceAll("#3dots","\\ldots");
             t.ReplaceAll("#lbar","\\mid");
+            t.ReplaceAll("#bar","\\wwbar");
             t.ReplaceAll("#void8","\\mid");
             t.ReplaceAll("#divide","\\div");
             t.ReplaceAll("#Jgothic","\\Im");

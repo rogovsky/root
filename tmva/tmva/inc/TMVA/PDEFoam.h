@@ -31,33 +31,15 @@
 #include <iosfwd>
 #include <cassert>
 
-#ifndef ROOT_TH2D
 #include "TH2D.h"
-#endif
-#ifndef ROOT_TObjArray
 #include "TObjArray.h"
-#endif
-#ifndef ROOT_TObjString
 #include "TObjString.h"
-#endif
-#ifndef ROOT_TVectorT
 #include "TVectorT.h"
-#endif
-#ifndef ROOT_TString
 #include "TString.h"
-#endif
-#ifndef ROOT_TMVA_VariableInfo
 #include "TMVA/VariableInfo.h"
-#endif
-#ifndef ROOT_TMVA_Timer
 #include "TMVA/Timer.h"
-#endif
-#ifndef ROOT_TObject
 #include "TObject.h"
-#endif
-#ifndef ROOT_TRandom3
 #include "TRandom3.h"
-#endif
 
 namespace TMVA {
    class PDEFoamCell;
@@ -86,15 +68,9 @@ namespace TMVA {
                      kRms, kRmsOvMean, kCellVolume };
 }
 
-#ifndef ROOT_TMVA_PDEFoamDensityBase
 #include "TMVA/PDEFoamDensityBase.h"
-#endif
-#ifndef ROOT_TMVA_PDEFoamVect
 #include "TMVA/PDEFoamVect.h"
-#endif
-#ifndef ROOT_TMVA_PDEFoamCell
 #include "TMVA/PDEFoamCell.h"
-#endif
 
 namespace TMVA {
 
@@ -154,7 +130,7 @@ namespace TMVA {
       void InitCells();                   // Initialisation of all foam cells
       Int_t CellFill(Int_t, PDEFoamCell*);// Allocates new empty cell and return its index
       virtual void Explore(PDEFoamCell *Cell); // Exploration of the new cell, determine <wt>, wtMax etc.
-      void Varedu(Double_t [], Int_t&, Double_t&,Double_t&); // Determines the best edge, variace reduction
+      void Varedu(Double_t [], Int_t&, Double_t&,Double_t&); // Determines the best edge, variance reduction
       void MakeAlpha();             // Provides random point inside hyperrectangle
       void Grow();                  // build up foam
       Long_t PeekMax();             // peek cell with max. driver integral
@@ -210,7 +186,7 @@ namespace TMVA {
       void SetDim(Int_t kDim); // Sets dimension of cubical space
       void SetnCells(Long_t nCells){fNCells =nCells;}  // Sets maximum number of cells
       void SetnSampl(Long_t nSampl){fNSampl =nSampl;}  // Sets no of MC events in cell exploration
-      void SetnBin(Int_t nBin){fNBin = nBin;}          // Sets no of bins in histogs in cell exploration
+      void SetnBin(Int_t nBin){fNBin = nBin;}          // Sets no of bins in histograms in cell exploration
       void SetEvPerBin(Int_t EvPerBin){fEvPerBin =EvPerBin;} // Sets max. no. of effective events per bin
       void SetInhiDiv(Int_t, Int_t ); // Set inhibition of cell division along certain edge
       void SetDensity(PDEFoamDensityBase *dens) { fDistr = dens; }
@@ -245,7 +221,7 @@ namespace TMVA {
       void DeleteBinarySearchTree();
 
       // ---------- Transformation functions for event variables into foam boundaries
-      // reason: foam allways has boundaries [0, 1]
+      // reason: foam always has boundaries [0, 1]
 
       Float_t VarTransform(Int_t idim, Float_t x) const; // transform [xmin, xmax] --> [0, 1]
       std::vector<Float_t> VarTransform(const std::vector<Float_t> &invec) const;

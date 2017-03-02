@@ -84,6 +84,11 @@ static void   **gTraceArray = 0;
 static Int_t    gTraceCapacity = 10, gTraceIndex = 0,
                 gMemSize = -1, gMemIndex = -1;
 
+// Used in NewDelete.cxx; set by TMapFile.
+ROOT::Internal::FreeIfTMapFile_t *ROOT::Internal::gFreeIfTMapFile = nullptr;
+void *ROOT::Internal::gMmallocDesc = 0; //is used and set in TMapFile
+
+
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Register a memory allocation operation. If desired one can trap an
@@ -364,6 +369,17 @@ void TStorage::ObjectDealloc(void *vp, void *ptr)
 {
    if (vp && ptr) { }
 }
+
+#ifdef R__SIZEDDELETE
+////////////////////////////////////////////////////////////////////////////////
+/// Used to deallocate a TObject on the heap (via TObject::operator delete()),
+/// for sized deallocation.
+
+void TStorage::ObjectDealloc(void *vp, size_t size)
+{
+   ::operator delete(vp, size);
+}
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Set a free handler.

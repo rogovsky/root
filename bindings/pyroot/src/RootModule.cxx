@@ -105,6 +105,11 @@ static PyNumberMethods nullptr_as_number = {
 #if PY_VERSION_HEX >= 0x02050000
    , 0                                // nb_index
 #endif
+#if PY_VERSION_HEX >= 0x03050000
+   , 0                                // nb_matrix_multiply
+   , 0                                // nb_inplace_matrix_multiply
+#endif
+
    };
 
 static PyTypeObject PyNullPtr_t_Type = {
@@ -500,7 +505,8 @@ namespace {
    PyObject* BindObject_( void* addr, PyObject* pyname )
    {
       if ( ! PyROOT_PyUnicode_Check( pyname ) ) {     // name given as string
-         PyObject* nattr = PyObject_GetAttr( pyname, PyStrings::gName );
+         PyObject* nattr = PyObject_GetAttr( pyname, PyStrings::gCppName );
+         if ( ! nattr ) nattr = PyObject_GetAttr( pyname, PyStrings::gName );
          if ( nattr )                        // object is actually a class
             pyname = nattr;
          pyname = PyObject_Str( pyname );

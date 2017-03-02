@@ -22,9 +22,8 @@
 #ifndef ROOT_TMVA_BDTEventWrapper
 #define ROOT_TMVA_BDTEventWrapper
 
-#ifndef ROOT_Event
+#include "RtypesCore.h"
 #include "Event.h"
-#endif
 
 namespace TMVA {
 

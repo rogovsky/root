@@ -21,18 +21,10 @@
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-#ifndef ROOT_TDictionary
 #include "TDictionary.h"
-#endif
-#ifndef ROOT_TString
 #include "TString.h"
-#endif
-#ifndef ROOT_TObjArray
 #include "TObjArray.h"
-#endif
-#ifndef ROOT_TObjString
 #include "TObjString.h"
-#endif
 
 #include <map>
 #include <string>
@@ -41,9 +33,7 @@
 #include <vector>
 
 #include <atomic>
-#ifndef ROOT_ThreadLocalStorage
 #include "ThreadLocalStorage.h"
-#endif
 class TBaseClass;
 class TBrowser;
 class TDataMember;
@@ -179,7 +169,7 @@ private:
    mutable TObjArray  *fStreamerInfo;           //Array of TVirtualStreamerInfo
    mutable ConvSIMap_t fConversionStreamerInfo; //Array of the streamer infos derived from another class.
    TList              *fRealData;        //linked list for persistent members including base classes
-   TList              *fBase;            //linked list for base classes
+   std::atomic<TList*> fBase;            //linked list for base classes
    TListOfDataMembers *fData;            //linked list for data members
 
    std::atomic<TListOfEnums*> fEnums;        //linked list for the enums

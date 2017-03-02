@@ -1,5 +1,6 @@
 /* @(#)root/multiproc:$Id$ */
 // Author: Enrico Guiraud July 2015
+// Modified: G Ganis Jan 2017
 
 /*************************************************************************
  * Copyright (C) 1995-2000, Rene Brun and Fons Rademakers.               *
@@ -11,11 +12,14 @@
 
 #include "MPCode.h"
 #include "MPSendRecv.h"
+#include "TEnv.h"
 #include "TError.h"
 #include "TMPWorker.h"
 #include "TSystem.h"
 #include <memory> //unique_ptr
 #include <string>
+
+#include <iostream>
 
 //////////////////////////////////////////////////////////////////////////
 ///
@@ -40,21 +44,6 @@
 ///
 //////////////////////////////////////////////////////////////////////////
 
-
-
-//////////////////////////////////////////////////////////////////////////
-/// Class constructor.
-/// Note that this does not set variables like fPid or fS (worker's socket).\n
-/// These operations are handled by the Init method, which is called after
-/// forking.\n
-/// This separation is in place because the instantiation of a worker
-/// must be done once _before_ forking, while the initialization of the
-/// members must be done _after_ forking by each of the children processes.
-TMPWorker::TMPWorker() : fS(), fPid(0), fNWorker(0)
-{
-}
-
-
 //////////////////////////////////////////////////////////////////////////
 /// This method is called by children processes right after forking.
 /// Initialization of worker properties that must be delayed until after
@@ -68,6 +57,7 @@ void TMPWorker::Init(int fd, unsigned workerN)
    fS.reset(new TSocket(fd, "MPsock")); //TSocket's constructor with this signature seems much faster than TSocket(int fd)
    fPid = getpid();
    fNWorker = workerN;
+   fId = "W" + std::to_string(GetNWorker()) + "|P" + std::to_string(GetPid());
 }
 
 
@@ -100,7 +90,7 @@ void TMPWorker::HandleInput(MPCodeBufPair &msg)
 {
    unsigned code = msg.first;
 
-   std::string reply = "S" + std::to_string(fNWorker);
+   std::string reply = fId;
    if (code == MPCode::kMessage) {
       //general message, ignore it
       reply += ": ok";
@@ -117,4 +107,13 @@ void TMPWorker::HandleInput(MPCodeBufPair &msg)
       reply += ": unknown code received. code=" + std::to_string(code);
       MPSend(fS.get(), MPCode::kError, reply.data());
    }
+}
+
+//////////////////////////////////////////////////////////////////////////
+/// Error sender
+
+void TMPWorker::SendError(const std::string& errmsg, unsigned int errcode)
+{
+   std::string reply = fId + ": " + errmsg;
+   MPSend(GetSocket(), errcode, reply.data());
 }

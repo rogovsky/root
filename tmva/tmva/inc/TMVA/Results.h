@@ -40,16 +40,10 @@
 #include <vector>
 #include <map>
 
-#ifndef ROOT_TList
 #include "TList.h"
-#endif
 
-#ifndef ROOT_TMVA_Types
 #include "TMVA/Types.h"
-#endif
-#ifndef ROOT_TMVA_DataSetInfo
 #include "TMVA/DataSetInfo.h"
-#endif
 
 class TH1;
 class TH2;
@@ -96,7 +90,7 @@ namespace TMVA {
       const DataSetInfo*           fDsi;         // a pointer to the datasetinfo-object
       TList*                       fStorage;     // stores all the result-histograms
       std::map<TString, TObject*>* fHistAlias;   // internal map for quick access to stored histograms
-      mutable MsgLogger*           fLogger;   // message logger
+      mutable MsgLogger*           fLogger;      //! message logger
       MsgLogger& Log() const { return *fLogger; }    
    public:
        

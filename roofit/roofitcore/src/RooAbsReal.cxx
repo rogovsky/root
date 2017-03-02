@@ -73,9 +73,7 @@
 #include "RooCmdConfig.h"
 #include "RooXYChi2Var.h"
 #include "RooMinuit.h"
-#ifndef __ROOFIT_NOROOMINIMIZER
 #include "RooMinimizer.h"
-#endif
 #include "RooChi2Var.h"
 #include "RooFitResult.h"
 #include "RooAbsMoment.h"
@@ -4526,7 +4524,7 @@ RooFitResult* RooAbsReal::chi2FitDriver(RooAbsReal& fcn, RooLinkedList& cmdList)
   pc.defineInt("ext","Extended",0,2) ;
   pc.defineInt("numee","PrintEvalErrors",0,10) ;
   pc.defineInt("doWarn","Warnings",0,1) ;
-  pc.defineString("mintype","Minimizer",0,"OldMinuit") ;
+  pc.defineString("mintype","Minimizer",0,"Minuit") ;
   pc.defineString("minalg","Minimizer",1,"minuit") ;
   pc.defineObject("minosSet","Minos",0,0) ;
 
@@ -4549,7 +4547,7 @@ RooFitResult* RooAbsReal::chi2FitDriver(RooAbsReal& fcn, RooLinkedList& cmdList)
 #ifdef __ROOFIT_NOROOMINIMIZER
   const char* minType =0 ;
 #else
-  const char* minType = pc.getString("mintype","OldMinuit") ;
+  const char* minType = pc.getString("mintype","Minuit") ;
   const char* minAlg = pc.getString("minalg","minuit") ;
 #endif
   Int_t optConst = pc.getInt("optConst") ;

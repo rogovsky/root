@@ -3,10 +3,10 @@
 /// Creates and runs a simple iterator plugin connected to TGeoPainter iterator.
 ///
 /// It demonstrates the possibility to dynamically change the color of drawn
-/// volumes acording some arbitrary criteria *WITHOUT* changing the color of the
+/// volumes according some arbitrary criteria *WITHOUT* changing the color of the
 /// same volume drawn on branches that do not match the criteria.
 ///
-/// ~~~ {.cpp}
+/// ~~~{.cpp}
 /// To run:
 /// root[0]   .L iterplugin.cxx+
 /// root[1]   .x runplugin.C
@@ -27,7 +27,7 @@ void runplugin()
 {
 
 
-   TString tutdir = gROOT->GetTutorialsDir();
+   TString tutdir = gROOT->GetTutorialDir();
    gROOT->ProcessLine(".x " + tutdir + "/geom/rootgeom.C");
    plugin = new iterplugin();
    gGeoManager->GetGeomPainter()->SetIteratorPlugin(plugin);

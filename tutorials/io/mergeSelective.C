@@ -1,6 +1,6 @@
 /// \file
 /// \ingroup tutorial_io
-/// \notebook
+/// \notebook -nodraw
 /// Merge only part of the content of a set of files.
 /// This macro demonstrates how to merge only a part of the content of a set
 /// of input files, specified via the interface.
@@ -49,7 +49,7 @@ void mergeSelective(Int_t nfiles=5)
    // Create the files to be merged
    TStopwatch timer;
    timer.Start();
-   TString tutdir = gROOT->GetTutorialsDir();
+   TString tutdir = gROOT->GetTutorialDir();
    if (gROOT->LoadMacro(tutdir + "/hsimple.C")) return;
    Int_t i;
    for (i=0; i<nfiles; i++) CreateFile(Form("tomerge%03d.root",i));

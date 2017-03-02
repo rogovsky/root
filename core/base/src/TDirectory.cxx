@@ -937,19 +937,20 @@ void TDirectory::FillFullPath(TString& buf) const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Create a sub-directory and return a pointer to the created directory.
-/// Returns 0 in case of error.
-/// Returns 0 if a directory with the same name already exists.
-/// Note that the directory name may be of the form "a/b/c" to create a hierarchy of directories.
-/// In this case, the function returns the pointer to the "a" directory if the operation is successful.
+/// Create a sub-directory "a" or a hierarchy of sub-directories "a/b/c/...".
 ///
-/// For example the step to the steps to create first a/b/c and then a/b/d without receiving
-/// and errors are:
+/// Returns 0 in case of error or if a sub-directory (hierarchy) with the requested
+/// name already exists.
+/// Returns a pointer to the created sub-directory or to the top sub-directory of
+/// the hierarchy (in the above example, the returned TDirectory * always points
+/// to "a").
+/// In particular, the steps to create first a/b/c and then a/b/d without receiving
+/// errors are:
 /// ~~~ {.cpp}
 ///    TFile * file = new TFile("afile","RECREATE");
 ///    file->mkdir("a");
 ///    file->cd("a");
-///    gDirectory->mkdir("b");
+///    gDirectory->mkdir("b/c");
 ///    gDirectory->cd("b");
 ///    gDirectory->mkdir("d");
 /// ~~~
@@ -1096,6 +1097,10 @@ void TDirectory::rmdir(const char *name)
 /// If the operation is successful, it returns the number of bytes written to the file
 /// otherwise it returns 0.
 /// By default a message is printed. Use option "q" to not print the message.
+/// If filename contains ".json" extension, JSON representation of the object
+/// will be created and saved in the text file. Such file can be used in
+/// JavaScript ROOT (https://root.cern.ch/js/) to display object in web browser
+/// When creating JSON file, option string may contain compression level from 0 to 3 (default 0)
 
 Int_t TDirectory::SaveObjectAs(const TObject *obj, const char *filename, Option_t *option) const
 {
@@ -1106,8 +1111,11 @@ Int_t TDirectory::SaveObjectAs(const TObject *obj, const char *filename, Option_
       fname.Form("%s.root",obj->GetName());
    }
    TString cmd;
-   cmd.Form("TFile::Open(\"%s\",\"recreate\");",fname.Data());
-   {
+   if (fname.Index(".json") > 0) {
+      cmd.Form("TBufferJSON::ExportToFile(\"%s\",(TObject*) %s, \"%s\");", fname.Data(), TString::LLtoa((Long_t)obj, 10).Data(), (option ? option : ""));
+      nbytes = gROOT->ProcessLine(cmd);
+   } else {
+      cmd.Form("TFile::Open(\"%s\",\"recreate\");",fname.Data());
       TContext ctxt; // The TFile::Open will change the current directory.
       TDirectory *local = (TDirectory*)gROOT->ProcessLine(cmd);
       if (!local) return 0;

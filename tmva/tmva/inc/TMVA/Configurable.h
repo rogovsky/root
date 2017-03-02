@@ -35,16 +35,10 @@
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-#ifndef ROOT_TNamed
 #include "TNamed.h"
-#endif
-#ifndef ROOT_TList
 #include "TList.h"
-#endif
 
-#ifndef ROOT_TMVA_Option
 #include "TMVA/Option.h"
-#endif
 
 namespace TMVA {
 
@@ -131,7 +125,7 @@ namespace TMVA {
       void SetMsgType( EMsgType t ) { fLogger->SetMinType(t); }
 
    protected:
-      mutable MsgLogger* fLogger;                     // message logger
+      mutable MsgLogger* fLogger;                     //! message logger
       
    private:
 

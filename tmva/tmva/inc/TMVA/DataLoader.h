@@ -32,35 +32,31 @@
 #include <string>
 #include <vector>
 #include <map>
-#ifndef ROOT_TCut
 #include "TCut.h"
-#endif
 
-#ifndef ROOT_TMVA_Factory
 #include "TMVA/Factory.h"
-#endif
-#ifndef ROOT_TMVA_Types
 #include "TMVA/Types.h"
-#endif
-#ifndef ROOT_TMVA_DataSet
 #include "TMVA/DataSet.h"
-#endif
 
 class TFile;
 class TTree;
 class TDirectory;
+class TH2;
 
 namespace TMVA {
 
    class IMethod;
+   class Envelope;
    class MethodBase;
    class DataInputHandler;
    class DataSetInfo;
    class DataSetManager;
    class VariableTransformBase;
+   class VarTransformHandler;
 
    class DataLoader : public Configurable {
       friend class Factory;
+      friend class Envelope;
    public:
 
        DataLoader( TString thedlName="default");
@@ -82,6 +78,8 @@ namespace TMVA {
 
       DataSetInfo& AddDataSet( DataSetInfo& );
       DataSetInfo& AddDataSet( const TString&  );
+      DataSetInfo& GetDataSetInfo();
+      DataLoader* VarTransform(TString trafoDefinition);
 
       // special case: signal/background
 
@@ -163,20 +161,22 @@ namespace TMVA {
 
       void PrepareTrainingAndTestTree( int foldNumber, Types::ETreeType tt );
 
-      void MakeKFoldDataSet(int numberFolds);
-      void ValidationKFoldSet();
-      std::vector<TTree*> SplitSets(TTree * oldTree, int seedNum, int numFolds);
+      void PrepareFoldDataSet( UInt_t foldNumber, Types::ETreeType tt);
+      void MakeKFoldDataSet(UInt_t numberFolds, bool validationSet=false);
+      std::vector<std::vector<TMVA::Event*>> SplitSets(std::vector<TMVA::Event*>& oldSet, int seedNum, int numFolds);
 
       const DataSetInfo& GetDefaultDataSetInfo(){ return DefaultDataSetInfo(); }
+
+      TH2* GetCorrelationMatrix(const TString& className);
  
       //Copy method use in VI and CV DEPRECATED: you can just call Clone  DataLoader *dl2=(DataLoader *)dl1->Clone("dl2")
       DataLoader* MakeCopy(TString name);
       friend void DataLoaderCopy(TMVA::DataLoader* des, TMVA::DataLoader* src);      
+      DataInputHandler&        DataInput() { return *fDataInputHandler; }
  
    private:
 
  
-      DataInputHandler&        DataInput() { return *fDataInputHandler; }
       DataSetInfo&             DefaultDataSetInfo();
       void                     SetInputTreesFromEventAssignTrees();
 
@@ -206,10 +206,12 @@ namespace TMVA {
       std::vector<TTree*>                       fTrainAssignTree; // for each class: tmp tree if user wants to assign the events directly
       std::vector<TTree*>                       fTestAssignTree;  // for each class: tmp tree if user wants to assign the events directly
 
-      std::vector<TTree*>                       fTrainSigTree;
-      std::vector<TTree*>                       fTrainBkgTree;
-      std::vector<TTree*>                       fTestSigTree;
-      std::vector<TTree*>                       fTestBkgTree;
+      std::vector<std::vector<TMVA::Event*>>          fTrainSigEvents;
+      std::vector<std::vector<TMVA::Event*>>          fTrainBkgEvents;
+      std::vector<std::vector<TMVA::Event*>>          fValidSigEvents;
+      std::vector<std::vector<TMVA::Event*>>          fValidBkgEvents;
+      std::vector<std::vector<TMVA::Event*>>          fTestSigEvents;
+      std::vector<std::vector<TMVA::Event*>>          fTestBkgEvents;
 
       Int_t                                     fATreeType;          // type of event (=classIndex)
       Float_t                                   fATreeWeight;        // weight of the event
@@ -217,11 +219,12 @@ namespace TMVA {
       
       Types::EAnalysisType                      fAnalysisType;    // the training type
 
+      Bool_t                                    fMakeFoldDataSet; // flag telling if the DataSet folds have been done
+
    protected:
 
-      ClassDef(DataLoader,2);
+      ClassDef(DataLoader,3);
    };
-   //utility function to copy dataloaders DEPRECATED: you can just call Clone  DataLoader *dl2=(DataLoader *)dl1->Clone("dl2")
    void DataLoaderCopy(TMVA::DataLoader* des, TMVA::DataLoader* src);
 } // namespace TMVA
 

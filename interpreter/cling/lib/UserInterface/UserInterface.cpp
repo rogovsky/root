@@ -9,16 +9,15 @@
 
 #include "cling/UserInterface/UserInterface.h"
 
-#include "cling/UserInterface/CompilationException.h"
 #include "cling/Interpreter/Exception.h"
 #include "cling/MetaProcessor/MetaProcessor.h"
+#include "cling/Utils/Output.h"
 #include "textinput/Callbacks.h"
 #include "textinput/TextInput.h"
 #include "textinput/StreamReader.h"
 #include "textinput/TerminalDisplay.h"
 
 #include "llvm/ADT/SmallString.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Config/config.h"
@@ -29,10 +28,6 @@
 // Fragment copied from LLVM's raw_ostream.cpp
 #if defined(HAVE_UNISTD_H)
 # include <unistd.h>
-#endif
-
-#if defined(LLVM_ON_WIN32)
-#include <Shlobj.h>
 #endif
 
 #if defined(_MSC_VER)
@@ -48,43 +43,6 @@
 #endif
 
 #include <memory>
-
-namespace {
-  // Handle fatal llvm errors by throwing an exception.
-  // Yes, throwing exceptions in error handlers is bad.
-  // Doing nothing is pretty terrible, too.
-  void exceptionErrorHandler(void * /*user_data*/,
-                             const std::string& reason,
-                             bool /*gen_crash_diag*/) {
-    throw cling::CompilationException(reason);
-  }
-#if defined(LLVM_ON_UNIX)
-  static void GetUserHomeDirectory(llvm::SmallVectorImpl<char>& str) {
-    str.clear();
-    const char* home = getenv("HOME");
-    if (!home)
-      home = "/";
-    llvm::StringRef SRhome(home);
-    str.insert(str.begin(), SRhome.begin(), SRhome.end());
-  }
-#elif defined(LLVM_ON_WIN32)
-  static void GetUserHomeDirectory(llvm::SmallVectorImpl<char>& str) {
-    str.reserve(MAX_PATH);
-    HRESULT res = SHGetFolderPathA(NULL,
-                                   CSIDL_FLAG_CREATE | CSIDL_APPDATA,
-                                   NULL,
-                                   SHGFP_TYPE_CURRENT,
-                                   str.data());
-    if (res != S_OK) {
-      assert(0 && "Failed to get user home directory");
-      llvm::StringRef SRhome("\\");
-      str.insert(str.begin(), SRhome.begin(), SRhome.end());
-    }
-  }
-#else
-# error "Unsupported platform."
-#endif
-}
 
 namespace {
   ///\brief Class that specialises the textinput TabCompletion to allow Cling
@@ -110,16 +68,10 @@ namespace {
 }
 
 namespace cling {
-  // Declared in CompilationException.h; vtable pinned here.
-  CompilationException::~CompilationException() throw() {}
 
   UserInterface::UserInterface(Interpreter& interp) {
-    // We need stream that doesn't close its file descriptor, thus we are not
-    // using llvm::outs. Keeping file descriptor open we will be able to use
-    // the results in pipes (Savannah #99234).
-    static llvm::raw_fd_ostream m_MPOuts (STDOUT_FILENO, /*ShouldClose*/false);
-    m_MetaProcessor.reset(new MetaProcessor(interp, m_MPOuts));
-    llvm::install_fatal_error_handler(&exceptionErrorHandler);
+    m_MetaProcessor.reset(new MetaProcessor(interp, cling::outs()));
+    llvm::install_fatal_error_handler(&CompilationException::throwingHandler);
   }
 
   UserInterface::~UserInterface() {}
@@ -132,9 +84,8 @@ namespace cling {
     llvm::SmallString<512> histfilePath;
     if (!getenv("CLING_NOHISTORY")) {
       // History file is $HOME/.cling_history
-      static const char* histfile = ".cling_history";
-      GetUserHomeDirectory(histfilePath);
-      llvm::sys::path::append(histfilePath, histfile);
+      if (llvm::sys::path::home_directory(histfilePath))
+        llvm::sys::path::append(histfilePath, ".cling_history");
     }
 
     using namespace textinput;
@@ -148,52 +99,51 @@ namespace cling {
                       new UITabCompletion(m_MetaProcessor->getInterpreter());
     TI.SetCompletion(Completion);
 
-    TI.SetPrompt("[cling]$ ");
-    std::string line;
+    std::string Line;
+    std::string Prompt("[cling]$ ");
+
     while (true) {
       try {
         m_MetaProcessor->getOuts().flush();
-        TextInput::EReadResult RR = TI.ReadInput();
-        TI.TakeInput(line);
-        if (RR == TextInput::kRREOF) {
-          break;
+        {
+          MetaProcessor::MaybeRedirectOutputRAII RAII(*m_MetaProcessor);
+          TI.SetPrompt(Prompt.c_str());
+          if (TI.ReadInput() == TextInput::kRREOF)
+            break;
+          TI.TakeInput(Line);
         }
 
         cling::Interpreter::CompilationResult compRes;
-        MetaProcessor::MaybeRedirectOutputRAII RAII(m_MetaProcessor.get());
-        int indent
-          = m_MetaProcessor->process(line.c_str(), compRes, 0/*result*/);
-        // Quit requested
+        const int indent = m_MetaProcessor->process(Line.c_str(), compRes);
+
+        // Quit requested?
         if (indent < 0)
           break;
-        std::string Prompt = "[cling]";
-        if (m_MetaProcessor->getInterpreter().isRawInputEnabled())
-          Prompt.append("! ");
-        else
-          Prompt.append("$ ");
 
-        if (indent > 0)
-          // Continuation requested.
-          Prompt.append('?' + std::string(indent * 3, ' '));
+        Prompt.replace(7, std::string::npos,
+           m_MetaProcessor->getInterpreter().isRawInputEnabled() ? "! " : "$ ");
 
-        TI.SetPrompt(Prompt.c_str());
-
-      }
-      catch(InvalidDerefException& e) {
-        e.diagnose();
+        // Continuation requested?
+        if (indent > 0) {
+          Prompt.append(1, '?');
+          Prompt.append(indent * 3, ' ');
+        }
       }
       catch(InterpreterException& e) {
-        llvm::errs() << ">>> Caught an interpreter exception!\n"
-                     << ">>> " << e.what() << '\n';
+        if (!e.diagnose()) {
+          cling::errs() << ">>> Caught an interpreter exception!\n"
+                        << ">>> " << e.what() << '\n';
+        }
       }
       catch(std::exception& e) {
-        llvm::errs() << ">>> Caught a std::exception!\n"
+        cling::errs() << ">>> Caught a std::exception!\n"
                      << ">>> " << e.what() << '\n';
       }
       catch(...) {
-        llvm::errs() << "Exception occurred. Recovering...\n";
+        cling::errs() << "Exception occurred. Recovering...\n";
       }
     }
+    m_MetaProcessor->getOuts().flush();
   }
 
   void UserInterface::PrintLogo() {

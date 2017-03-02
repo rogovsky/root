@@ -34,7 +34,6 @@
 #include "TMVA/VariableGaussTransform.h"
 #include "TMVA/VariableNormalizeTransform.h"
 
-
 #include "TMVA/Config.h"
 #include "TMVA/DataSetInfo.h"
 #include "TMVA/MsgLogger.h"
@@ -46,9 +45,11 @@
 #include "TMVA/TransformationHandler.h"
 #include "TMVA/MsgLogger.h"
 
-#include "TMath.h"
 #include "TH1.h"
 #include "TH2.h"
+#include "THashTable.h"
+#include "TList.h"
+#include "TMath.h"
 #include "TProfile.h"
 #include "TVectorD.h"
 
@@ -161,13 +162,16 @@ void CreateVariableTransforms( const TString& trafoDefinitionIn,
         else log << kFATAL <<Form("Dataset[%s] : ",dataInfo.GetName())<< "<ProcessOptions> Variable transform '"
                      << trName << "' unknown." << Endl;
 
+
         if (transformation) {
             ClassInfo* clsInfo = dataInfo.GetClassInfo(idxCls);
-            if (clsInfo )
-                log << kINFO <<Form("Dataset[%s] : ",dataInfo.GetName())<< "Create Transformation \"" << trName << "\" with reference class "
-                    << clsInfo->GetName() << "=("<< idxCls <<")"<<Endl;
-            else
-                log << kINFO <<Form("Dataset[%s] : ",dataInfo.GetName())<< "Create Transformation \"" << trName << "\" with events from all classes." << Endl;
+             if (clsInfo )
+        log << kHEADER <<Form("[%s] : ",dataInfo.GetName())
+    << "Create Transformation \"" << trName << "\" with reference class "
+                    << clsInfo->GetName() << "=("<< idxCls <<")"<<Endl << Endl;
+else
+        log << kHEADER <<Form("[%s] : ",dataInfo.GetName())
+    << "Create Transformation \"" << trName << "\" with events from all classes." << Endl << Endl;
 
             transformation->SelectInput( variables );
             transformationHandler.AddTransformation(transformation, idxCls);

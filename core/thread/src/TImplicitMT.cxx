@@ -20,52 +20,93 @@
 
 #include "TError.h"
 #include "TThread.h"
+#include "ROOT/TPoolManager.hxx"
+#include <atomic>
 
-#include "tbb/task_scheduler_init.h"
-
-
-static tbb::task_scheduler_init &GetScheduler()
+static std::shared_ptr<ROOT::Internal::TPoolManager> &R__GetPoolManagerMT()
 {
-   static tbb::task_scheduler_init scheduler(tbb::task_scheduler_init::deferred);
-   return scheduler;
+   static std::shared_ptr<ROOT::Internal::TPoolManager> schedMT;
+   return schedMT;
 }
 
-static bool &GetIMTFlag()
+static bool &GetImplicitMTFlag()
 {
    static bool enabled = false;
    return enabled;
 }
 
+static std::atomic_int &GetParBranchProcessingCount()
+{
+   static std::atomic_int count(0);
+   return count;
+}
+
+static std::atomic_int &GetParTreeProcessingCount()
+{
+   static std::atomic_int count(0);
+   return count;
+}
+
 extern "C" void ROOT_TImplicitMT_EnableImplicitMT(UInt_t numthreads)
 {
-   if (!GetIMTFlag()) {
-      if (!GetScheduler().is_active()) {
+   if (!GetImplicitMTFlag()) {
+      if (ROOT::Internal::TPoolManager::GetPoolSize() == 0) {
          TThread::Initialize();
-
-         if (numthreads == 0)
-            numthreads = tbb::task_scheduler_init::automatic;
-
-         GetScheduler().initialize(numthreads);
       }
-      GetIMTFlag() = true;
-   }
-   else {
+      R__GetPoolManagerMT() = ROOT::Internal::GetPoolManager(numthreads);
+      GetImplicitMTFlag() = true;
+   } else {
       ::Warning("ROOT_TImplicitMT_EnableImplicitMT", "Implicit multi-threading is already enabled");
    }
 };
 
 extern "C" void ROOT_TImplicitMT_DisableImplicitMT()
 {
-   if (GetIMTFlag()) {
-      GetIMTFlag() = false;
-   }
-   else {
+   if (GetImplicitMTFlag()) {
+      GetImplicitMTFlag() = false;
+      R__GetPoolManagerMT().reset();
+   } else {
       ::Warning("ROOT_TImplicitMT_DisableImplicitMT", "Implicit multi-threading is already disabled");
    }
 };
 
 extern "C" bool ROOT_TImplicitMT_IsImplicitMTEnabled()
 {
-   return GetIMTFlag();
+   return GetImplicitMTFlag();
 };
 
+extern "C" UInt_t ROOT_TImplicitMT_GetImplicitMTPoolSize()
+{
+   return ROOT::Internal::TPoolManager::GetPoolSize();
+};
+
+
+extern "C" void ROOT_TImplicitMT_EnableParBranchProcessing()
+{
+   ++GetParBranchProcessingCount();
+};
+
+extern "C" void ROOT_TImplicitMT_DisableParBranchProcessing()
+{
+   --GetParBranchProcessingCount();
+};
+
+extern "C" bool ROOT_TImplicitMT_IsParBranchProcessingEnabled()
+{
+   return GetParBranchProcessingCount() > 0;
+};
+
+extern "C" void ROOT_TImplicitMT_EnableParTreeProcessing()
+{
+   ++GetParTreeProcessingCount();
+};
+
+extern "C" void ROOT_TImplicitMT_DisableParTreeProcessing()
+{
+   --GetParTreeProcessingCount();
+};
+
+extern "C" bool ROOT_TImplicitMT_IsParTreeProcessingEnabled()
+{
+   return GetParTreeProcessingCount() > 0;
+};

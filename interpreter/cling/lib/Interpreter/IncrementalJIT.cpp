@@ -10,6 +10,7 @@
 #include "IncrementalJIT.h"
 
 #include "IncrementalExecutor.h"
+#include "cling/Utils/Platform.h"
 
 #include "llvm/ExecutionEngine/Orc/LambdaResolver.h"
 #include "llvm/Support/DynamicLibrary.h"
@@ -24,11 +25,6 @@
 using namespace llvm;
 
 namespace {
-// Forward cxa_atexit for global d'tors.
-static void local_cxa_atexit(void (*func) (void*), void* arg, void* dso) {
-  cling::IncrementalExecutor* exe = (cling::IncrementalExecutor*)dso;
-  exe->AddAtExitFunc(func, arg);
-}
 
 ///\brief Memory manager providing the lop-level link to the
 /// IncrementalExecutor, handles missing or special / replaced symbols.
@@ -65,6 +61,72 @@ namespace cling {
 class Azog: public RTDyldMemoryManager {
   cling::IncrementalJIT& m_jit;
 
+  struct AllocInfo {
+    uint8_t *m_Start   = nullptr;
+    uint8_t *m_End     = nullptr;
+    uint8_t *m_Current = nullptr;
+
+    void allocate(RTDyldMemoryManager *exeMM,
+                  uintptr_t Size, uint32_t Align,
+                  bool code, bool isReadOnly) {
+
+      uintptr_t RequiredSize = Size;
+      if (code)
+        m_Start = exeMM->allocateCodeSection(RequiredSize, Align,
+                                             0 /* SectionID */,
+                                             "codeReserve");
+      else if (isReadOnly)
+        m_Start = exeMM->allocateDataSection(RequiredSize, Align,
+                                             0 /* SectionID */,
+                                             "rodataReserve",isReadOnly);
+      else
+        m_Start = exeMM->allocateDataSection(RequiredSize, Align,
+                                             0 /* SectionID */,
+                                             "rwataReserve",isReadOnly);
+      m_Current = m_Start;
+      m_End = m_Start + RequiredSize;
+    }
+
+    uint8_t* getNextAddr(uintptr_t Size, unsigned Alignment) {
+      if (!Alignment)
+        Alignment = 16;
+
+      assert(!(Alignment & (Alignment - 1)) && "Alignment must be a power of two.");
+
+      uintptr_t RequiredSize = Alignment * ((Size + Alignment - 1)/Alignment + 1);
+      if ( (m_Current + RequiredSize) > m_End ) {
+        // This must be the last block.
+        if ((m_Current + Size) <= m_End) {
+          RequiredSize = Size;
+        } else {
+          cling::errs() << "Error in block allocation by Azog. "
+                        << "Not enough memory was reserved for the current module. "
+                        << Size << " (with alignment: " << RequiredSize
+                        << " ) is needed but\n"
+                        << "we only have " << (m_End - m_Current) << ".\n";
+          return nullptr;
+        }
+      }
+
+      uintptr_t Addr = (uintptr_t)m_Current;
+
+      // Align the address.
+      Addr = (Addr + Alignment - 1) & ~(uintptr_t)(Alignment - 1);
+
+      m_Current = (uint8_t*)(Addr + Size);
+
+      return (uint8_t*)Addr;
+    }
+
+    operator bool() {
+      return m_Current != nullptr;
+    }
+  };
+
+  AllocInfo m_Code;
+  AllocInfo m_ROData;
+  AllocInfo m_RWData;
+
 public:
   Azog(cling::IncrementalJIT& Jit): m_jit(Jit) {}
 
@@ -73,31 +135,50 @@ public:
   uint8_t *allocateCodeSection(uintptr_t Size, unsigned Alignment,
                                unsigned SectionID,
                                StringRef SectionName) override {
-    uint8_t *Addr =
-      getExeMM()->allocateCodeSection(Size, Alignment, SectionID, SectionName);
-    m_jit.m_SectionsAllocatedSinceLastLoad.insert(Addr);
+    uint8_t *Addr = nullptr;
+    if (m_Code) {
+      Addr = m_Code.getNextAddr(Size, Alignment);
+    }
+    if (!Addr) {
+      Addr = getExeMM()->allocateCodeSection(Size, Alignment, SectionID, SectionName);
+      m_jit.m_SectionsAllocatedSinceLastLoad.insert(Addr);
+    }
+
     return Addr;
   }
 
   uint8_t *allocateDataSection(uintptr_t Size, unsigned Alignment,
                                unsigned SectionID, StringRef SectionName,
                                bool IsReadOnly) override {
-    uint8_t *Addr = getExeMM()->allocateDataSection(Size, Alignment, SectionID,
-                                                    SectionName, IsReadOnly);
-    m_jit.m_SectionsAllocatedSinceLastLoad.insert(Addr);
+
+    uint8_t *Addr = nullptr;
+    if (IsReadOnly && m_ROData) {
+      Addr = m_ROData.getNextAddr(Size,Alignment);
+    } else if (m_RWData) {
+      Addr = m_RWData.getNextAddr(Size,Alignment);
+    }
+    if (!Addr) {
+      Addr = getExeMM()->allocateDataSection(Size, Alignment, SectionID,
+                                                   SectionName, IsReadOnly);
+      m_jit.m_SectionsAllocatedSinceLastLoad.insert(Addr);
+    }
     return Addr;
   }
 
   void reserveAllocationSpace(uintptr_t CodeSize, uint32_t CodeAlign,
                               uintptr_t RODataSize, uint32_t RODataAlign,
                               uintptr_t RWDataSize, uint32_t RWDataAlign) override {
-    return getExeMM()->reserveAllocationSpace(CodeSize, CodeAlign, RODataSize,
-                                              RODataAlign, RWDataSize,
-                                              RWDataAlign);
+    m_Code.allocate(getExeMM(),CodeSize, CodeAlign, true, false);
+    m_ROData.allocate(getExeMM(),RODataSize, RODataAlign, false, true);
+    m_RWData.allocate(getExeMM(),RWDataSize, RWDataAlign, false, false);
+
+    m_jit.m_SectionsAllocatedSinceLastLoad.insert(m_Code.m_Start);
+    m_jit.m_SectionsAllocatedSinceLastLoad.insert(m_ROData.m_Start);
+    m_jit.m_SectionsAllocatedSinceLastLoad.insert(m_RWData.m_Start);
   }
 
   bool needsToReserveAllocationSpace() override {
-    return getExeMM()->needsToReserveAllocationSpace();
+    return true; // getExeMM()->needsToReserveAllocationSpace();
   }
 
   void registerEHFrames(uint8_t *Addr, uint64_t LoadAddr,
@@ -191,19 +272,8 @@ IncrementalJIT::IncrementalJIT(IncrementalExecutor& exe,
 
 
 llvm::orc::JITSymbol
-IncrementalJIT::getInjectedSymbols(llvm::StringRef Name) const {
+IncrementalJIT::getInjectedSymbols(const std::string& Name) const {
   using JITSymbol = llvm::orc::JITSymbol;
-  if (Name == MANGLE_PREFIX "__cxa_atexit") {
-    // Rewire __cxa_atexit to ~Interpreter(), thus also global destruction
-    // coming from the JIT.
-    return JITSymbol((uint64_t)&local_cxa_atexit,
-                     llvm::JITSymbolFlags::Exported);
-  } else if (Name == MANGLE_PREFIX "__dso_handle") {
-    // Provide IncrementalExecutor as the third argument to __cxa_atexit.
-    return JITSymbol((uint64_t)&m_Parent,
-                     llvm::JITSymbolFlags::Exported);
-  }
-
   auto SymMapI = m_SymbolMap.find(Name);
   if (SymMapI != m_SymbolMap.end())
     return JITSymbol(SymMapI->second, llvm::JITSymbolFlags::Exported);
@@ -211,8 +281,29 @@ IncrementalJIT::getInjectedSymbols(llvm::StringRef Name) const {
   return JITSymbol(nullptr);
 }
 
+std::pair<void*, bool>
+IncrementalJIT::lookupSymbol(llvm::StringRef Name, void *InAddr, bool Jit) {
+  // FIXME: See comments on DLSym below.
+#if !defined(LLVM_ON_WIN32)
+  void* Addr = llvm::sys::DynamicLibrary::SearchForAddressOfSymbol(Name);
+#else
+  void* Addr = const_cast<void*>(platform::DLSym(Name));
+#endif
+
+  if (InAddr && (!Addr || Jit)) {
+    if (Jit) {
+      std::string Key(Name);
+      Key.insert(0, MANGLE_PREFIX);
+      m_SymbolMap[Key] = llvm::orc::TargetAddress(InAddr);
+    }
+    llvm::sys::DynamicLibrary::AddSymbol(Name, InAddr);
+    return std::make_pair(InAddr, true);
+  }
+  return std::make_pair(Addr, false);
+}
+    
 llvm::orc::JITSymbol
-IncrementalJIT::getSymbolAddressWithoutMangling(llvm::StringRef Name,
+IncrementalJIT::getSymbolAddressWithoutMangling(const std::string& Name,
                                                 bool AlsoInProcess) {
   if (auto Sym = getInjectedSymbols(Name))
     return Sym;
@@ -221,6 +312,18 @@ IncrementalJIT::getSymbolAddressWithoutMangling(llvm::StringRef Name,
     if (RuntimeDyld::SymbolInfo SymInfo = m_ExeMM->findSymbol(Name))
       return llvm::orc::JITSymbol(SymInfo.getAddress(),
                                   llvm::JITSymbolFlags::Exported);
+#ifdef LLVM_ON_WIN32
+    // FIXME: DLSym symbol lookup can overlap m_ExeMM->findSymbol wasting time
+    // looking for a symbol in libs where it is already known not to exist.
+    // Perhaps a better solution would be to have IncrementalJIT own the
+    // DynamicLibraryManger instance (or at least have a reference) that will
+    // look only through user loaded libraries.
+    // An upside to doing it this way is RTLD_GLOBAL won't need to be used
+    // allowing libs with competing symbols to co-exists.
+    if (const void* Sym = platform::DLSym(Name))
+      return llvm::orc::JITSymbol(llvm::orc::TargetAddress(Sym),
+                                  llvm::JITSymbolFlags::Exported);
+#endif
   }
 
   if (auto Sym = m_LazyEmitLayer.findSymbol(Name, false))

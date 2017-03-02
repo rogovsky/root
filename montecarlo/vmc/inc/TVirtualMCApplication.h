@@ -18,12 +18,8 @@
 // Interface to a user Monte Carlo application.
 //
 
-#ifndef ROOT_TNamed
 #include "TNamed.h"
-#endif
-#ifndef ROOT_TMath
 #include "TMath.h"
-#endif
 
 #include "TMCtls.h"
 
@@ -40,7 +36,7 @@ public:
    virtual ~TVirtualMCApplication();
 
    /// Static access method
-   static TVirtualMCApplication* Instance() { return fgInstance; }
+   static TVirtualMCApplication* Instance();
 
    //
    // methods

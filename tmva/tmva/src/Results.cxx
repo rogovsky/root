@@ -25,14 +25,20 @@
  * (http://tmva.sourceforge.net/LICENSE)                                          *
  **********************************************************************************/
 
+/*! \class TMVA::Results
+\ingroup TMVA
+Class that is the base-class for a vector of result
+*/
+
 #include "TMVA/Results.h"
 
 #include "TMVA/MsgLogger.h"
 #include "TMVA/Types.h"
 
+#include "TGraph.h"
 #include "TH1.h"
 #include "TH2.h"
-#include "TGraph.h"
+#include "TList.h"
 
 #include <vector>
 
@@ -40,12 +46,10 @@ namespace TMVA {
    class DataSetInfo;
 }
 
-
-
 ////////////////////////////////////////////////////////////////////////////////
 /// constructor
 
-TMVA::Results::Results( const DataSetInfo* dsi, TString resultsName ) 
+TMVA::Results::Results( const DataSetInfo* dsi, TString resultsName )
    : fTreeType(Types::kTraining),
      fDsi(dsi),
      fStorage( new TList() ),
@@ -55,7 +59,7 @@ TMVA::Results::Results( const DataSetInfo* dsi, TString resultsName )
    fStorage->SetOwner();
 }
 
-TMVA::Results::Results( ) 
+TMVA::Results::Results( )
 : fTreeType(Types::kTraining),
 fDsi(0),
 fStorage( new TList() ),
@@ -69,7 +73,7 @@ fLogger( new MsgLogger("Results", kINFO))
 ////////////////////////////////////////////////////////////////////////////////
 /// destructor
 
-TMVA::Results::~Results() 
+TMVA::Results::~Results()
 {
    // delete result-histograms
    delete fStorage;
@@ -103,7 +107,7 @@ void TMVA::Results::Store( TObject* obj, const char* alias )
 
 ////////////////////////////////////////////////////////////////////////////////
 
-TObject* TMVA::Results::GetObject(const TString & alias) const 
+TObject* TMVA::Results::GetObject(const TString & alias) const
 {
    std::map<TString, TObject*>::iterator it = fHistAlias->find(alias);
 
@@ -117,13 +121,13 @@ TObject* TMVA::Results::GetObject(const TString & alias) const
 Bool_t TMVA::Results::DoesExist(const TString & alias) const
 {
    TObject* test = GetObject(alias);
-   
+
    return test;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-TH1* TMVA::Results::GetHist(const TString & alias) const 
+TH1* TMVA::Results::GetHist(const TString & alias) const
 {
    TH1* out=dynamic_cast<TH1*>(GetObject(alias));
    if (!out) Log() <<kWARNING << "You have asked for histogram " << alias << " which does not seem to exist in *Results* .. better don't use it " << Endl;
@@ -132,7 +136,7 @@ TH1* TMVA::Results::GetHist(const TString & alias) const
 
 ////////////////////////////////////////////////////////////////////////////////
 
-TH2* TMVA::Results::GetHist2D(const TString & alias) const 
+TH2* TMVA::Results::GetHist2D(const TString & alias) const
 {
    TH2* out=dynamic_cast<TH2*>(GetObject(alias));
    if (!out) Log() <<kWARNING << "You have asked for 2D histogram " << alias << " which does not seem to exist in *Results* .. better don't use it " << Endl;
@@ -140,7 +144,7 @@ TH2* TMVA::Results::GetHist2D(const TString & alias) const
 }
 ////////////////////////////////////////////////////////////////////////////////
 
-TGraph* TMVA::Results::GetGraph(const TString & alias) const 
+TGraph* TMVA::Results::GetGraph(const TString & alias) const
 {
    return (TGraph*)GetObject(alias);
 }

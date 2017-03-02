@@ -22,15 +22,16 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include <atomic>
-#ifndef ROOT_TDirectoryFile
+
 #include "TDirectoryFile.h"
-#endif
-#ifndef ROOT_TMap
 #include "TMap.h"
-#endif
-#ifndef ROOT_TUrl
 #include "TUrl.h"
+
+#ifdef R__USE_IMT
+#include "ROOT/TRWSpinLock.hxx"
+#include <mutex>
 #endif
+
 
 class TFree;
 class TArrayC;
@@ -45,6 +46,11 @@ class TFilePrefetch;
 class TFile : public TDirectoryFile {
   friend class TDirectoryFile;
   friend class TFilePrefetch;
+// TODO: We need to make sure only one TBasket is being written at a time
+// if we are writing multiple baskets in parallel.
+#ifdef R__USE_IMT
+  friend class TBasket;
+#endif
 
 public:
    /// Asynchronous open request status
@@ -98,6 +104,11 @@ protected:
 
    TList           *fInfoCache;      ///<!Cached list of the streamer infos in this file
    TList           *fOpenPhases;     ///<!Time info about open phases
+
+#ifdef R__USE_IMT
+   static ROOT::TRWSpinLock fgRwLock;    ///<!Read-write lock to protect global PID list
+   std::mutex               fWriteMutex; ///<!Lock for writing baskets / keys into the file.
+#endif
 
    static TList    *fgAsyncOpenRequests; //List of handles for pending open requests
 

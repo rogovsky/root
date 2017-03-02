@@ -41,18 +41,10 @@
 #include <map>
 #include <string>
 
-#ifndef ROOT_TObject
 #include "TObject.h"
-#endif
-#ifndef ROOT_TNamed
 #include "TNamed.h"
-#endif
-#ifndef ROOT_TString
 #include "TString.h"
-#endif
-#ifndef ROOT_TTree
 #include "TTree.h"
-#endif
 //#ifndef ROOT_TCut
 //#include "TCut.h"
 //#endif
@@ -62,16 +54,10 @@
 //#ifndef ROOT_TPrincipal
 //#include "TPrincipal.h"
 //#endif
-#ifndef ROOT_TRandom3
 #include "TRandom3.h"
-#endif
 
-#ifndef ROOT_TMVA_Types
 #include "TMVA/Types.h"
-#endif
-#ifndef ROOT_TMVA_VariableInfo
 #include "TMVA/VariableInfo.h"
-#endif
 
 namespace TMVA {
 
@@ -114,7 +100,7 @@ namespace TMVA {
       void      SetCurrentType ( Types::ETreeType type ) const { fCurrentTreeIdx = TreeIndex(type); }
       Types::ETreeType GetCurrentType() const;
 
-      void                       SetEventCollection( std::vector<Event*>*, Types::ETreeType );
+      void                       SetEventCollection( std::vector<Event*>*, Types::ETreeType, Bool_t deleteEvents = true );
       const std::vector<Event*>& GetEventCollection( Types::ETreeType type = Types::kMaxTreeType ) const;
       const TTree*               GetEventCollectionAsTree();
 
@@ -183,7 +169,7 @@ namespace TMVA {
 
       Bool_t                     fHasNegativeEventWeights;     // true if at least one signal or bkg event has negative weight
 
-      mutable MsgLogger*         fLogger;                      //-> message logger
+      mutable MsgLogger*         fLogger;                      //! message logger
       MsgLogger& Log() const { return *fLogger; }
       std::vector<Char_t>        fBlockBelongToTraining;       // when dividing the dataset to blocks, sets whether 
                                                                // the certain block is in the Training set or else 

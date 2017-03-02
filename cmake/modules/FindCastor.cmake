@@ -12,7 +12,13 @@
 list(APPEND CASTOR_FIND_COMPONENTS shift rfio common client ns)
 list(REMOVE_DUPLICATES CASTOR_FIND_COMPONENTS)
 
-set(locations ${CASTOR_DIR} $ENV{CASTOR_DIR} /cern/pro /cern/new /cern/old /opt/shift)
+set(locations
+    ${CASTOR} $ENV{CASTOR}
+    ${CASTOR_DIR} $ENV{CASTOR_DIR}
+    /cern/pro
+    /cern/new
+    /cern/old
+    /opt/shift)
 
 find_path(CASTOR_INCLUDE_DIR rfio_api.h HINTS ${locations} PATH_SUFFIXES include include/shift)
 
@@ -34,8 +40,8 @@ foreach(component ${CASTOR_FIND_COMPONENTS})
   if (CASTOR_${component}_LIBRARY)
     set(CASTOR_${component}_FOUND 1)
     list(APPEND CASTOR_LIBRARIES ${CASTOR_${component}_LIBRARY})
-    mark_as_advanced(CASTOR_${component}_LIBRARY)
   endif()
+  mark_as_advanced(CASTOR_${component}_LIBRARY)
 endforeach()
 
 # Handle the QUIETLY and REQUIRED arguments and set CASTOR_FOUND to TRUE if all listed variables are TRUE

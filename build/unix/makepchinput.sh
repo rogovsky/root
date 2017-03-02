@@ -64,8 +64,8 @@ done
 
 # Add ad hoc headers which are not in dictionaries and are not stl
 # Can not be put in a dictionary until they properly handle ROOT/*
-echo '#include "ROOT/TSeq.h"' >> $allheaders
-echo '#include "ROOT/StringConv.h"' >> $allheaders
+echo '#include "ROOT/TSeq.hxx"' >> $allheaders
+echo '#include "ROOT/StringConv.hxx"' >> $allheaders
 
 if [ "x$1" = "x--" ]; then
     shift
@@ -75,12 +75,14 @@ while ! [ "x$1" = "x" ]; do
     case $1 in
         -Wno*) echo "$1" >> $cppflags.tmp ;;
         -W*) ;;
+        -x*) ;;
+        -ax*) ;;
         *) echo "$1" >> $cppflags.tmp ;;
     esac
     shift
 done
 
-for dict in `find $modules -name 'G__*.cxx' 2> /dev/null | grep -v /G__Cling.cxx  | grep -v core/metautils/src/G__std_`; do
+for dict in `find $modules -name 'G__*.cxx' 2> /dev/null | grep -v core/metautils/src/G__std_ | grep -v tree/treeplayer/src/G__DataFrame`; do
     dirname=`dirname $dict`                   # to get foo/src
     dirname=`echo $dirname | sed -e 's,/src$,,' -e 's,^[.]/,,' ` # to get foo/
 
@@ -138,6 +140,11 @@ for f in `cd $srcdir; find . -path ./etc -prune -or -name '*LinkDef*.h' -print`;
 done
 
 cat $cppflags.tmp | sort | uniq | grep -v $srcdir | grep -v `pwd` > $cppflags
+
+# Remove unwanted files
+sed -e "s/.*TSelectorCint.h.*//g" \
+    -e "s/.*ROOT\/TDataFrame.hxx.*//g" < $allheaders > $allheaders.tmp
+mv -f $allheaders.tmp $allheaders
 
 echo
 echo Generating PCH for ${selmodules}

@@ -2964,13 +2964,7 @@ Int_t TProofServ::SetupCommon()
 #ifdef R__UNIX
    // Add bindir to PATH
    TString path(gSystem->Getenv("PATH"));
-   TString bindir;
-# ifdef ROOTBINDIR
-   bindir = ROOTBINDIR;
-# else
-   bindir = gSystem->Getenv("ROOTSYS");
-   if (!bindir.IsNull()) bindir += "/bin";
-# endif
+   TString bindir(TROOT::GetBinDir());
    // Augment PATH, if required
    // ^<compiler>, <compiler>, ^<sysbin>, <sysbin>
    TString paths = gEnv->GetValue("ProofServ.BinPaths", "");
@@ -4677,7 +4671,7 @@ void TProofServ::ProcessNext(TString *slb)
 
    // Remove aborted queries from the list
    if (fPlayer->GetExitStatus() == TVirtualProofPlayer::kAborted) {
-      if (pqr) SafeDelete(pqr);
+      SafeDelete(pqr);
       if (fQMgr) fQMgr->RemoveQuery(pq);
    } else {
       // Keep in memory only light infor about a query
@@ -6009,8 +6003,7 @@ void TProofServ::SendAsynMessage(const char *msg, Bool_t lf)
       m.Reset(kPROOF_MESSAGE);
       m << TString(msg) << lf;
       if (fSocket->Send(m) <= 0)
-         Warning("SendAsynMessage",
-                 "could not send message '%s'", (msg ? msg : "(null)"));
+         Warning("SendAsynMessage", "could not send message '%s'", msg);
    }
 
    return;
@@ -6527,7 +6520,7 @@ void TProofServ::HandleSubmerger(TMessage *mess)
                      deleteplayer = kFALSE;
                   }
 
-                  if (t) SafeDelete(t);
+                  SafeDelete(t);
 
                }
 

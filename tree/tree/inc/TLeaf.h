@@ -24,12 +24,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 
-#ifndef ROOT_TBranch
 #include "TBranch.h"
-#endif
-#ifndef ROOT_Riosfwd
-#include "Riosfwd.h"
-#endif
 
 class TClonesArray;
 class TBrowser;

@@ -10,24 +10,16 @@
 #ifndef ROOT_TBackCompFitter_H_
 #define ROOT_TBackCompFitter_H_
 
-#ifndef ROOT_TVirtualFitter
 #include "TVirtualFitter.h"
-#endif
 
 #include "Fit/BasicFCN.h"
 #include "Fit/FitResult.h"
 
-#ifndef ROOT_Fit_Fitter
 #include "Fit/Fitter.h"
-#endif
 
-#ifndef ROOT_Fit_DataVector
 #include "Fit/DataVector.h"
-#endif
 
-#ifndef ROOT_Math_IFunctionfwd
 #include "Math/IFunctionfwd.h"
-#endif
 
 
 
@@ -99,8 +91,6 @@ public:
    virtual Int_t     SetParameter(Int_t ipar,const char *parname,Double_t value,Double_t verr,Double_t vlow, Double_t vhigh);
 
    virtual void      SetFCN(void (*fcn)(Int_t &, Double_t *, Double_t &f, Double_t *, Int_t) );
-   // this for CINT (interactive functions)
-   virtual void      SetFCN(void * );
    // for using interpreted function passed by the user
    virtual void SetMethodCall(TMethodCall * m) { fMethodCall = m; }
 

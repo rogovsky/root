@@ -17,6 +17,7 @@ Persistent version of a TClass.
 
 #include "TBaseClass.h"
 #include "TClass.h"
+#include "TClassEdit.h"
 #include "TDataMember.h"
 #include "TEnum.h"
 #include "TInterpreter.h"
@@ -43,6 +44,11 @@ TProtoClass::TProtoClass(TClass* cl):
       //fPRealData=nullptr;
       fOffsetStreamer=0;
       return;
+   }
+   TListOfEnums *enums = dynamic_cast<TListOfEnums*>(fEnums);
+   if (enums && !enums->fIsLoaded) {
+      // Make sure all the enum information is loaded
+      enums->Load();
    }
    // initialize list of data members (fData)
    TList * dataMembers = cl->GetListOfDataMembers();
@@ -197,14 +203,30 @@ void TProtoClass::Delete(Option_t* opt /*= ""*/) {
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Move data from this TProtoClass into cl.
+/// Returns 'false' if nothing was done.  This can happen in the case where
+/// there is more than one dictionary for the same entity.  Note having
+/// duplicate dictionary is acceptable for namespace or STL collections.
 
 Bool_t TProtoClass::FillTClass(TClass* cl) {
    if (cl->fRealData || cl->fBase || cl->fData || cl->fEnums.load()
        || cl->fSizeof != -1 || cl->fCanSplit >= 0
        || cl->fProperty != (-1) ) {
-      if (cl->fProperty & kIsNamespace){
-         if (gDebug>0) Info("FillTClass", "Returning w/o doing anything. %s is a namespace.",cl->GetName());
-         return kTRUE;
+
+      if (cl->GetCollectionType() != ROOT::kNotSTL) {
+         // We are in the case of collection, duplicate dictionary are allowed
+         // (and even somewhat excepted since they can be auto asked for).
+         // They do not always have a TProtoClass for them.  In particular
+         // the one that are pre-generated in the ROOT build (in what was once
+         // called the cintdlls) do not have a pcms, neither does vector<string>
+         // which is part of libCore proper.
+         if (gDebug > 0)
+            Info("FillTClass", "Returning w/o doing anything. %s is a STL collection.",cl->GetName());
+         return kFALSE;
+      }
+      if (cl->Property() & kIsNamespace) {
+         if (gDebug > 0)
+            Info("FillTClass", "Returning w/o doing anything. %s is a namespace.",cl->GetName());
+         return kFALSE;
       }
       Error("FillTClass", "TClass %s already initialized!", cl->GetName());
       return kFALSE;
@@ -440,12 +462,23 @@ TRealData* TProtoClass::TProtoRealData::CreateRealData(TClass* dmClass,
    if (dm) realMemberName = dm->GetName();
    if (TestFlag(kIsPointer) )
       realMemberName = TString("*")+realMemberName;
-   else {
-      if (dm && dm->GetArrayDim() > 0) {
+   else if (dm){
+      if (dm->GetArrayDim() > 0) {
          // in case of array (like fMatrix[2][2] we need to add max index )
          // this only in case of it os not a pointer
          for (int idim = 0; idim < dm->GetArrayDim(); ++idim)
             realMemberName += TString::Format("[%d]",dm->GetMaxIndex(idim) );
+      } else if (TClassEdit::IsStdArray(dm->GetTypeName())) {
+         std::string typeNameBuf;
+         Int_t ndim = dm->GetArrayDim();
+         std::array<Int_t, 5> maxIndices; // 5 is the maximum supported in TStreamerElement::SetMaxIndex
+         TClassEdit::GetStdArrayProperties(dm->GetTypeName(),
+                                           typeNameBuf,
+                                           maxIndices,
+                                           ndim);
+         for (Int_t idim = 0; idim < ndim; ++idim) {
+            realMemberName += TString::Format("[%d]",maxIndices[idim] );
+         }
       }
    }
 

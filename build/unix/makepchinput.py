@@ -47,7 +47,9 @@ def getParams():
    cxxflags = argv[posDelim + 1:]
    #print (', '.join(cxxflags))
    cxxflagsNoW = [flag for flag in cxxflags if (flag[0:2] != '-W' and flag[0:3] != '-wd' and \
-                                                flag[0:2] != '-O' and flag[0:5] != '-arch') or flag[0:4] == '-Wno']
+                                                flag[0:2] != '-x' and flag[0:3] != '-ax' and \
+                                                flag[0:2] != '-O' and flag[0:5] != '-arch') \
+                                                or flag[0:4] == '-Wno']
    #print (', '.join(cxxflagsNoW))
 
    return rootSrcDir, modules, clingetpchList, cxxflagsNoW
@@ -183,14 +185,14 @@ def getDictNames(theDirName):
    """
    Get a list of all dictionaries in a directory
    """
-   #`find $modules -name 'G__*.cxx' 2> /dev/null | grep -v /G__Cling.cxx  | grep -v core/metautils/src/G__std_`; do
+   #`find $modules -name 'G__*.cxx' 2> /dev/null | grep -v core/metautils/src/G__std_`; do
    wildcards = (os.path.join(theDirName , "*", "*", "G__*.cxx"),
                 os.path.join(theDirName , "*", "G__*.cxx"))
    allDictNames = []
    for wildcard in wildcards:
       allDictNames += glob.glob(wildcard)
    stdDictpattern = os.path.join("core","metautils","src","G__std_")
-   dictNames = filter (lambda dictName: not ('G__Cling.cxx' in dictName or stdDictpattern in dictName),allDictNames )
+   dictNames = filter (lambda dictName: not (stdDictpattern in dictName),allDictNames )
    return dictNames
 
 #-------------------------------------------------------------------------------
@@ -251,6 +253,7 @@ def isDirForPCH(dirName):
                            "math/fumili",
                            "math/mlp",
                            "math/quadp",
+                           "math/rtools"
                            "math/splot",
                            "math/unuran",
                            "math/vdt",
@@ -423,11 +426,23 @@ def printModulesMessageOnScreen(selModules):
 def getExtraHeaders():
    """ Get extra headers which do not fall in other special categories
    """
-   extraHeaders=["ROOT/TSeq.h","ROOT/StringConv.h", "ThreadPool.h", "TPool.h"]
+   extraHeaders=["ROOT/TSeq.hxx","ROOT/StringConv.hxx"]
    code = "// Extra headers\n"
    for extraHeader in extraHeaders:
       code += '#include "%s"\n' %extraHeader
    return code
+
+#-------------------------------------------------------------------------------
+def removeUnwantedHeaders(allHeadersContent):
+   """ remove unwanted headers, e.g. the ones used for dictionaries but not desirable in the pch
+   """
+   unwantedHeaders = ['ROOT/TDataFrame.hxx']
+   deprecatedHeaders = ['TSelectorCint.h']
+   unwantedHeaders.extend(deprecatedHeaders)
+   for unwantedHeader in unwantedHeaders:
+      allHeadersContent = allHeadersContent.replace('#include "%s"' %unwantedHeader,"")
+   return allHeadersContent
+
 
 #-------------------------------------------------------------------------------
 def makePCHInput():
@@ -472,6 +487,8 @@ def makePCHInput():
       allLinkdefsContent += getLocalLinkDefs(rootSrcDir, outdir , dirName)
 
    allHeadersContent += getExtraHeaders()
+
+   allHeadersContent = removeUnwantedHeaders(allHeadersContent)
 
    copyLinkDefs(rootSrcDir, outdir)
 
