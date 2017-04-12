@@ -429,7 +429,13 @@ def set_vars():
 class Build(object):
     def __init__(self, target=None):
         super(Build, self).__init__()
-        self.buildType = 'Debug' if args.get('create_dev_env') else 'Release'
+        if args.get('create_dev_env'):
+            if args.get('create_dev_env') is None:
+                self.buildType = 'Debug'
+            else:
+                self.buildType = args.get('create_dev_env')
+        else:
+            self.buildType = 'Release'
         self.win32 = platform.system() == 'Windows'
         self.cores = multiprocessing.cpu_count()
         # Travis CI, GCC crashes if more than 4 cores used.
@@ -538,10 +544,7 @@ def compile(arg, build_libcpp):
 
     if not CLING_BRANCH:
         box_draw("Install compiled binaries to prefix (using %d cores)" % build.cores)
-        if build.win32:
-            build.make('INSTALL')
-        else:
-            build.make('install', 'prefix=%s' % TMP_PREFIX)
+        build.make('install')
 
     if TRAVIS_BUILD_DIR:
         ### Run cling once, dumping the include paths, helps debug issues

@@ -18,8 +18,6 @@
 #ifdef __APPLE__
 // Apple adds an extra '_'
 # define MANGLE_PREFIX "_"
-#else
-# define MANGLE_PREFIX ""
 #endif
 
 using namespace llvm;
@@ -127,6 +125,23 @@ class Azog: public RTDyldMemoryManager {
   AllocInfo m_ROData;
   AllocInfo m_RWData;
 
+#ifdef LLVM_ON_WIN32
+  uintptr_t getBaseAddr() const {
+    if (LLVM_LIKELY(m_Code.m_Start && m_ROData.m_Start && m_RWData.m_Start)) {
+      return uintptr_t(std::min(std::min(m_Code.m_Start, m_ROData.m_Start),
+                                m_RWData.m_Start));
+    }
+    if (LLVM_LIKELY(m_Code.m_Start)) {
+      return uintptr_t(m_ROData.m_Start
+                           ? std::min(m_Code.m_Start, m_ROData.m_Start)
+                           : std::min(m_Code.m_Start, m_RWData.m_Start));
+    }
+    return uintptr_t(m_ROData.m_Start && m_RWData.m_Start
+                         ? std::min(m_ROData.m_Start, m_RWData.m_Start)
+                         : std::max(m_ROData.m_Start, m_RWData.m_Start));
+  }
+#endif
+
 public:
   Azog(cling::IncrementalJIT& Jit): m_jit(Jit) {}
 
@@ -183,12 +198,20 @@ public:
 
   void registerEHFrames(uint8_t *Addr, uint64_t LoadAddr,
                         size_t Size) override {
+#ifdef LLVM_ON_WIN32
+    platform::RegisterEHFrames(Addr, Size, getBaseAddr(), true);
+#else
     return getExeMM()->registerEHFrames(Addr, LoadAddr, Size);
+#endif
   }
 
   void deregisterEHFrames(uint8_t *Addr, uint64_t LoadAddr,
                           size_t Size) override {
+#ifdef LLVM_ON_WIN32
+    platform::DeRegisterEHFrames(Addr, Size);
+#else
     return getExeMM()->deregisterEHFrames(Addr, LoadAddr, Size);
+#endif
   }
 
   uint64_t getSymbolAddress(const std::string &Name) override {
@@ -293,7 +316,9 @@ IncrementalJIT::lookupSymbol(llvm::StringRef Name, void *InAddr, bool Jit) {
   if (InAddr && (!Addr || Jit)) {
     if (Jit) {
       std::string Key(Name);
+#ifdef MANGLE_PREFIX
       Key.insert(0, MANGLE_PREFIX);
+#endif
       m_SymbolMap[Key] = llvm::orc::TargetAddress(InAddr);
     }
     llvm::sys::DynamicLibrary::AddSymbol(Name, InAddr);
@@ -348,25 +373,26 @@ size_t IncrementalJIT::addModules(std::vector<llvm::Module*>&& modules) {
       return m_ExeMM->findSymbol(S);
     },
     [&](const std::string &Name) {
-      if (auto Sym = getSymbolAddressWithoutMangling(Name, true)
-          /*was: findSymbol(Name)*/)
+      if (auto Sym = getSymbolAddressWithoutMangling(Name, true))
         return RuntimeDyld::SymbolInfo(Sym.getAddress(),
                                        Sym.getFlags());
 
+      const std::string* NameNP = &Name;
+#ifdef MANGLE_PREFIX
+      std::string NameNoPrefix;
+      const size_t PrfxLen = strlen(MANGLE_PREFIX);
+      if (!Name.compare(0, PrfxLen, MANGLE_PREFIX)) {
+        NameNoPrefix = Name.substr(PrfxLen);
+        NameNP = &NameNoPrefix;
+      }
+#endif
 
       /// This method returns the address of the specified function or variable
       /// that could not be resolved by getSymbolAddress() or by resolving
       /// possible weak symbols by the ExecutionEngine.
       /// It is used to resolve symbols during module linking.
 
-      std::string NameNoPrefix;
-      if (MANGLE_PREFIX[0]
-          && !Name.compare(0, strlen(MANGLE_PREFIX), MANGLE_PREFIX))
-        NameNoPrefix = Name.substr(strlen(MANGLE_PREFIX), -1);
-      else
-        NameNoPrefix = std::move(Name);
-      uint64_t addr
-        = (uint64_t) getParent().NotifyLazyFunctionCreators(NameNoPrefix);
+      uint64_t addr = uint64_t(getParent().NotifyLazyFunctionCreators(*NameNP));
       return RuntimeDyld::SymbolInfo(addr, llvm::JITSymbolFlags::Weak);
     });
 

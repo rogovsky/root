@@ -213,6 +213,7 @@ TMVA::MethodBDT::MethodBDT( const TString& jobName,
 {
    fMonitorNtuple = NULL;
    fSepType = NULL;
+   fRegressionLossFunctionBDTG = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -267,6 +268,7 @@ TMVA::MethodBDT::MethodBDT( DataSetInfo& theData,
 {
    fMonitorNtuple = NULL;
    fSepType = NULL;
+   fRegressionLossFunctionBDTG = nullptr;
    // constructor for calculating BDT-MVA using previously generated decision trees
    // the result of the previous training (the decision trees) are read in via the
    // weight file. Make sure the the variables correspond to the ones used in
@@ -1726,7 +1728,6 @@ Double_t TMVA::MethodBDT::AdaBoost( std::vector<const TMVA::Event*>& eventSample
    Double_t err=0, sumGlobalw=0, sumGlobalwfalse=0, sumGlobalwfalse2=0;
 
    std::vector<Double_t> sumw(DataInfo().GetNClasses(),0); //for individually re-scaling  each class
-   std::map<Node*,Int_t> sigEventsInNode; // how many signal events of the training tree
 
    Double_t maxDev=0;
    for (std::vector<const TMVA::Event*>::const_iterator e=eventSample.begin(); e!=eventSample.end();e++) {
@@ -1910,7 +1911,6 @@ Double_t TMVA::MethodBDT::AdaCost( vector<const TMVA::Event*>& eventSample, Deci
    Double_t err=0, sumGlobalWeights=0, sumGlobalCost=0;
 
    std::vector<Double_t> sumw(DataInfo().GetNClasses(),0);      //for individually re-scaling  each class
-   std::map<Node*,Int_t> sigEventsInNode; // how many signal events of the training tree
 
    for (vector<const TMVA::Event*>::const_iterator e=eventSample.begin(); e!=eventSample.end();e++) {
       Double_t w = (*e)->GetWeight();

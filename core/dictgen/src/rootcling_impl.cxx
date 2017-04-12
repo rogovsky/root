@@ -971,6 +971,9 @@ bool CheckInputOperator(const clang::RecordDecl *cl, cling::Interpreter &interp)
    // We do want to call both CheckInputOperator all the times.
    bool has_input_error = CheckInputOperator("operator>>", proto, fullname, cl, interp);
    has_input_error = CheckInputOperator("operator<<", proto, fullname, cl, interp) || has_input_error;
+
+   delete [] proto;
+
    return has_input_error;
 }
 
@@ -3074,8 +3077,8 @@ void CreateDictHeader(std::ostream &dictStream, const std::string &main_dictname
                << "#include \"TROOT.h\"\n"
                << "#include \"TBuffer.h\"\n"
                << "#include \"TMemberInspector.h\"\n"
-               << "#include \"TInterpreter.h\"" << std::endl
-               << "#include \"TVirtualMutex.h\"" << std::endl
+               << "#include \"TInterpreter.h\"\n"
+               << "#include \"TVirtualMutex.h\"\n"
                << "#include \"TError.h\"\n\n"
                << "#ifndef G__ROOT\n"
                << "#define G__ROOT\n"
@@ -4128,6 +4131,7 @@ int RootClingMain(int argc,
       clingArgs.push_back("-D__ROOTCLING__");
    }
    clingArgs.push_back("-fsyntax-only");
+   clingArgs.push_back("-fPIC");
    clingArgs.push_back("-Xclang");
    clingArgs.push_back("-main-file-name");
    clingArgs.push_back("-Xclang");

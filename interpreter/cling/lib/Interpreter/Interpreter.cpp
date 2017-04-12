@@ -9,6 +9,9 @@
 
 #include "cling/Interpreter/Interpreter.h"
 #include "cling/Utils/Paths.h"
+#ifdef LLVM_ON_WIN32
+#include "cling/Utils/Platform.h"
+#endif
 #include "ClingUtils.h"
 
 #include "DynamicLookup.h"
@@ -431,6 +434,12 @@ namespace cling {
                             utils::FunctionToVoidPtr(&local_cxa_atexit), true);
       // __dso_handle is inserted for the link phase, as macro is useless then
       m_Executor->addSymbol("__dso_handle", this, true);
+
+#ifdef LLVM_ON_WIN32
+      // Windows C++ SEH handler
+      m_Executor->addSymbol("_CxxThrowException",
+          utils::FunctionToVoidPtr(&platform::ClingRaiseSEHException), true);
+#endif
     }
 
     if (m_Opts.Verbose())
@@ -540,6 +549,32 @@ namespace cling {
     return getCI()->getDiagnostics();
   }
 
+  const MacroInfo* Interpreter::getMacro(llvm::StringRef Macro) const {
+    const clang::Preprocessor& PP = getCI()->getPreprocessor();
+    if (const IdentifierInfo* II = PP.getIdentifierInfo(Macro)) {
+      if (const DefMacroDirective* MD = llvm::dyn_cast_or_null
+          <DefMacroDirective>(PP.getLocalMacroDirective(II))) {
+          return MD->getMacroInfo();
+      }
+    }
+    return nullptr;
+  }
+
+  std::string Interpreter::getMacroValue(llvm::StringRef Macro,
+                                         const char* Trim) const {
+    std::string Value;
+    if (const MacroInfo* MI = getMacro(Macro)) {
+      for (const clang::Token& Tok : MI->tokens()) {
+        llvm::SmallString<64> Buffer;
+        Macro = getCI()->getPreprocessor().getSpelling(Tok, Buffer);
+        if (!Value.empty())
+          Value += " ";
+        Value += Trim ? Macro.trim(Trim).str() : Macro.str();
+      }
+    }
+    return Value;
+  }
+  
   ///\brief Maybe transform the input line to implement cint command line
   /// semantics (declarations are global) and compile to produce a module.
   ///
@@ -1159,13 +1194,15 @@ namespace cling {
   }
 
   Interpreter::CompilationResult
-  Interpreter::loadFile(const std::string& filename,
-                        bool allowSharedLib /*=true*/,
-                        Transaction** T /*= 0*/) {
+  Interpreter::loadLibrary(const std::string& filename, bool lookup) {
     DynamicLibraryManager* DLM = getDynamicLibraryManager();
-    std::string canonicalLib = DLM->lookupLibrary(filename);
-    if (allowSharedLib && !canonicalLib.empty()) {
-      switch (DLM->loadLibrary(canonicalLib, /*permanent*/false, /*resolved*/true)) {
+    std::string canonicalLib;
+    if (lookup)
+      canonicalLib = DLM->lookupLibrary(filename);
+
+    const std::string &library = lookup ? canonicalLib : filename;
+    if (!library.empty()) {
+      switch (DLM->loadLibrary(library, /*permanent*/false, /*resolved*/true)) {
       case DynamicLibraryManager::kLoadLibSuccess: // Intentional fall through
       case DynamicLibraryManager::kLoadLibAlreadyLoaded:
         return kSuccess;
@@ -1177,7 +1214,12 @@ namespace cling {
         return kFailure;
       }
     }
+    return kMoreInputExpected;
+  }
 
+  Interpreter::CompilationResult
+  Interpreter::loadHeader(const std::string& filename,
+                          Transaction** T /*= 0*/) {
     std::string code;
     code += "#include \"" + filename + "\"";
 
@@ -1195,8 +1237,8 @@ namespace cling {
   void Interpreter::unload(Transaction& T) {
     // Clear any stored states that reference the llvm::Module.
     // Do it first in case
-    if (!m_StoredStates.empty()) {
-      const llvm::Module *const Module = T.getModule();
+    llvm::Module* const Module = T.getModule();
+    if (Module && !m_StoredStates.empty()) {
       const auto Predicate = [&Module](const ClangInternalState *S) {
         return S->getModule() == Module;
       };
@@ -1220,7 +1262,7 @@ namespace cling {
       m_Executor->runAndRemoveStaticDestructors(&T);
       if (!T.getExecutor()) {
         // this transaction might be queued in the executor
-        m_Executor->unloadFromJIT(T.getModule(),
+        m_Executor->unloadFromJIT(Module,
                                   Transaction::ExeUnloadHandle({(void*)(size_t)-1}));
       }
     }
@@ -1265,6 +1307,18 @@ namespace cling {
       }
       unload(*T);
     }
+  }
+
+  Interpreter::CompilationResult
+  Interpreter::loadFile(const std::string& filename,
+                        bool allowSharedLib /*=true*/,
+                        Transaction** T /*= 0*/) {
+    if (allowSharedLib) {
+      CompilationResult result = loadLibrary(filename, true);
+      if (result!=kMoreInputExpected)
+        return result;
+    }
+    return loadHeader(filename, T);
   }
 
   static void runAndRemoveStaticDestructorsImpl(IncrementalExecutor &executor,
@@ -1373,9 +1427,13 @@ namespace cling {
     assert(!isInSyntaxOnlyMode() && "Running on what?");
     assert(T.getState() == Transaction::kCommitted && "Must be committed");
 
+    llvm::Module* const M = T.getModule();
+    if (!M)
+      return Interpreter::kExeNoModule;
+
     IncrementalExecutor::ExecutionResult ExeRes
        = IncrementalExecutor::kExeSuccess;
-    if (!isPracticallyEmptyModule(T.getModule())) {
+    if (!isPracticallyEmptyModule(M)) {
       T.setExeUnloadHandle(m_Executor.get(), m_Executor->emitToJIT());
 
       // Forward to IncrementalExecutor; should not be called by
