@@ -98,6 +98,7 @@ ROOT_BUILD_OPTION(cocoa OFF "Use native Cocoa/Quartz graphics backend (MacOS X o
 ROOT_BUILD_OPTION(cuda OFF "Use CUDA if it is found in the system")
 ROOT_BUILD_OPTION(cxx11 ON "Build using C++11 compatible mode, requires gcc > 4.7.x or clang")
 ROOT_BUILD_OPTION(cxx14 OFF "Build using C++14 compatible mode, requires gcc > 4.9.x or clang")
+ROOT_BUILD_OPTION(cxx17 OFF "Build using C++17 compatible mode, requires gcc >= 7.1.0 or clang")
 ROOT_BUILD_OPTION(cxxmodules "Compile with C++ modules enabled." OFF)
 ROOT_BUILD_OPTION(davix ON "DavIx library for HTTP/WEBDAV access")
 ROOT_BUILD_OPTION(dcache ON "dCache support, requires libdcap from DESY")
@@ -144,7 +145,7 @@ ROOT_BUILD_OPTION(qtgsi OFF "GSI's Qt integration, requires libqt >= 4.8")
 ROOT_BUILD_OPTION(r OFF "R ROOT bindings, requires R, Rcpp and RInside")
 ROOT_BUILD_OPTION(rfio ON "RFIO support, requires libshift from CASTOR >= 1.5.2")
 ROOT_BUILD_OPTION(roofit OFF "Build the libRooFit advanced fitting package")
-ROOT_BUILD_OPTION(root7 OFF "Build the ROOT 7 interface prototype, requires cxx14")
+ROOT_BUILD_OPTION(root7 OFF "Build the ROOT 7 interface prototype, requires >= cxx14")
 ROOT_BUILD_OPTION(rpath OFF "Set run-time library load path on executables and shared libraries (at installation area)")
 ROOT_BUILD_OPTION(ruby OFF "Ruby ROOT bindings, requires ruby >= 1.8")
 ROOT_BUILD_OPTION(sapdb ON "MaxDB/SapDB support, requires libsqlod and libsqlrte")
@@ -176,6 +177,7 @@ option(gminimal "Do not automatically search for support libraries, but include 
 option(all "Enable all optional components" OFF)
 option(testing "Enable testing with CTest" OFF)
 option(roottest "Include roottest, if roottest exists in root or if it is a sibling directory." OFF)
+option(clingtest "Include cling tests. NOTE that this makes llvm/clang symbols visible in libCling." OFF)
 
 #--- Minor chnages in defaults due to platform--------------------------------------------------
 if(WIN32)
@@ -248,6 +250,11 @@ foreach(opt ${root_build_options})
     endif()
   endif()
 endforeach()
+
+#---Apply root7 versus language------------------------------------------------------------------
+if(cxx14 OR cxx17 OR cxx14_defval OR cxx17_defval)
+  set(root7_defvalue ON)
+endif()
 
 #---Define at moment the options with the selected default values-----------------------------
 ROOT_APPLY_OPTIONS()

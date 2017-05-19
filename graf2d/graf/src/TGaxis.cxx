@@ -1092,8 +1092,8 @@ void TGaxis::PaintAxis(Double_t xmin, Double_t ymin, Double_t xmax, Double_t yma
 
    TLatex *textaxis = new TLatex();
    SetLineStyle(1); // axis line style
-   textaxis->SetTextColor(GetTextColor());
-   textaxis->SetTextFont(GetTextFont());
+   Int_t TitleColor = GetTextColor();
+   Int_t TitleFont  = GetTextFont();
 
    if (!gPad->IsBatch()) {
       gVirtualX->GetCharacterUp(chupxvsav, chupyvsav);
@@ -1583,7 +1583,9 @@ void TGaxis::PaintAxis(Double_t xmin, Double_t ymin, Double_t xmax, Double_t yma
                   }
                   else break;
                }
-
+// if1 and if2 are the two digits defining the format used to produce the
+// labels. The format used will be %[if1].[if2]f .
+// if1 and if2 are positive (small) integers.
                if2 = na;
                if1 = TMath::Max(nf+na,maxDigits)+1;
 L110:
@@ -1599,7 +1601,11 @@ L110:
                if (if1 > 14) if1=14;
                if (if2 > 14) if2=14;
                if (if2>0) snprintf(coded,8,"%%%d.%df",if1,if2);
-               else       snprintf(coded,8,"%%%d.%df",if1+1,1);
+               else {
+                  if (if1 < -100) if1 = -100; // Silence a warning with gcc
+                  snprintf(coded,8,"%%%d.%df",if1+1,1);
+               }
+
             }
 
 // We draw labels
@@ -2111,6 +2117,8 @@ L200:
          }
       }
       Rotate(axispos,ylabel,cosphi,sinphi,x0,y0,xpl1,ypl1);
+      textaxis->SetTextColor(TitleColor);
+      textaxis->SetTextFont(TitleFont);
       textaxis->PaintLatex(gPad->GetX1() + xpl1*(gPad->GetX2() - gPad->GetX1()),
                            gPad->GetY1() + ypl1*(gPad->GetY2() - gPad->GetY1()),
                            phil*180/kPI,

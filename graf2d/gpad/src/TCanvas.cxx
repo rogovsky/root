@@ -1236,8 +1236,7 @@ void TCanvas::HandleInput(EEventType event, Int_t px, Int_t py)
 
          fSelected->ExecuteEvent(event, px, py);
          gVirtualX->Update();
-
-         if (!fSelected->InheritsFrom(TAxis::Class())) {
+         if (fSelected && !fSelected->InheritsFrom(TAxis::Class())) {
             Bool_t resize = kFALSE;
             if (fSelected->InheritsFrom(TBox::Class()))
                resize = ((TBox*)fSelected)->IsBeingResized();
@@ -1762,6 +1761,10 @@ void TCanvas::SaveSource(const char *filename, Option_t *option)
    }
 
    TString mname(fname);
+//    out <<"#ifdef __CLING__"<<std::endl;
+//    out <<"#pragma cling optimize(0)"<<std::endl;
+//    out <<"#endif"<<std::endl;
+//    out <<""<<std::endl;
    Int_t p = mname.Last('.');
    Int_t s = mname.Last('/')+1;
    out <<"void " << mname(s,p-s) << "()" <<std::endl;
