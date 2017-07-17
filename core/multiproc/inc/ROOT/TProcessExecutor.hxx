@@ -43,6 +43,7 @@ public:
    TProcessExecutor &operator=(const TProcessExecutor &) = delete;
 
    // Map
+   using TExecutor<TProcessExecutor>::Map;
    template<class F, class Cond = noReferenceCond<F>>
    auto Map(F func, unsigned nTimes) -> std::vector<typename std::result_of<F()>::type>;
    template<class F, class INTEGER, class Cond = noReferenceCond<F, INTEGER>>
@@ -53,11 +54,13 @@ public:
    void SetNWorkers(unsigned n) { TMPClient::SetNWorkers(n); }
    unsigned GetNWorkers() const { return TMPClient::GetNWorkers(); }
 
+   using TExecutor<TProcessExecutor>::MapReduce;
    template<class F, class R, class Cond = noReferenceCond<F>>
    auto MapReduce(F func, unsigned nTimes, R redfunc) -> typename std::result_of<F()>::type;
    template<class F, class T, class R, class Cond = noReferenceCond<F, T>>
    auto MapReduce(F func, std::vector<T> &args, R redfunc) -> typename std::result_of<F(T)>::type;
 
+   using TExecutor<TProcessExecutor>::Reduce;
    template<class T, class R> T Reduce(const std::vector<T> &objs, R redfunc);
 
 private:
@@ -238,10 +241,8 @@ auto TProcessExecutor::MapReduce(F func, unsigned nTimes, R redfunc) -> typename
 template<class F, class T, class R, class Cond>
 auto TProcessExecutor::MapReduce(F func, std::vector<T> &args, R redfunc) -> typename std::result_of<F(T)>::type
 {
-   using retTypeCand = decltype(func(args.front()));
-   using retTypeCandNoPtr = typename std::remove_pointer<retTypeCand>::type;
-   using TObjType = typename std::conditional<std::is_pointer<retTypeCand>::value, TObject*, TObject>::type;
-   using retType = typename std::conditional<std::is_base_of<TObject, retTypeCandNoPtr>::value, TObjType, retTypeCand>::type;
+
+   using retType = decltype(func(args.front()));
    //prepare environment
    Reset();
    fTaskType= ETask::kMapRedWithArg;
@@ -255,7 +256,7 @@ auto TProcessExecutor::MapReduce(F func, std::vector<T> &args, R redfunc) -> typ
    SetNWorkers(oldNWorkers);
    if (!ok) {
       std::cerr << "[E][C] Could not fork. Aborting operation\n";
-      return retTypeCand();
+      return decltype(func(args.front()))();
    }
 
    //give workers their first task
@@ -271,7 +272,7 @@ auto TProcessExecutor::MapReduce(F func, std::vector<T> &args, R redfunc) -> typ
 
    ReapWorkers();
    fTaskType= ETask::kNoTask;
-   return ROOT::Internal::PoolUtils::ResultCaster<retType, retTypeCand>::CastIfNeeded(Reduce(reslist, redfunc));
+   return Reduce(reslist, redfunc);
 }
 
 //////////////////////////////////////////////////////////////////////////

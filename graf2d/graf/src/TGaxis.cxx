@@ -43,7 +43,7 @@ Float_t TGaxis::fYAxisExpXOffset = 0.; //Exponent X offset for the Y axis
 Float_t TGaxis::fYAxisExpYOffset = 0.; //Exponent Y offset for the Y axis
 const Int_t kHori = BIT(9); //defined in TPad
 
-ClassImp(TGaxis)
+ClassImp(TGaxis);
 
 /** \class TGaxis
 \ingroup BasicGraphics
@@ -1264,7 +1264,7 @@ void TGaxis::PaintAxis(Double_t xmin, Double_t ymin, Double_t xmax, Double_t yma
                   UInt_t w,h;
                   textaxis->SetText(0.,0., fAxis->GetBinLabel(i));
                   textaxis->GetBoundingBox(w,h);
-                  toffset = TMath::Max(toffset,(double)w/(double)gPad->GetWw());
+                  toffset = TMath::Max(toffset,(double)w/((double)gPad->GetWw()*gPad->GetWNDC()));
                }
                textaxis->PaintLatex(xmin + s*fAxis->GetLabelOffset()*(gPad->GetUxmax()-gPad->GetUxmin()),
                                     fAxis->GetBinCenter(i),
@@ -1750,7 +1750,7 @@ L110:
                         UInt_t w,h;
                         textaxis->SetText(0.,0., typolabel.Data());
                         textaxis->GetBoundingBox(w,h);
-                        toffset = TMath::Max(toffset,(double)w/(double)gPad->GetWw());
+                        toffset = TMath::Max(toffset,(double)w/((double)gPad->GetWw()*gPad->GetWNDC()));
                      }
                      textaxis->PaintLatex(gPad->GetX1() + xx*(gPad->GetX2() - gPad->GetX1()),
                            gPad->GetY1() + yy*(gPad->GetY2() - gPad->GetY1()),
@@ -1956,7 +1956,7 @@ L110:
                   UInt_t w,h;
                   textaxis->SetText(0.,0., typolabel.Data());
                   textaxis->GetBoundingBox(w,h);
-                  toffset = TMath::Max(toffset,(double)w/(double)gPad->GetWw());
+                  toffset = TMath::Max(toffset,(double)w/((double)gPad->GetWw()*gPad->GetWNDC()));
                }
                textaxis->PaintLatex(gPad->GetX1() + xx*(gPad->GetX2() - gPad->GetX1()),
                                     gPad->GetY1() + yy*(gPad->GetY2() - gPad->GetY1()),

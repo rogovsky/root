@@ -166,6 +166,7 @@ set(extra_veto
   rootlogoff.C         # Helper macro
   rootmarks.C          # Instrumentation. Not a standalone tutorial
   memstat/memstatExample.C   # Instrumentation. Not a standalone tutorial
+  multicore/mp_H1_lambdas.C # not a tutorial; used by mp104_processH1.C et al.
   html/*.C
   net/*.C
   proof/*.C
@@ -232,7 +233,6 @@ set(returncode_1 fit/fit2a.C fit/graph2dfit.C
                  hist/ContourList.C
                  hist/hstack.C
                  hist/hbars.C
-                 hist/h2proj.C
                  hist/th2polyBoxes.C
                  hist/statsEditing.C
                  hist/cumulative.C
@@ -331,7 +331,7 @@ endforeach()
 if(ROOT_python_FOUND)
   find_package(PythonInterp REQUIRED)
 
-  file(GLOB pytutorials RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} pyroot/*.py)
+  file(GLOB pytutorials RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} */*.py)
   set(pyveto pyroot/demo.py         # requires GUI
              pyroot/fit1_py.py      # not a tutorial
              pyroot/gui_ex.py       # requires GUI
@@ -341,19 +341,26 @@ if(ROOT_python_FOUND)
              pyroot/parse_CSV_file_with_TTree_ReadStream.py # not a tutorial
              pyroot/qtexample.py    # requires GUI/Qt
              pyroot/numberEntry.py  # requires GUI
+             histfactory/example.py # not a tutorial
+             histfactory/makeQuickModel.py # not a tutorial
+             eve/lineset.py         # requires GUI
              )
   list(REMOVE_ITEM pytutorials ${pyveto})
+  if(ROOT_CLASSIC_BUILD)
+    set(classic_veto_py dataframe/tdf*.py)
+    list(REMOVE_ITEM pytutorials ${classic_veto_py})
+  endif()
 
   #---Python tutorials dependencies--------------------------------------
-  set(pyroot-ntuple1-depends tutorial-pyroot-hsimple)
-  set(pyroot-h1draw-depends tutorial-pyroot-hsimple)
-  set(pyroot-benchmarks-depends tutorial-pyroot-hsimple
-                                tutorial-pyroot-fit1
-                                tutorial-pyroot-na49view
-                                tutorial-pyroot-h1draw
-                                tutorial-pyroot-ntuple1)
-  set(pyroot-fit1-depends tutorial-pyroot-fillrandom)
-  set(pyroot-na49view-depends tutorial-pyroot-geometry)
+  set(pyroot-ntuple1-depends tutorial-pyroot-hsimple-py)
+  set(pyroot-h1draw-depends tutorial-pyroot-hsimple-py)
+  set(pyroot-benchmarks-depends tutorial-pyroot-hsimple-py
+                                tutorial-pyroot-fit1-py
+                                tutorial-pyroot-na49view-py
+                                tutorial-pyroot-h1draw-py
+                                tutorial-pyroot-ntuple1-py)
+  set(pyroot-fit1-depends tutorial-pyroot-fillrandom-py)
+  set(pyroot-na49view-depends tutorial-pyroot-geometry-py)
 
   foreach(t ${pytutorials})
     list(FIND returncode_1 ${t} index)
@@ -366,7 +373,7 @@ if(ROOT_python_FOUND)
     string(REPLACE ".py" "" tname ${t})
     string(REPLACE "/" "-" tname ${tname})
 
-    ROOT_ADD_TEST(tutorial-${tname}
+    ROOT_ADD_TEST(tutorial-${tname}-py
                 COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/${t} -b
                 PASSRC ${rc} FAILREGEX "Error in" ": error:" "segmentation violation"
                 LABELS tutorial
