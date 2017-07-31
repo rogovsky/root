@@ -7,13 +7,13 @@
 #include "TError.h"
 #include "Math/MinimizerOptions.h"
 
-int compareResult(double v1, double v2, std::string s = "", double tol = 0.01)
+bool compareResult(double v1, double v2, std::string s = "", double tol = 0.01)
 {
    // compare v1 with reference v2
    //  // give 1% tolerance
-   if (std::abs(v1 - v2) < tol * std::abs(v2)) return 0;
+   if (std::abs(v1 - v2) < tol * std::abs(v2)) return true;
    std::cerr << s << " Failed comparison of fit results \t chi2 = " << v1 << "   it should be = " << v2 << std::endl;
-   return -1;
+   return false;
 }
 
 template <class T>
@@ -55,7 +55,8 @@ int main()
       Error("testBinnedFitExecPolicy", "Multithreaded Chi2 Fit failed!");
       return -1;
    } else {
-      compareResult(r2->MinFcnValue(), r1->MinFcnValue(), "Mutithreaded Chi2 Fit: ");
+      if (!compareResult(r2->MinFcnValue(), r1->MinFcnValue(), "Mutithreaded Chi2 Fit: "))
+         return 1;
    }
 
    std::cout << "\n **FIT: Multithreaded Binned Likelihood **\n\n";
@@ -65,7 +66,8 @@ int main()
       Error("testBinnedFitExecPolicy", "Multithreaded Binned Likelihood Fit failed!");
       return -1;
    } else {
-      compareResult(rL2->MinFcnValue(), rL1->MinFcnValue(), "Mutithreaded Binned Likelihood Fit (PoissonLogL): ");
+      if (!compareResult(rL2->MinFcnValue(), rL1->MinFcnValue(), "Mutithreaded Binned Likelihood Fit (PoissonLogL): "))
+         return 2;
    }
 #endif
 
@@ -79,7 +81,8 @@ int main()
       Error("testBinnedFitExecPolicy", "Vectorized Chi2 Fit failed!");
       return -1;
    } else {
-      compareResult(r3->MinFcnValue(), r1->MinFcnValue(), "Vectorized Chi2 Fit: ");
+      if (!compareResult(r3->MinFcnValue(), r1->MinFcnValue(), "Vectorized Chi2 Fit: "))
+         return 3;
    }
 
    std::cout << "\n **FIT: Vectorized Binned Likelihood **\n\n";
@@ -89,7 +92,9 @@ int main()
       Error("testBinnedFitExecPolicy", "Vectorized Binned Likelihood Fit failed!");
       return -1;
    } else {
-      compareResult(rL3->MinFcnValue(), rL1->MinFcnValue(), "Vectorized Binned Likelihood Fit (PoissonLogL) Fit: ");
+      if (!compareResult(rL3->MinFcnValue(), rL1->MinFcnValue(),
+                         "Vectorized Binned Likelihood Fit (PoissonLogL) Fit: "))
+         return 4;
    }
 
 #ifdef R__USE_IMT
@@ -99,7 +104,8 @@ int main()
       Error("testBinnedFitExecPolicy", "Mutithreaded vectorized Chi2 Fit failed!");
       return -1;
    } else {
-      compareResult(r4->MinFcnValue(), r1->MinFcnValue(), "Mutithreaded vectorized Chi2 Fit: ");
+      if (!compareResult(r4->MinFcnValue(), r1->MinFcnValue(), "Mutithreaded vectorized Chi2 Fit: "))
+         return 5;
    }
 
    std::cout << "\n **FIT: Multithreaded and vectorized Binned Likelihood **\n\n";
@@ -109,10 +115,12 @@ int main()
       Error("testBinnedFitExecPolicy", "Multithreaded Binned Likelihood vectorized Fit failed!");
       return -1;
    } else {
-      compareResult(rL4->MinFcnValue(), rL1->MinFcnValue(),
-                    "Mutithreaded vectorized Binned Likelihood Fit (PoissonLogL) Fit: ");
+      if (!compareResult(rL4->MinFcnValue(), rL1->MinFcnValue(),
+                         "Mutithreaded vectorized Binned Likelihood Fit (PoissonLogL) Fit: "))
+         return 6;
    }
 
 #endif
 #endif
+   return 0;
 }

@@ -4,7 +4,8 @@
 /// \macro_code
 ///
 /// \date 2017-06-02
-/// \warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
+/// \warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback
+/// is welcome!
 /// \author Axel Naumann <axel@cern.ch>
 
 /*************************************************************************
@@ -23,15 +24,37 @@ R__LOAD_LIBRARY(libGpad);
 
 // Show how to display v6 objects in a v7 TCanvas.
 
-void draw_v6() {
-  using namespace ROOT;
+void draw_v6()
+{
+   using namespace ROOT;
 
-  static constexpr int npoints = 4;
-  double x[npoints] = {0., 1., 2., 3.};
-  double y[npoints] = {.1, .2, .3, .4};
-  auto gr = std::make_shared<TGraph>(npoints, x, y);
-  auto canvas = Experimental::TCanvas::Create("v7 TCanvas showing a v6 TGraph");
-  canvas->Draw(gr);
+   static constexpr int npoints = 4;
+   double x[npoints] = {0., 1., 2., 3.};
+   double y[npoints] = {.1, .2, .3, .4};
+   auto gr = std::make_shared<TGraph>(npoints, x, y);
+   auto canvas = Experimental::TCanvas::Create("v7 TCanvas showing a v6 TGraph");
+   canvas->Draw(gr);
 
-  canvas->Show();
+   canvas->Show(); // new window should popup and async update will be triggered
+
+   // canvas->Show("/usr/bin/opera");  // one could specify program name which should show canvas
+   // canvas->Show("firefox");         // it could be firefox, opera, chromium; canvas can be shown several times
+
+   // synchronous, wait until painting is finished
+   canvas->Update(false,
+                  [](bool res) { std::cout << "First Update done = " << (res ? "true" : "false") << std::endl; });
+
+   // call again, should return immediately
+   canvas->Update(false,
+                  [](bool res) { std::cout << "Second Update done = " << (res ? "true" : "false") << std::endl; });
+
+   // request to create PNG file in asynchronous mode and specify lambda function as callback
+   // when request processed by the client, callback called with result value
+   canvas->SaveAs("draw.png", true, [](bool res) {
+      std::cout << "Producing PNG done res = " << (res ? "true" : "false") << std::endl;
+   }); // asynchronous
+
+   // this function executed in synchronous mode (async = false is default),
+   // mean previous file saving will be completed as well at this point
+   canvas->SaveAs("draw.svg"); // asynchronous
 }
