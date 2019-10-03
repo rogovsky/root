@@ -42,12 +42,17 @@
 #include "Rtypes.h"
 #include "TString.h"
 
+#include "Executor.h"
+
 namespace TMVA {
 
    class MsgLogger;
 
    class Config {
-               
+   protected:
+
+      Executor fExecutor;   // Executor for multi-thread or serial execution
+
    public:
 
       static Config& Instance();
@@ -64,7 +69,28 @@ namespace TMVA {
 
       Bool_t DrawProgressBar() const { return fDrawProgressBar; }
       void   SetDrawProgressBar( Bool_t d ) { fDrawProgressBar = d; }
+      UInt_t GetNCpu() { return fExecutor.GetPoolSize(); }
 
+      UInt_t GetNumWorkers() const { return fNWorkers; }
+      void   SetNumWorkers(UInt_t n) { fNWorkers = n; }
+
+#ifdef R__USE_IMT
+      ROOT::TThreadExecutor &GetMultiThreadExecutor() { return *(fExecutor.GetMultiThreadExecutor()); }
+//      ROOT::TSequentialExecutor &GetSeqExecutor() { return *fSeqfPool; }
+#endif
+      /// Get executor class for multi-thread usage
+      /// In case when  MT is not enabled will return a serial executor 
+      Executor & GetThreadExecutor() { return fExecutor; }
+
+      /// Enable MT in TMVA (by default is on when ROOT::EnableImplicitMT() is set
+      void EnableMT(int numthreads = 0) { fExecutor = Executor(numthreads); }
+
+      /// Force disabling MT running and release the thread pool by using instead seriaql execution
+      void DisableMT() {  fExecutor = Executor(1); }
+
+      ///Check if IMT is enabled
+      Bool_t IsMTEnabled() const { return  fExecutor.GetPoolSize() > 1; }
+      
    public:
 
       class VariablePlotting;
@@ -114,15 +140,17 @@ namespace TMVA {
    private:
 
 #if __cplusplus > 199711L
+      std::atomic<Bool_t> fDrawProgressBar;       // draw progress bar to indicate training evolution
+      std::atomic<UInt_t> fNWorkers;              // Default number of workers for multi-process jobs
       std::atomic<Bool_t> fUseColoredConsole;     // coloured standard output
       std::atomic<Bool_t> fSilent;                // no output at all
       std::atomic<Bool_t> fWriteOptionsReference; // if set true: Configurable objects write file with option reference
-      std::atomic<Bool_t> fDrawProgressBar;       // draw progress bar to indicate training evolution
 #else
+      Bool_t fDrawProgressBar;       // draw progress bar to indicate training evolution
+      UInt_t fNWorkers;              // Default number of workers for multi-process jobs
       Bool_t fUseColoredConsole;     // coloured standard output
       Bool_t fSilent;                // no output at all
       Bool_t fWriteOptionsReference; // if set true: Configurable objects write file with option reference
-      Bool_t fDrawProgressBar;       // draw progress bar to indicate training evolution
 #endif
       mutable MsgLogger* fLogger;   // message logger
       MsgLogger& Log() const { return *fLogger; }

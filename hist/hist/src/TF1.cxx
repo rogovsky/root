@@ -25,6 +25,8 @@
 #include "TClass.h"
 #include "TMethodCall.h"
 #include "TF1Helper.h"
+#include "TF1NormSum.h"
+#include "TF1Convolution.h"
 #include "TVirtualMutex.h"
 #include "Math/WrappedFunction.h"
 #include "Math/WrappedTF1.h"
@@ -53,6 +55,94 @@ std::atomic<Bool_t> TF1::fgAbsValue(kFALSE);
 Bool_t TF1::fgRejectPoint = kFALSE;
 std::atomic<Bool_t> TF1::fgAddToGlobList(kTRUE);
 static Double_t gErrorTF1 = 0;
+
+using TF1Updater_t = void (*)(Int_t nobjects, TObject **from, TObject **to);
+bool R__SetClonesArrayTF1Updater(TF1Updater_t func);
+
+
+namespace {
+struct TF1v5Convert : public TF1 {
+public:
+   void Convert(ROOT::v5::TF1Data &from)
+   {
+      // convert old TF1 to new one
+      fNpar = from.GetNpar();
+      fNdim = from.GetNdim();
+      if (from.fType == 0) {
+         // formula functions
+         // if ndim is not 1  set xmin max to zero to avoid error in ctor
+         double xmin = from.fXmin;
+         double xmax = from.fXmax;
+         if (fNdim > 1) {
+            xmin = 0;
+            xmax = 0;
+         }
+         TF1 fnew(from.GetName(), from.GetExpFormula(), xmin, xmax);
+         if (fNdim > 1) {
+            fnew.SetRange(from.fXmin, from.fXmax);
+         }
+         fnew.Copy(*this);
+         // need to set parameter values
+         if (from.GetParameters())
+            fFormula->SetParameters(from.GetParameters());
+      } else {
+         // case of a function pointers
+         fParams = new TF1Parameters(fNpar);
+         fName = from.GetName();
+         fTitle = from.GetTitle();
+         // need to set parameter values
+         if (from.GetParameters())
+            fParams->SetParameters(from.GetParameters());
+      }
+      // copy the other data members
+      fNpx = from.fNpx;
+      fType = (EFType)from.fType;
+      fNpfits = from.fNpfits;
+      fNDF = from.fNDF;
+      fChisquare = from.fChisquare;
+      fMaximum = from.fMaximum;
+      fMinimum = from.fMinimum;
+      fXmin = from.fXmin;
+      fXmax = from.fXmax;
+
+      if (from.fParErrors)
+         fParErrors = std::vector<Double_t>(from.fParErrors, from.fParErrors + fNpar);
+      if (from.fParMin)
+         fParMin = std::vector<Double_t>(from.fParMin, from.fParMin + fNpar);
+      if (from.fParMax)
+         fParMax = std::vector<Double_t>(from.fParMax, from.fParMax + fNpar);
+      if (from.fNsave > 0) {
+         assert(from.fSave);
+         fSave = std::vector<Double_t>(from.fSave, from.fSave + from.fNsave);
+      }
+      // set the bits
+      for (int ibit = 0; ibit < 24; ++ibit)
+         if (from.TestBit(BIT(ibit)))
+            SetBit(BIT(ibit));
+
+      // copy the graph attributes
+      auto &fromLine = static_cast<TAttLine &>(from);
+      fromLine.Copy(*this);
+      auto &fromFill = static_cast<TAttFill &>(from);
+      fromFill.Copy(*this);
+      auto &fromMarker = static_cast<TAttMarker &>(from);
+      fromMarker.Copy(*this);
+   }
+};
+} // unnamed namespace
+
+static void R__v5TF1Updater(Int_t nobjects, TObject **from, TObject **to)
+{
+   auto **fromv5 = (ROOT::v5::TF1Data **)from;
+   auto **target = (TF1v5Convert **)to;
+
+   for (int i = 0; i < nobjects; ++i) {
+      if (fromv5[i] && target[i])
+         target[i]->Convert(*fromv5[i]);
+   }
+}
+
+int R__RegisterTF1UpdaterTrigger = R__SetClonesArrayTF1Updater(R__v5TF1Updater);
 
 ClassImp(TF1);
 
@@ -420,7 +510,7 @@ TF1::TF1():
 /// the formula string is "fffffff" and "xxxx" and "yyyy" are the
 /// titles for the X and Y axis respectively.
 
-TF1::TF1(const char *name, const char *formula, Double_t xmin, Double_t xmax, EAddToList addToGlobList) :
+TF1::TF1(const char *name, const char *formula, Double_t xmin, Double_t xmax, EAddToList addToGlobList, bool vectorize) :
    TNamed(name, formula), TAttLine(), TAttFill(), TAttMarker(), fType(EFType::kFormula)
 {
    if (xmin < xmax) {
@@ -430,15 +520,149 @@ TF1::TF1(const char *name, const char *formula, Double_t xmin, Double_t xmax, EA
       fXmin = xmax; //when called from TF2,TF3
       fXmax = xmin;
    }
-   // create rep formula (no need to add to gROOT list since we will add the TF1 object)
-   fFormula = new TFormula(name, formula, false);
-   fNpar = fFormula->GetNpar();
-   fNdim = fFormula->GetNdim();
+   // Create rep formula (no need to add to gROOT list since we will add the TF1 object)
+
+   // First check if we are making a convolution
+   if (TString(formula, 5) == "CONV(" && formula[strlen(formula) - 1] == ')') {
+      // Look for single ',' delimiter
+      int delimPosition = -1;
+      int parenCount = 0;
+      for (unsigned int i = 5; i < strlen(formula) - 1; i++) {
+         if (formula[i] == '(')
+            parenCount++;
+         else if (formula[i] == ')')
+            parenCount--;
+         else if (formula[i] == ',' && parenCount == 0) {
+            if (delimPosition == -1)
+               delimPosition = i;
+            else
+               Error("TF1", "CONV takes 2 arguments. Too many arguments found in : %s", formula);
+         }
+      }
+      if (delimPosition == -1)
+         Error("TF1", "CONV takes 2 arguments. Only one argument found in : %s", formula);
+
+      // Having found the delimiter, define the first and second formulas
+      TString formula1 = TString(TString(formula)(5, delimPosition - 5));
+      TString formula2 = TString(TString(formula)(delimPosition + 1, strlen(formula) - 1 - (delimPosition + 1)));
+      // remove spaces from these formulas
+      formula1.ReplaceAll(' ', "");
+      formula2.ReplaceAll(' ', "");
+
+      TF1 *function1 = (TF1 *)(gROOT->GetListOfFunctions()->FindObject(formula1));
+      if (function1 == nullptr)
+         function1 = new TF1((const char *)formula1, (const char *)formula1, xmin, xmax);
+      TF1 *function2 = (TF1 *)(gROOT->GetListOfFunctions()->FindObject(formula2));
+      if (function2 == nullptr)
+         function2 = new TF1((const char *)formula2, (const char *)formula2, xmin, xmax);
+
+      // std::cout << "functions have been defined" << std::endl;
+
+      TF1Convolution *conv = new TF1Convolution(function1, function2);
+
+      // (note: currently ignoring `useFFT` option)
+      fNpar = conv->GetNpar();
+      fNdim = 1;                         // (note: may want to extend this in the future?)
+
+      fType = EFType::kCompositionFcn;
+      fComposition = std::unique_ptr<TF1AbsComposition>(conv);
+
+      fParams = new TF1Parameters(fNpar); // default to zeros (TF1Convolution has no GetParameters())
+      // set parameter names
+      for (int i = 0; i < fNpar; i++)
+         this->SetParName(i, conv->GetParName(i));
+      //  set parameters to default values
+      int f1Npar = function1->GetNpar();
+      int f2Npar = function2->GetNpar();
+      // first, copy parameters from function1
+      for (int i = 0; i < f1Npar; i++)
+         this->SetParameter(i, function1->GetParameter(i));
+      // then, check if the "Constant" parameters were combined
+      // (this code assumes function2 has at most one parameter named "Constant")
+      if (conv->GetNpar() == f1Npar + f2Npar - 1) {
+         int cst1 = function1->GetParNumber("Constant");
+         int cst2 = function2->GetParNumber("Constant");
+         this->SetParameter(cst1, function1->GetParameter(cst1) * function2->GetParameter(cst2));
+         // and copy parameters from function2
+         for (int i = 0; i < f2Npar; i++)
+            if (i < cst2)
+               this->SetParameter(f1Npar + i, function2->GetParameter(i));
+            else if (i > cst2)
+               this->SetParameter(f1Npar + i - 1, function2->GetParameter(i));
+      } else {
+         // or if no constant, simply copy parameters from function2
+         for (int i = 0; i < f2Npar; i++)
+            this->SetParameter(i + f1Npar, function2->GetParameter(i));
+      }
+
+      // Then check if we need NSUM syntax:
+   } else if (TString(formula, 5) == "NSUM(" && formula[strlen(formula) - 1] == ')') {
+      // using comma as delimiter
+      char delimiter = ',';
+      // first, remove "NSUM(" and ")" and spaces
+      TString formDense = TString(formula)(5,strlen(formula)-5-1);
+      formDense.ReplaceAll(' ', "");
+
+      // make sure standard functions are defined (e.g. gaus, expo)
+      InitStandardFunctions();
+
+      // Go char-by-char to split terms and define the relevant functions
+      int parenCount = 0;
+      int termStart = 0;
+      TObjArray *newFuncs = new TObjArray();
+      newFuncs->SetOwner(kTRUE);
+      TObjArray *coeffNames = new TObjArray();
+      coeffNames->SetOwner(kTRUE);
+      TString fullFormula("");
+      for (int i = 0; i < formDense.Length(); ++i) {
+         if (formDense[i] == '(')
+            parenCount++;
+         else if (formDense[i] == ')')
+            parenCount--;
+         else if (formDense[i] == delimiter && parenCount == 0) {
+            // term goes from termStart to i
+            DefineNSUMTerm(newFuncs, coeffNames, fullFormula, formDense, termStart, i, xmin, xmax);
+            termStart = i + 1;
+         }
+      }
+      DefineNSUMTerm(newFuncs, coeffNames, fullFormula, formDense, termStart, formDense.Length(), xmin, xmax);
+
+      TF1NormSum *normSum = new TF1NormSum(fullFormula, xmin, xmax);
+
+      if (xmin == 0 && xmax == 1.) Info("TF1","Created TF1NormSum object using the default [0,1] range");
+
+      fNpar = normSum->GetNpar();
+      fNdim = 1; // (note: may want to extend functionality in the future)
+
+      fType = EFType::kCompositionFcn;
+      fComposition = std::unique_ptr<TF1AbsComposition>(normSum);
+
+      fParams = new TF1Parameters(fNpar);
+      fParams->SetParameters(&(normSum->GetParameters())[0]); // inherit default parameters from normSum
+
+      // Parameter names
+      for (int i = 0; i < fNpar; i++) {
+         if (coeffNames->At(i) != nullptr) {
+            TString coeffName = ((TObjString *)coeffNames->At(i))->GetString();
+            this->SetParName(i, (const char *)coeffName);
+         } else {
+            this->SetParName(i, normSum->GetParName(i));
+         }
+      }
+
+   } else { // regular TFormula
+      fFormula = new TFormula(name, formula, false, vectorize);
+      fNpar = fFormula->GetNpar();
+      // TFormula can have dimension zero, but since this is a TF1 minimal dim is 1
+      fNdim = fFormula->GetNdim() == 0 ? 1 : fFormula->GetNdim();
+   }
    if (fNpar) {
       fParErrors.resize(fNpar);
       fParMin.resize(fNpar);
       fParMax.resize(fNpar);
    }
+   // do we want really to have this un-documented feature where we accept cases where dim > 1
+   // by setting xmin >= xmax ??
    if (fNdim > 1 && xmin < xmax) {
       Error("TF1", "function: %s/%s has dimension %d instead of 1", name, formula, fNdim);
       MakeZombie();
@@ -446,7 +670,32 @@ TF1::TF1(const char *name, const char *formula, Double_t xmin, Double_t xmax, EA
 
    DoInitialize(addToGlobList);
 }
-
+TF1::EAddToList GetGlobalListOption(Option_t * opt)  {
+   if (opt == nullptr) return TF1::EAddToList::kDefault;
+   TString option(opt);
+   option.ToUpper();
+   if (option.Contains("NL")) return TF1::EAddToList::kNo;
+   if (option.Contains("GL")) return TF1::EAddToList::kAdd;
+   return TF1::EAddToList::kDefault;
+}
+bool GetVectorizedOption(Option_t * opt)  {
+   if (opt == nullptr) return false;
+   TString option(opt);
+   option.ToUpper();
+   if (option.Contains("VEC")) return true;
+   return false;
+}
+TF1::TF1(const char *name, const char *formula, Double_t xmin, Double_t xmax, Option_t * opt) :
+////////////////////////////////////////////////////////////////////////////////
+/// Same constructor as above (for TFormula based function) but passing an option strings
+///  available options
+///  VEC -  vectorize the formula expressions (not possible for lambda based expressions)
+///  NL   - function is not stores in the global list of functions
+///  GL   -  function will be always stored in the global list of functions ,
+///         independently of the global setting of TF1::DefaultAddToGlobalList
+///////////////////////////////////////////////////////////////////////////////////
+   TF1(name, formula, xmin, xmax, GetGlobalListOption(opt), GetVectorizedOption(opt) )
+{}
 ////////////////////////////////////////////////////////////////////////////////
 /// F1 constructor using name of an interpreted function.
 ///
@@ -464,8 +713,8 @@ TF1::TF1(const char *name, const char *formula, Double_t xmin, Double_t xmax, EA
 TF1::TF1(const char *name, Double_t xmin, Double_t xmax, Int_t npar, Int_t ndim, EAddToList addToGlobList) :
    TF1(EFType::kInterpreted, name, xmin, xmax, npar, ndim, addToGlobList, new TF1Parameters(npar))
 {
-   if (fName == "*") {
-      Info("TF1", "TF1 has name * - it is not well defined");
+   if (fName.Data()[0] == '*') {  // case TF1 name starts with a *
+      Info("TF1", "TF1 has a name starting with a \'*\' - it is for saved TF1 objects in a .C file");
       return; //case happens via SavePrimitive
    } else if (fName.IsNull()) {
       Error("TF1", "requires a proper function name!");
@@ -537,10 +786,6 @@ TF1::TF1(const char *name, ROOT::Math::ParamFunctor f, Double_t xmin, Double_t x
 
 void TF1::DoInitialize(EAddToList addToGlobalList)
 {
-
-   fMinimum = -1111;
-   fMaximum = -1111;
-
    // add to global list of functions if default adding is on OR if bit is set
    bool doAdd = ((addToGlobalList == EAddToList::kDefault && fgAddToGlobList)
                  || addToGlobalList == EAddToList::kAdd);
@@ -615,6 +860,66 @@ Bool_t TF1::AddToGlobalList(Bool_t on)
    return prevStatus;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+/// Helper functions for NSUM parsing
+
+// Defines the formula that a given term uses, if not already defined,
+// and appends "sanitized" formula to `fullFormula` string
+void TF1::DefineNSUMTerm(TObjArray *newFuncs, TObjArray *coeffNames, TString &fullFormula, TString &formula,
+                         int termStart, int termEnd, Double_t xmin, Double_t xmax)
+{
+   TString originalTerm = formula(termStart, termEnd-termStart);
+   int coeffLength = TermCoeffLength(originalTerm);
+   if (coeffLength != -1)
+      termStart += coeffLength + 1;
+
+   // `originalFunc` is the real formula and `cleanedFunc` is the
+   // sanitized version that will not confuse the TF1NormSum
+   // constructor
+   TString originalFunc = formula(termStart, termEnd-termStart);
+   TString cleanedFunc = TString(formula(termStart, termEnd-termStart))
+      .ReplaceAll('+', "<plus>")
+      .ReplaceAll('*',"<times>");
+
+   // define function (if necessary)
+   if (!gROOT->GetListOfFunctions()->FindObject(cleanedFunc))
+      newFuncs->Add(new TF1(cleanedFunc, originalFunc, xmin, xmax));
+
+   // append sanitized term to `fullFormula`
+   if (fullFormula.Length() != 0)
+      fullFormula.Append('+');
+
+   // include numerical coefficient
+   if (coeffLength != -1 && originalTerm[0] != '[')
+      fullFormula.Append(originalTerm(0, coeffLength+1));
+
+   // add coefficient name
+   if (coeffLength != -1 && originalTerm[0] == '[')
+      coeffNames->Add(new TObjString(TString(originalTerm(1,coeffLength-2))));
+   else
+      coeffNames->Add(nullptr);
+
+   fullFormula.Append(cleanedFunc);
+}
+
+
+// Returns length of coeff at beginning of a given term, not counting the '*'
+// Returns -1 if no coeff found
+// Coeff can be either a number or parameter name
+int TF1::TermCoeffLength(TString &term) {
+  int firstAsterisk = term.First('*');
+  if (firstAsterisk == -1) // no asterisk found
+    return -1;
+
+  if (TString(term(0,firstAsterisk)).IsFloat())
+     return firstAsterisk;
+
+  if (term[0] == '[' && term[firstAsterisk-1] == ']'
+      && TString(term(1,firstAsterisk-2)).IsAlnum())
+     return firstAsterisk;
+
+  return -1;
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Operator =
@@ -646,6 +951,7 @@ TF1::~TF1()
 
    if (fFormula) delete fFormula;
    if (fParams) delete fParams;
+   if (fFunctor) delete fFunctor; 
 }
 
 
@@ -701,7 +1007,6 @@ void TF1::Copy(TObject &obj) const
    ((TF1 &)obj).fNpar = fNpar;
    ((TF1 &)obj).fNdim = fNdim;
    ((TF1 &)obj).fType = fType;
-   ((TF1 &)obj).fFunctor   = fFunctor;
    ((TF1 &)obj).fChisquare = fChisquare;
    ((TF1 &)obj).fNpfits  = fNpfits;
    ((TF1 &)obj).fNDF     = fNDF;
@@ -739,6 +1044,17 @@ void TF1::Copy(TObject &obj) const
       TF1Parameters *paramsToCopy = ((TF1 &)obj).fParams;
       if (paramsToCopy) *paramsToCopy = *fParams;
       else ((TF1 &)obj).fParams = new TF1Parameters(*fParams);
+   }
+   if (fFunctor) {
+      // use clone of TF1FunctorPointer
+      if (((TF1 &)obj).fFunctor) delete((TF1 &)obj).fFunctor;
+      ((TF1 &)obj).fFunctor  = fFunctor->Clone();
+   }
+
+   if (fComposition) {
+      TF1AbsComposition *comp = (TF1AbsComposition *)fComposition->IsA()->New();
+      fComposition->Copy(*comp);
+      ((TF1 &)obj).fComposition = std::unique_ptr<TF1AbsComposition>(comp);
    }
 }
 
@@ -1005,6 +1321,8 @@ void TF1::Draw(Option_t *option)
    if (gPad && !opt.Contains("same")) gPad->Clear();
 
    AppendPad(option);
+
+   gPad->IncrementPaletteColor(1, opt);
 }
 
 
@@ -1110,11 +1428,11 @@ void TF1::DrawF1(Double_t xmin, Double_t xmax, Option_t *option)
 
 Double_t TF1::Eval(Double_t x, Double_t y, Double_t z, Double_t t) const
 {
-   if (fType == 0) return fFormula->Eval(x, y, z, t);
+   if (fType == EFType::kFormula) return fFormula->Eval(x, y, z, t);
 
    Double_t xx[4] = {x, y, z, t};
    Double_t *pp = (Double_t *)fParams->GetParameters();
-   if (fType == 2)((TF1 *)this)->InitArgs(xx, pp);
+   // if (fType == EFType::kInterpreted)((TF1 *)this)->InitArgs(xx, pp);
    return ((TF1 *)this)->EvalPar(xx, pp);
 }
 
@@ -1141,7 +1459,7 @@ Double_t TF1::EvalPar(const Double_t *x, const Double_t *params)
 {
    //fgCurrent = this;
 
-   if (fType == 0) {
+   if (fType == EFType::kFormula) {
       assert(fFormula);
 
       if (fNormalized && fNormIntegral != 0)
@@ -1150,7 +1468,7 @@ Double_t TF1::EvalPar(const Double_t *x, const Double_t *params)
          return fFormula->EvalPar(x, params);
    }
    Double_t result = 0;
-   if (fType == 1)  {
+   if (fType == EFType::kPtrScalarFreeFcn || fType == EFType::kTemplScalar)  {
       if (fFunctor) {
          assert(fParams);
          if (params) result = ((TF1FunctorPointerImpl<Double_t> *)fFunctor)->fImpl((Double_t *)x, (Double_t *)params);
@@ -1163,7 +1481,7 @@ Double_t TF1::EvalPar(const Double_t *x, const Double_t *params)
 
       return result;
    }
-   if (fType == 2) {
+   if (fType == EFType::kInterpreted) {
       if (fMethodCall) fMethodCall->Execute(result);
       else             result = GetSave(x);
 
@@ -1173,7 +1491,8 @@ Double_t TF1::EvalPar(const Double_t *x, const Double_t *params)
       return result;
    }
 
-   if (fType == 3) {
+#ifdef R__HAS_VECCORE
+   if (fType == EFType::kTemplVec) {
       if (fFunctor) {
          if (params) result =  EvalParVec(x, params);
          else result =  EvalParVec(x, (Double_t *) fParams->GetParameters());
@@ -1185,11 +1504,19 @@ Double_t TF1::EvalPar(const Double_t *x, const Double_t *params)
       if (fNormalized && fNormIntegral != 0)
          result = result / fNormIntegral;
 
-      return result; 
+      return result;
    }
+#endif
+
+   if (fType == EFType::kCompositionFcn) {
+      if (!fComposition)
+         Error("EvalPar", "Composition function not found");
+
+      result = (*fComposition)(x, params);
+   }
+
    return result;
 }
-
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Execute action corresponding to one event.
@@ -1528,9 +1855,9 @@ Double_t TF1::GetX(Double_t fy, Double_t xmin, Double_t xmax, Double_t epsilon, 
    brf.SetFunction(wf1, xmin, xmax);
    brf.SetNpx(fNpx);
    brf.SetLogScan(logx);
-   brf.Solve(maxiter, epsilon, epsilon);
-   return brf.Root();
-
+   bool ret = brf.Solve(maxiter, epsilon, epsilon);
+   if (!ret) Error("GetX","[%f,%f] is not a valid interval",xmin,xmax);
+   return (ret) ? brf.Root() : TMath::QuietNaN();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1552,9 +1879,10 @@ Int_t TF1::GetNDF() const
 
 Int_t TF1::GetNumberFreeParameters() const
 {
-   Int_t nfree = GetNpar();
+   Int_t ntot = GetNpar();
+   Int_t nfree = ntot;
    Double_t al, bl;
-   for (Int_t i = 0; i < nfree; i++) {
+   for (Int_t i = 0; i < ntot; i++) {
       ((TF1 *)this)->GetParLimits(i, al, bl);
       if (al * bl != 0 && al >= bl) nfree--;
    }
@@ -1661,7 +1989,7 @@ Int_t TF1::GetQuantiles(Int_t nprobSum, Double_t *q, const Double_t *probSum)
    Int_t intNegative = 0;
    Int_t i;
    for (i = 0; i < npx; i++) {
-      Double_t integ = Integral(Double_t(xMin + i * dx), Double_t(xMin + i * dx + dx));
+      Double_t integ = Integral(Double_t(xMin + i * dx), Double_t(xMin + i * dx + dx), 0.0);
       if (integ < 0) {
          intNegative++;
          integ = -integ;
@@ -1685,7 +2013,7 @@ Int_t TF1::GetQuantiles(Int_t nprobSum, Double_t *q, const Double_t *probSum)
    for (i = 0; i < npx; i++) {
       const Double_t x0 = xMin + dx * i;
       const Double_t r2 = integral[i + 1] - integral[i];
-      const Double_t r1 = Integral(x0, x0 + 0.5 * dx) / total;
+      const Double_t r1 = Integral(x0, x0 + 0.5 * dx, 0.0) / total;
       gamma[i] = (2 * r2 - 4 * r1) / (dx * dx);
       beta[i]  = r2 / dx - gamma[i] * dx;
       alpha[i] = x0;
@@ -1697,6 +2025,11 @@ Int_t TF1::GetQuantiles(Int_t nprobSum, Double_t *q, const Double_t *probSum)
    for (i = 0; i < nprobSum; i++) {
       const Double_t r = probSum[i];
       Int_t bin  = TMath::Max(TMath::BinarySearch(npx + 1, integral.GetArray(), r), (Long64_t)0);
+      // in case the prob is 1
+      if (bin == npx) {
+         q[i] = xMax;
+         continue;
+      }
       // LM use a tolerance 1.E-12 (integral precision)
       while (bin < npx - 1 && TMath::AreEqualRel(integral[bin + 1], r, 1E-12)) {
          if (TMath::AreEqualRel(integral[bin + 2], r, 1E-12)) bin++;
@@ -1742,10 +2075,6 @@ Double_t TF1::GetRandom()
 {
    //  Check if integral array must be build
    if (fIntegral.size() == 0) {
-      // fIntegral = new Double_t[fNpx+1];
-      // fAlpha    = new Double_t[fNpx+1];
-      // fBeta     = new Double_t[fNpx];
-      // fGamma    = new Double_t[fNpx];
       fIntegral.resize(fNpx + 1);
       fAlpha.resize(fNpx + 1);
       fBeta.resize(fNpx);
@@ -1774,9 +2103,9 @@ Double_t TF1::GetRandom()
       xx[fNpx] = xmax;
       for (i = 0; i < fNpx; i++) {
          if (logbin) {
-            integ = Integral(TMath::Power(10, xx[i]), TMath::Power(10, xx[i + 1]));
+            integ = Integral(TMath::Power(10, xx[i]), TMath::Power(10, xx[i + 1]), 0.0);
          } else {
-            integ = Integral(xx[i], xx[i + 1]);
+            integ = Integral(xx[i], xx[i + 1], 0.0);
          }
          if (integ < 0) {
             intNegative++;
@@ -1803,8 +2132,8 @@ Double_t TF1::GetRandom()
       for (i = 0; i < fNpx; i++) {
          x0 = xx[i];
          r2 = fIntegral[i + 1] - fIntegral[i];
-         if (logbin) r1 = Integral(TMath::Power(10, x0), TMath::Power(10, x0 + 0.5 * dx)) / total;
-         else        r1 = Integral(x0, x0 + 0.5 * dx) / total;
+         if (logbin) r1 = Integral(TMath::Power(10, x0), TMath::Power(10, x0 + 0.5 * dx), 0.0) / total;
+         else        r1 = Integral(x0, x0 + 0.5 * dx, 0.0) / total;
          r3 = 2 * r2 - 4 * r1;
          if (TMath::Abs(r3) > 1e-8) fGamma[i] = r3 / (dx * dx);
          else           fGamma[i] = 0;
@@ -1858,12 +2187,8 @@ Double_t TF1::GetRandom(Double_t xmin, Double_t xmax)
 {
    //  Check if integral array must be build
    if (fIntegral.size() == 0) {
-      // fIntegral = new Double_t[fNpx+1];
-      // fAlpha    = new Double_t[fNpx+1];
-      // fBeta     = new Double_t[fNpx];
-      // fGamma    = new Double_t[fNpx];
       fIntegral.resize(fNpx + 1);
-      fAlpha.resize(fNpx);
+      fAlpha.resize(fNpx+1);
       fBeta.resize(fNpx);
       fGamma.resize(fNpx);
 
@@ -1872,7 +2197,7 @@ Double_t TF1::GetRandom(Double_t xmin, Double_t xmax)
       Int_t intNegative = 0;
       Int_t i;
       for (i = 0; i < fNpx; i++) {
-         integ = Integral(Double_t(fXmin + i * dx), Double_t(fXmin + i * dx + dx));
+         integ = Integral(Double_t(fXmin + i * dx), Double_t(fXmin + i * dx + dx), 0.0);
          if (integ < 0) {
             intNegative++;
             integ = -integ;
@@ -1897,7 +2222,7 @@ Double_t TF1::GetRandom(Double_t xmin, Double_t xmax)
       for (i = 0; i < fNpx; i++) {
          x0 = fXmin + i * dx;
          r2 = fIntegral[i + 1] - fIntegral[i];
-         r1 = Integral(x0, x0 + 0.5 * dx) / total;
+         r1 = Integral(x0, x0 + 0.5 * dx, 0.0) / total;
          r3 = 2 * r2 - 4 * r1;
          if (TMath::Abs(r3) > 1e-8) fGamma[i] = r3 / (dx * dx);
          else           fGamma[i] = 0;
@@ -2101,58 +2426,7 @@ TAxis *TF1::GetZaxis() const
 
 Double_t TF1::GradientPar(Int_t ipar, const Double_t *x, Double_t eps)
 {
-   if (GetNpar() == 0) return 0;
-
-   if (eps < 1e-10 || eps > 1) {
-      Warning("Derivative", "parameter esp=%g out of allowed range[1e-10,1], reset to 0.01", eps);
-      eps = 0.01;
-   }
-   Double_t h;
-   Double_t *parameters = GetParameters();
-   TF1 *func = (TF1 *)this;
-   //save original parameters
-   Double_t par0 = parameters[ipar];
-
-
-   func->InitArgs(x, parameters);
-
-   Double_t al, bl;
-   Double_t f1, f2, g1, g2, h2, d0, d2;
-
-   ((TF1 *)this)->GetParLimits(ipar, al, bl);
-   if (al * bl != 0 && al >= bl) {
-      //this parameter is fixed
-      return 0;
-   }
-
-   // check if error has been computer (is not zero)
-   if (func->GetParError(ipar) != 0)
-      h = eps * func->GetParError(ipar);
-   else
-      h = eps;
-
-
-
-   parameters[ipar] = par0 + h;
-   f1 = func->EvalPar(x, parameters);
-   parameters[ipar] = par0 - h;
-   f2 = func->EvalPar(x, parameters);
-   parameters[ipar] = par0 + h / 2;
-   g1 = func->EvalPar(x, parameters);
-   parameters[ipar] = par0 - h / 2;
-   g2 = func->EvalPar(x, parameters);
-
-   //compute the central differences
-   h2    = 1 / (2.*h);
-   d0    = f1 - f2;
-   d2    = 2 * (g1 - g2);
-
-   Double_t  grad = h2 * (4 * d2 - d0) / 3.;
-
-   // restore original value
-   parameters[ipar] = par0;
-
-   return grad;
+   return GradientParTempl<Double_t>(ipar, x, eps);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2171,14 +2445,7 @@ Double_t TF1::GradientPar(Int_t ipar, const Double_t *x, Double_t eps)
 
 void TF1::GradientPar(const Double_t *x, Double_t *grad, Double_t eps)
 {
-   if (eps < 1e-10 || eps > 1) {
-      Warning("Derivative", "parameter esp=%g out of allowed range[1e-10,1], reset to 0.01", eps);
-      eps = 0.01;
-   }
-
-   for (Int_t ipar = 0; ipar < GetNpar(); ipar++) {
-      grad[ipar] = GradientPar(ipar, x, eps);
-   }
+   GradientParTempl<Double_t>(x, grad, eps);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2328,6 +2595,8 @@ Double_t TF1::IntegralOneDim(Double_t a, Double_t b,  Double_t epsrel, Double_t 
    TF1_EvalWrapper wf1(this, 0, fgAbsValue);
    Double_t result = 0;
    Int_t status = 0;
+   if (epsrel <= 0) epsrel = ROOT::Math::IntegratorOneDimOptions::DefaultRelTolerance();
+   if (epsabs <= 0) epsabs = ROOT::Math::IntegratorOneDimOptions::DefaultAbsTolerance();
    if (ROOT::Math::IntegratorOneDimOptions::DefaultIntegratorType() == ROOT::Math::IntegrationOneDim::kGAUSS) {
       ROOT::Math::GaussIntegrator iod(epsabs, epsrel);
       iod.SetFunction(wf1);
@@ -2554,6 +2823,8 @@ Double_t TF1::IntegralMultiple(Int_t n, const Double_t *a, const Double_t *b, In
    ROOT::Math::WrappedMultiFunction<TF1 &> wf1(*this, n);
 
    double result = 0;
+   if (epsrel <= 0) epsrel = ROOT::Math::IntegratorMultiDimOptions::DefaultRelTolerance();
+   if (epsabs <= 0) epsabs = ROOT::Math::IntegratorMultiDimOptions::DefaultAbsTolerance();
    if (ROOT::Math::IntegratorMultiDimOptions::DefaultIntegratorType() == ROOT::Math::IntegrationMultiDim::kADAPTIVE) {
       ROOT::Math::AdaptiveIntegratorMultiDim aimd(wf1, epsabs, epsrel, maxpts);
       //aimd.SetMinPts(minpts); // use default minpts ( n^2 + 2 * n * (n+1) +1 )
@@ -2584,7 +2855,8 @@ Bool_t TF1::IsValid() const
    if (fMethodCall) return fMethodCall->IsValid();
    // function built on compiled functors are always valid by definition
    // (checked at compiled time)
-   if (fFunctor && fSave.empty()) return kFALSE;
+   // invalid is a TF1 where the functor is null pointer and has not been saved
+   if (!fFunctor && fSave.empty()) return kFALSE;
    return kTRUE;
 }
 
@@ -2594,18 +2866,26 @@ Bool_t TF1::IsValid() const
 
 void TF1::Print(Option_t *option) const
 {
-   if (fType == 0) {
+   if (fType == EFType::kFormula) {
       printf("Formula based function:     %s \n", GetName());
       assert(fFormula);
       fFormula->Print(option);
    } else if (fType >  0) {
-      if (fType == 2)
-         printf("Interpreted based function: %s(double *x, double *p).  Ndim = %d, Npar = %d  \n", GetName(), GetNpar(), GetNdim());
-      else {
+      if (fType == EFType::kInterpreted)
+         printf("Interpreted based function: %s(double *x, double *p).  Ndim = %d, Npar = %d  \n", GetName(), GetNdim(),
+                GetNpar());
+      else if (fType == EFType::kCompositionFcn) {
+         printf("Composition based function: %s. Ndim = %d, Npar = %d \n", GetName(), GetNdim(), GetNpar());
+         if (!fComposition)
+            printf("fComposition not found!\n"); // this would be bad
+      } else {
          if (fFunctor)
-            printf("Compiled based function: %s  based on a functor object.  Ndim = %d, Npar = %d\n", GetName(), GetNpar(), GetNdim());
+            printf("Compiled based function: %s  based on a functor object.  Ndim = %d, Npar = %d\n", GetName(),
+                   GetNdim(), GetNpar());
          else {
-            printf("Function based on a list of points from a compiled based function: %s.  Ndim = %d, Npar = %d, Npx = %zu\n", GetName(), GetNpar(), GetNdim(), fSave.size());
+            printf("Function based on a list of points from a compiled based function: %s.  Ndim = %d, Npar = %d, Npx "
+                   "= %zu\n",
+                   GetName(), GetNdim(), GetNpar(), fSave.size());
             if (fSave.empty())
                Warning("Print", "Function %s is based on a list of points but list is empty", GetName());
          }
@@ -2640,14 +2920,22 @@ void TF1::Print(Option_t *option) const
 /// histogram is painted.
 /// The painted histogram can be retrieved calling afterwards the method TF1::GetHistogram()
 
-void TF1::Paint(Option_t *option)
+void TF1::Paint(Option_t *choptin)
 {
    fgCurrent = this;
 
+   char option[32];
+   strlcpy(option,choptin,32);
+
    TString opt = option;
    opt.ToLower();
+
    Bool_t optSAME = kFALSE;
-   if (opt.Contains("same")) optSAME = kTRUE;
+   if (opt.Contains("same")) {
+      opt.ReplaceAll("same","");
+      optSAME = kTRUE;
+   }
+   opt.ReplaceAll(' ', "");
 
    Double_t xmin = fXmin, xmax = fXmax, pmin = fXmin, pmax = fXmax;
    if (gPad) {
@@ -2663,6 +2951,16 @@ void TF1::Paint(Option_t *option)
 
    // create an histogram using the function content (re-use it if already existing)
    fHistogram = DoCreateHistogram(xmin, xmax, kFALSE);
+
+   char *l1 = strstr(option,"PFC"); // Automatic Fill Color
+   char *l2 = strstr(option,"PLC"); // Automatic Line Color
+   char *l3 = strstr(option,"PMC"); // Automatic Marker Color
+   if (l1 || l2 || l3) {
+      Int_t i = gPad->NextPaletteColor();
+      if (l1) {memcpy(l1,"   ",3); fHistogram->SetFillColor(i);}
+      if (l2) {memcpy(l2,"   ",3); fHistogram->SetLineColor(i);}
+      if (l3) {memcpy(l3,"   ",3); fHistogram->SetMarkerColor(i);}
+   }
 
    // set the optimal minimum and maximum
    Double_t minimum   = fHistogram->GetMinimumStored();
@@ -2707,9 +3005,12 @@ void TF1::Paint(Option_t *option)
 
    // Draw the histogram.
    if (!gPad) return;
-   if (opt.Length() == 0) fHistogram->Paint("lf");
-   else if (optSAME)      fHistogram->Paint("lfsame");
-   else                   fHistogram->Paint(option);
+   if (opt.Length() == 0) {
+      if (optSAME) fHistogram->Paint("lfsame");
+      else         fHistogram->Paint("lf");
+   } else {
+      fHistogram->Paint(option);
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2941,15 +3242,18 @@ void TF1::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
    }
    f1Name += f1Number;
 
+   const char *addToGlobList = fParent ? ", TF1::EAddToList::kNo" : ", TF1::EAddToList::kDefault";
+
    if (!fType) {
-      out << "   TF1 *" << f1Name.Data() << " = new TF1(" << quote << GetName() << quote << "," << quote << GetTitle() << quote << "," << fXmin << "," << fXmax << ");" << std::endl;
+      out << "   TF1 *" << f1Name.Data() << " = new TF1(" << quote << GetName() << quote << "," << quote << GetTitle() << quote << "," << fXmin << "," << fXmax <<  addToGlobList << ");" << std::endl;
       if (fNpx != 100) {
          out << "   " << f1Name.Data() << "->SetNpx(" << fNpx << ");" << std::endl;
       }
    } else {
       out << "   TF1 *" << f1Name.Data() << " = new TF1(" << quote << "*" << GetName() << quote << "," << fXmin << "," << fXmax << "," << GetNpar() << ");" << std::endl;
       out << "    //The original function : " << GetTitle() << " had originally been created by:" << std::endl;
-      out << "    //TF1 *" << GetName() << " = new TF1(" << quote << GetName() << quote << "," << GetTitle() << "," << fXmin << "," << fXmax << "," << GetNpar() << ");" << std::endl;
+      out << "    //TF1 *" << GetName() << " = new TF1(" << quote << GetName() << quote << "," << GetTitle() << "," << fXmin << "," << fXmax << "," << GetNpar();
+      out << ", 1" << addToGlobList << ");" << std::endl;
       out << "   " << f1Name.Data() << "->SetRange(" << fXmin << "," << fXmax << ");" << std::endl;
       out << "   " << f1Name.Data() << "->SetName(" << quote << GetName() << quote << ");" << std::endl;
       out << "   " << f1Name.Data() << "->SetTitle(" << quote << GetTitle() << quote << ");" << std::endl;
@@ -3215,6 +3519,9 @@ void TF1::SetRange(Double_t xmin, Double_t xmax)
 {
    fXmin = xmin;
    fXmax = xmax;
+   if (fType == EFType::kCompositionFcn && fComposition) {
+      fComposition->SetRange(xmin, xmax); // automatically updates sub-functions
+   }
    Update();
 }
 
@@ -3267,66 +3574,15 @@ void TF1::Streamer(TBuffer &b)
             R__LOCKGUARD(gROOTMutex);
             gROOT->GetListOfFunctions()->Add(this);
          }
+         if (v >= 10)
+            fComposition = std::unique_ptr<TF1AbsComposition>(fComposition_ptr);
          return;
       } else {
          ROOT::v5::TF1Data fold;
          //printf("Reading TF1 as v5::TF1Data- version %d \n",v);
          fold.Streamer(b, v, R__s, R__c, TF1::Class());
          // convert old TF1 to new one
-         fNpar = fold.GetNpar();
-         fNdim = fold.GetNdim();
-         if (fold.fType == 0) {
-            // formula functions
-            // if ndim is not 1  set xmin max to zero to avoid error in ctor
-            double xmin = fold.fXmin;
-            double xmax = fold.fXmax;
-            if (fNdim >  1) {
-               xmin = 0;
-               xmax = 0;
-            }
-            TF1 fnew(fold.GetName(), fold.GetExpFormula(), xmin, xmax);
-            if (fNdim > 1) {
-               fnew.SetRange(fold.fXmin, fold.fXmax);
-            }
-            fnew.Copy(*this);
-         } else {
-            // case of a function pointers
-            fParams = new TF1Parameters(fNpar);
-            fName = fold.GetName();
-            fTitle = fold.GetTitle();
-         }
-         // need to set parameter values
-         SetParameters(fold.GetParameters());
-         // copy the other data members
-         fNpx = fold.fNpx;
-         fType = (EFType) fold.fType;
-         fNpfits = fold.fNpfits;
-         fNDF = fold.fNDF;
-         fChisquare = fold.fChisquare;
-         fMaximum = fold.fMaximum;
-         fMinimum = fold.fMinimum;
-         fXmin = fold.fXmin;
-         fXmax = fold.fXmax;
-
-         if (fold.fParErrors) fParErrors = std::vector<Double_t>(fold.fParErrors, fold.fParErrors + fNpar);
-         if (fold.fParMin) fParMin = std::vector<Double_t>(fold.fParMin, fold.fParMin + fNpar);
-         if (fold.fParMax) fParMax = std::vector<Double_t>(fold.fParMax, fold.fParMax + fNpar);
-         if (fold.fNsave > 0) {
-            assert(fold.fSave);
-            fSave = std::vector<Double_t>(fold.fSave, fold.fSave + fold.fNsave);
-         }
-         // set the bits
-         for (int ibit = 0; ibit < 24; ++ibit)
-            if (fold.TestBit(BIT(ibit))) SetBit(BIT(ibit));
-
-         // copy the graph attributes
-         TAttLine &fOldLine = static_cast<TAttLine &>(fold);
-         fOldLine.Copy(*this);
-         TAttFill &fOldFill = static_cast<TAttFill &>(fold);
-         fOldFill.Copy(*this);
-         TAttMarker &fOldMarker = static_cast<TAttMarker &>(fold);
-         fOldMarker.Copy(*this);
-
+         ((TF1v5Convert *)this)->Convert(fold);
       }
    }
 
@@ -3334,11 +3590,14 @@ void TF1::Streamer(TBuffer &b)
    else {
       Int_t saved = 0;
       // save not-formula functions as array of points
-      if (fType > 0 && fSave.empty()) {
+      if (fType > 0 && fSave.empty() && fType != EFType::kCompositionFcn) {
          saved = 1;
          Save(fXmin, fXmax, 0, 0, 0, 0);
       }
-
+      if (fType == EFType::kCompositionFcn)
+         fComposition_ptr = fComposition.get();
+      else
+         fComposition_ptr = nullptr;
       b.WriteClassBuffer(TF1::Class(), this);
 
       // clear vector contents
@@ -3366,13 +3625,19 @@ void TF1::Update()
    if (fNormalized) {
       // need to compute the integral of the not-normalized function
       fNormalized = false;
-      fNormIntegral = Integral(fXmin, fXmax, ROOT::Math::IntegratorOneDimOptions::DefaultRelTolerance());
+      fNormIntegral = Integral(fXmin, fXmax, 0.0);
       fNormalized = true;
    } else
       fNormIntegral = 0;
 
    // std::vector<double>x(fNdim);
    // if ((fType == 1) && !fFunctor->Empty())  (*fFunctor)x.data(), (Double_t*)fParams);
+   if (fType == EFType::kCompositionFcn && fComposition) {
+      // double-check that the parameters are correct
+      fComposition->SetParameters(GetParameters());
+
+      fComposition->Update(); // should not be necessary, but just to be safe
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

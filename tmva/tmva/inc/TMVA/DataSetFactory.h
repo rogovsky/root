@@ -38,7 +38,6 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include <vector>
-#include <stdlib.h>
 
 #include "TString.h"
 #include "TTree.h"
@@ -63,20 +62,6 @@ namespace TMVA {
    // =============== maybe move these elswhere (e.g. into the tools )
 
    // =============== functors =======================
-
-
-   class RandomGenerator {
-   public:
-      RandomGenerator( UInt_t seed ){
-         fRandom.SetSeed( seed );
-      }
-      UInt_t operator() ( UInt_t n ) {
-         return fRandom.Integer(n);
-      }
-   private:
-      TRandom3 fRandom; // random generator
-   };
-
 
    // delete-functor (to be used in e.g. for_each algorithm)
    template<class T>
@@ -286,6 +271,10 @@ namespace TMVA {
       Bool_t                     fVerbose;           // Verbosity
       TString                    fVerboseLevel;      // VerboseLevel
 
+      // Printing
+      Bool_t fCorrelations = kFALSE;          // Whether to print correlations or not
+      Bool_t fComputeCorrelations = kFALSE;   // Whether to force computation of correlations or not
+
       Bool_t                     fScaleWithPreselEff; // how to deal with requested #events in connection with preselection cuts 
 
       // the event
@@ -302,8 +291,7 @@ namespace TMVA {
       MsgLogger*                 fLogger;          //! message logger
       MsgLogger& Log() const { return *fLogger; }
    public:
-       
-       ClassDef(DataSetFactory,1);
+      ClassDef(DataSetFactory, 2);
    };
 }
 

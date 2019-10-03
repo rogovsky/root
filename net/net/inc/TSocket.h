@@ -24,6 +24,8 @@
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
+#include "TSystem.h"
+#include "Compression.h"
 #include "TNamed.h"
 #include "TBits.h"
 #include "TInetAddress.h"
@@ -32,27 +34,6 @@
 #include "TSecContext.h"
 #include "TTimeStamp.h"
 #include "TVirtualMutex.h"
-
-enum ESockOptions {
-   kSendBuffer,        // size of send buffer
-   kRecvBuffer,        // size of receive buffer
-   kOobInline,         // OOB message inline
-   kKeepAlive,         // keep socket alive
-   kReuseAddr,         // allow reuse of local portion of address 5-tuple
-   kNoDelay,           // send without delay
-   kNoBlock,           // non-blocking I/O
-   kProcessGroup,      // socket process group (used for SIGURG and SIGIO)
-   kAtMark,            // are we at out-of-band mark (read only)
-   kBytesToRead        // get number of bytes to read, FIONREAD (read only)
-};
-
-enum ESendRecvOptions {
-   kDefault,           // default option (= 0)
-   kOob,               // send or receive out-of-band data
-   kPeek,              // peek at incoming message (receive only)
-   kDontBlock          // send/recv as much data as possible without blocking
-};
-
 
 class TMessage;
 class THostAuth;
@@ -71,6 +52,10 @@ public:
    enum EServiceType { kSOCKD, kROOTD, kPROOFD };
 
 protected:
+   enum ESocketErrors {
+     kInvalid = -1,
+     kInvalidStillInList = -2
+   };
    TInetAddress  fAddress;        // remote internet address and port #
    UInt_t        fBytesRecv;      // total bytes received over this socket
    UInt_t        fBytesSent;      // total bytes sent using this socket
@@ -95,7 +80,7 @@ protected:
 
    static Int_t  fgClientProtocol; // client "protocol" version
 
-   TSocket() : fAddress(), fBytesRecv(0), fBytesSent(0), fCompress(0),
+   TSocket() : fAddress(), fBytesRecv(0), fBytesSent(0), fCompress(ROOT::RCompressionSetting::EAlgorithm::kUseGlobal),
                fLocalAddress(), fRemoteProtocol(), fSecContext(0), fService(),
                fServType(kSOCKD), fSocket(-1), fTcpWindowSize(0), fUrl(),
                fBitsInfo(), fUUIDs(0), fLastUsageMtx(0), fLastUsage() { }
@@ -106,6 +91,7 @@ protected:
    Bool_t       RecvStreamerInfos(TMessage *mess);
    void         SendProcessIDs(const TMessage &mess);
    Bool_t       RecvProcessIDs(TMessage *mess);
+   void         MarkBrokenConnection();
 
 private:
    TSocket&      operator=(const TSocket &);  // not implemented
@@ -158,9 +144,9 @@ public:
    virtual Int_t         SendObject(const TObject *obj, Int_t kind = kMESS_OBJECT);
    virtual Int_t         SendRaw(const void *buffer, Int_t length,
                                  ESendRecvOptions opt = kDefault);
-   void                  SetCompressionAlgorithm(Int_t algorithm=0);
-   void                  SetCompressionLevel(Int_t level=1);
-   void                  SetCompressionSettings(Int_t settings=1);
+   void                  SetCompressionAlgorithm(Int_t algorithm = ROOT::RCompressionSetting::EAlgorithm::kUseGlobal);
+   void                  SetCompressionLevel(Int_t level = ROOT::RCompressionSetting::ELevel::kUseMin);
+   void                  SetCompressionSettings(Int_t settings = ROOT::RCompressionSetting::EDefaults::kUseGeneralPurpose);
    virtual Int_t         SetOption(ESockOptions opt, Int_t val);
    void                  SetRemoteProtocol(Int_t rproto) { fRemoteProtocol = rproto; }
    void                  SetSecContext(TSecContext *ctx) { fSecContext = ctx; }

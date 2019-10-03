@@ -12,7 +12,7 @@ set(ORACLE_FOUND 0)
 if(ORACLE_INCLUDE_DIR AND ORACLE_LIBRARY_OCCI)
   set(ORACLE_FIND_QUIETLY 1)
 endif()
-set(ORACLE_HOME $ENV{ORACLE_DIR})
+set(ORACLE_HOME $ENV{ORACLE_HOME})
 
 IF (ORACLE_PATH_INCLUDES)
     SET (ORACLE_INCLUDES_LOCATION ${ORACLE_PATH_INCLUDES})
@@ -55,7 +55,7 @@ FIND_LIBRARY(
 )
 FIND_LIBRARY(
     ORACLE_LIBRARY_LNNZ
-    NAMES libnnz10 nnz10 libnnz11 nnz11 ociw32
+    NAMES libnnz10 nnz10 libnnz11 nnz11 libnnz12 nnz12 nnz18 ociw32
     PATHS ${ORACLE_LIB_LOCATION}
 )
 
@@ -75,8 +75,8 @@ IF (NOT DEFINED ORACLE_OCI_VERSION)
       ${ORACLE_HOME}/bin
     )
     IF(SQLPLUS_EXECUTABLE)
-       get_filename_component(bindir ${SQLPLUS_EXECUTABLE} PATH)         # sqlplus executable needs its shared libraries
-       set(ENV{LD_LIBRARY_PATH} ${bindir}/../lib:$ENV{LD_LIBRARY_PATH})
+      get_filename_component(_bindir ${SQLPLUS_EXECUTABLE} PATH) # sqlplus executable needs its shared libraries
+      set(ENV{LD_LIBRARY_PATH} ${_bindir}/../lib:$ENV{LD_LIBRARY_PATH})
       EXECUTE_PROCESS(COMMAND ${SQLPLUS_EXECUTABLE} -version OUTPUT_VARIABLE sqlplus_out)
       STRING(REGEX MATCH "([0-9.]+)" sqlplus_version ${sqlplus_out})
       MESSAGE(STATUS "Found sqlplus version: ${sqlplus_version}")

@@ -41,11 +41,15 @@
 #include "TLeafObject.h"
 #include "TStreamerElement.h"
 #include "TStreamerInfo.h"
+#include "TInterpreterValue.h"
+
+#include "ROOT/RVec.hxx"
 
 // Standard
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <sstream>
 
 #include <stdio.h>
 #include <string.h>     // only needed for Cling TMinuit workaround
@@ -973,7 +977,7 @@ namespace {
       vi->vi_len = vi->vi_pos = 0;
       vi->vi_len = PySequence_Size( v );
 
-      _PyObject_GC_TRACK( vi );
+      PyObject_GC_Track( vi );
       return (PyObject*)vi;
    }
 
@@ -2258,8 +2262,91 @@ namespace {
       return BindCppObject( addr, (Cppyy::TCppType_t)Cppyy::GetScope( "TObject" ), kFALSE );
    }
 
+   //- Pretty printing with cling::PrintValue
+   PyObject *ClingPrintValue(ObjectProxy *self)
+   {
+      PyObject *cppname = PyObject_GetAttrString((PyObject *)self, "__cppname__");
+      if (!PyROOT_PyUnicode_Check(cppname))
+         return 0;
+      std::string className = PyROOT_PyUnicode_AsString(cppname);
+      Py_XDECREF(cppname);
 
-//- simplistic len() functions -------------------------------------------------
+      std::string printResult = gInterpreter->ToString(className.c_str(), self->GetObject());
+      if (printResult.find("@0x") == 0) {
+         // Fall back to __repr__ if we just get an address from cling
+         auto method = PyObject_GetAttrString((PyObject*)self, "__repr__");
+         auto res = PyObject_CallObject(method, nullptr);
+         Py_DECREF(method);
+         return res;
+      } else {
+         return PyROOT_PyUnicode_FromString(printResult.c_str());
+      }
+   }
+
+   //- Adding array interface to classes ---------------
+   void AddArrayInterface(PyObject *pyclass, PyCFunction func)
+   {
+      // Add a getter for the array interface dict to the class.
+      Utility::AddToClass(pyclass, "_get__array_interface__", func, METH_NOARGS);
+      // Add the dictionary as property to the class so that it updates automatically if accessed.
+      // Since we are not able to add a property easily from C++, we do this in Python.
+
+      // We return early if the module does not have the function to add the property, which
+      // is the case if cppyy is invoked directly and not through PyROOT.
+      if (!PyObject_HasAttrString(gRootModule, "_add__array_interface__")) return;
+
+      auto f = PyObject_GetAttrString(gRootModule, "_add__array_interface__");
+      auto r = PyObject_CallFunction(f, (char*)"O", pyclass);
+      Py_DECREF(f);
+      Py_DECREF(r);
+   }
+
+   template <typename T, char typestr>
+   PyObject *ArrayInterface(ObjectProxy *self)
+   {
+      T *cobj = reinterpret_cast<T*>(self->GetObject());
+
+      // Create array interface dict
+      auto dict = PyDict_New();
+
+      // Version
+      auto pyversion = PyLong_FromLong(3);
+      PyDict_SetItemString(dict, "version", pyversion);
+      Py_DECREF(pyversion);
+
+      // Type string
+      #ifdef R__BYTESWAP
+      const char endianess = '<';
+#else
+      const char endianess = '>';
+#endif
+      const UInt_t bytes = sizeof(typename T::value_type);
+      auto pytypestr = PyROOT_PyUnicode_FromString(TString::Format("%c%c%i", endianess, typestr, bytes).Data());
+      PyDict_SetItemString(dict, "typestr", pytypestr);
+      Py_DECREF(pytypestr);
+
+      // Shape
+      auto pysize = PyLong_FromLong(cobj->size());
+      auto pyshape = PyTuple_Pack(1, pysize);
+      PyDict_SetItemString(dict, "shape", pyshape);
+      Py_DECREF(pysize);
+      Py_DECREF(pyshape);
+
+      // Pointer
+      auto ptr = reinterpret_cast<unsigned long long>(cobj->data());
+      // Numpy breaks for data pointer of 0 even though the array is empty.
+      // We set the pointer to 1 but the value itself is arbitrary and never accessed.
+      if (cobj->empty()) ptr = 1;
+      auto pyptr = PyLong_FromUnsignedLongLong(ptr);
+      auto pydata = PyTuple_Pack(2, pyptr, Py_False);
+      PyDict_SetItemString(dict, "data", pydata);
+      Py_DECREF(pyptr);
+      Py_DECREF(pydata);
+
+      return dict;
+   }
+
+   //- simplistic len() functions -------------------------------------------------
    PyObject* ReturnThree( ObjectProxy*, PyObject* ) {
       return PyInt_FromLong( 3 );
    }
@@ -2279,9 +2366,12 @@ Bool_t PyROOT::Pythonize( PyObject* pyclass, const std::string& name )
    if ( pyclass == 0 )
       return kFALSE;
 
-//- method name based pythonization --------------------------------------------
+   // add pretty printing
+   Utility::AddToClass(pyclass, "__str__", (PyCFunction)ClingPrintValue);
 
-// for smart pointer style classes (note fall-through)
+   //- method name based pythonization --------------------------------------------
+
+   // for smart pointer style classes (note fall-through)
    if ( HasAttrDirect( pyclass, PyStrings::gDeref ) ) {
       Utility::AddToClass( pyclass, "__getattr__", (PyCFunction) DeRefGetAttr, METH_O );
    } else if ( HasAttrDirect( pyclass, PyStrings::gFollow ) ) {
@@ -2426,7 +2516,7 @@ Bool_t PyROOT::Pythonize( PyObject* pyclass, const std::string& name )
 
    }
 
-   else if ( IsTemplatedSTLClass( name, "vector" ) ) {
+   else if ( IsTemplatedSTLClass( name, "vector" ) || (name.find("ROOT::VecOps::RVec<") == 0) ) {
 
       if ( HasAttrDirect( pyclass, PyStrings::gLen ) && HasAttrDirect( pyclass, PyStrings::gAt ) ) {
          Utility::AddToClass( pyclass, "_vector__at", "at" );
@@ -2463,6 +2553,37 @@ Bool_t PyROOT::Pythonize( PyObject* pyclass, const std::string& name )
          Utility::AddToClass( pyclass, "__setitem__", (PyCFunction) VectorBoolSetItem );
       }
 
+      // add array interface for STL vectors
+      if (name.find("ROOT::VecOps::RVec<") == 0) {
+      } else if (name == "vector<float>") {
+         AddArrayInterface(pyclass, (PyCFunction)ArrayInterface<std::vector<float>, 'f'>);
+      } else if (name == "vector<double>") {
+         AddArrayInterface(pyclass, (PyCFunction)ArrayInterface<std::vector<double>, 'f'>);
+      } else if (name == "vector<int>") {
+         AddArrayInterface(pyclass, (PyCFunction)ArrayInterface<std::vector<int>, 'i'>);
+      } else if (name == "vector<unsigned int>") {
+         AddArrayInterface(pyclass, (PyCFunction)ArrayInterface<std::vector<unsigned int>, 'u'>);
+      } else if (name == "vector<long>") {
+         AddArrayInterface(pyclass, (PyCFunction)ArrayInterface<std::vector<long>, 'i'>);
+      } else if (name == "vector<unsigned long>") {
+         AddArrayInterface(pyclass, (PyCFunction)ArrayInterface<std::vector<unsigned long>, 'u'>);
+      }
+
+      // add array interface for RVecs
+      if (name.find("ROOT::VecOps::RVec<") != 0) {
+      } else if (name == "ROOT::VecOps::RVec<float>") {
+         AddArrayInterface(pyclass, (PyCFunction)ArrayInterface<ROOT::VecOps::RVec<float>, 'f'>);
+      } else if (name == "ROOT::VecOps::RVec<double>") {
+         AddArrayInterface(pyclass, (PyCFunction)ArrayInterface<ROOT::VecOps::RVec<double>, 'f'>);
+      } else if (name == "ROOT::VecOps::RVec<int>") {
+         AddArrayInterface(pyclass, (PyCFunction)ArrayInterface<ROOT::VecOps::RVec<int>, 'i'>);
+      } else if (name == "ROOT::VecOps::RVec<unsigned int>") {
+         AddArrayInterface(pyclass, (PyCFunction)ArrayInterface<ROOT::VecOps::RVec<unsigned int>, 'u'>);
+      } else if (name == "ROOT::VecOps::RVec<long>") {
+         AddArrayInterface(pyclass, (PyCFunction)ArrayInterface<ROOT::VecOps::RVec<long>, 'i'>);
+      } else if (name == "ROOT::VecOps::RVec<unsigned long>") {
+         AddArrayInterface(pyclass, (PyCFunction)ArrayInterface<ROOT::VecOps::RVec<unsigned long>, 'u'>);
+      }
    }
 
    else if ( IsTemplatedSTLClass( name, "map" ) ) {
@@ -2541,6 +2662,9 @@ Bool_t PyROOT::Pythonize( PyObject* pyclass, const std::string& name )
    // add safety for non-TObject derived Get() results
       Utility::AddToClass( pyclass, "Get", (PyCFunction) TDirectoryFileGet,     METH_O );
 
+      // Re-inject here too, since TDirectoryFile redefines GetObject
+      Utility::AddToClass(pyclass, "GetObject", (PyCFunction)TDirectoryGetObject);
+
       return kTRUE;
    }
 
@@ -2582,6 +2706,13 @@ Bool_t PyROOT::Pythonize( PyObject* pyclass, const std::string& name )
 
    }
 
+   else if ( name.find("ROOT::RDataFrame") == 0 || name.find("ROOT::RDF::RInterface<") == 0 ) {
+      if (PyObject_HasAttrString( gRootModule, "_RDataFrameAsNumpy" )) {
+         PyObject_SetAttrString(pyclass, "AsNumpy",
+                                PyObject_GetAttrString( gRootModule, "_RDataFrameAsNumpy" ));
+      }
+   }
+
    else if ( name == "TStyle" ) {
       MethodProxy* ctor = (MethodProxy*)PyObject_GetAttr( pyclass, PyStrings::gInit );
       ctor->fMethodInfo->fFlags &= ~TCallContext::kIsCreator;
@@ -2621,7 +2752,6 @@ Bool_t PyROOT::Pythonize( PyObject* pyclass, const std::string& name )
 
    // allow member-style access to entries in file
       Utility::AddToClass( pyclass, "__getattr__", (PyCFunction) TFileGetAttr, METH_O );
-
    }
 
    else if ( name.substr(0,8) == "TVector3" ) {
@@ -2631,11 +2761,11 @@ Bool_t PyROOT::Pythonize( PyObject* pyclass, const std::string& name )
 
    }
 
-   else if ( name.substr(0,8) == "TVectorT" ) {  // allow proper iteration
+   else if ( name.substr(0,8) == "TVectorT" ) {
+      // allow proper iteration
       Utility::AddToClass( pyclass, "__len__", "GetNoElements" );
       Utility::AddToClass( pyclass, "_getitem__unchecked", "__getitem__" );
       Utility::AddToClass( pyclass, "__getitem__", (PyCFunction) CheckedGetItem, METH_O );
-
    }
 
    else if ( name.substr(0,6) == "TArray" && name != "TArray" ) {    // allow proper iteration
@@ -2651,9 +2781,8 @@ Bool_t PyROOT::Pythonize( PyObject* pyclass, const std::string& name )
    else if ( name == "RooSimultaneous" )
       Utility::AddUsingToClass( pyclass, "plotOn" );
 
-
-// TODO: store these on the pythonizations module, not on gRootModule
-// TODO: externalize this code and use update handlers on the python side
+   // TODO: store these on the pythonizations module, not on gRootModule
+   // TODO: externalize this code and use update handlers on the python side
    PyObject* userPythonizations = PyObject_GetAttrString( gRootModule, "UserPythonizations" );
    PyObject* pythonizationScope = PyObject_GetAttrString( gRootModule, "PythonizationScope" );
 

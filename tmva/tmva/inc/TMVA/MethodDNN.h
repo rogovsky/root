@@ -52,6 +52,13 @@
 #include "TMVA/DNN/Minimizers.h"
 #include "TMVA/DNN/Architectures/Reference.h"
 
+#ifdef R__HAS_TMVACPU
+#define DNNCPU
+#endif
+#ifdef R__HAS_TMVAGPU
+#define DNNCUDA
+#endif
+
 #ifdef DNNCPU
 #include "TMVA/DNN/Architectures/Cpu.h"
 #endif
@@ -64,9 +71,12 @@ namespace TMVA {
 
 class MethodDNN : public MethodBase
 {
-   using Architecture_t = DNN::TReference<Double_t>;
+   friend struct TestMethodDNNValidationSize;
+
+   using Architecture_t = DNN::TReference<Float_t>;
    using Net_t          = DNN::TNet<Architecture_t>;
    using Matrix_t       = typename Architecture_t::Matrix_t;
+   using Scalar_t       = typename Architecture_t::Scalar_t;
 
 private:
    using LayoutVector_t   = std::vector<std::pair<int, DNN::EActivationFunction>>;
@@ -89,6 +99,8 @@ private:
    void DeclareOptions();
    void ProcessOptions();
 
+   UInt_t GetNumValidationSamples();
+
    // general helper functions
    void     Init();
 
@@ -101,6 +113,7 @@ private:
    TString                        fTrainingStrategyString;
    TString                        fWeightInitializationString;
    TString                        fArchitectureString;
+   TString                        fValidationSize;
    LayoutVector_t                 fLayout;
    std::vector<TTrainingSettings> fTrainingSettings;
    bool                           fResume;

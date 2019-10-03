@@ -99,8 +99,8 @@ TProtoClass::TProtoClass(TClass* cl):
          fPRealData.push_back(protoRealData);
       }
 
-      if (gDebug > 2) {
-         for (auto data : fPRealData) {
+      // if (gDebug > 2) {
+         // for (const auto &data : fPRealData) {
             // const auto classType = dataPtr->IsA();
             // const auto dataName = data.fName;
             // const auto dataClass = data.fClass;
@@ -112,8 +112,8 @@ TProtoClass::TProtoClass(TClass* cl):
             //    Info("TProtoClass","Data is a objectstring: %s", dataPtrName);
             // if (dataPtr->TestBit(TRealData::kTransient))
             //    Info("TProtoClass","And is transient");
-         }
-      }
+         // }
+      // }
    }
 
    // this crashes
@@ -208,9 +208,8 @@ void TProtoClass::Delete(Option_t* opt /*= ""*/) {
 /// duplicate dictionary is acceptable for namespace or STL collections.
 
 Bool_t TProtoClass::FillTClass(TClass* cl) {
-   if (cl->fRealData || cl->fBase || cl->fData || cl->fEnums.load()
-       || cl->fSizeof != -1 || cl->fCanSplit >= 0
-       || cl->fProperty != (-1) ) {
+   if (cl->fRealData || cl->fBase.load() || cl->fData || cl->fEnums.load() || cl->fSizeof != -1 || cl->fCanSplit >= 0 ||
+       cl->fProperty != (-1)) {
 
       if (cl->GetCollectionType() != ROOT::kNotSTL) {
          // We are in the case of collection, duplicate dictionary are allowed
@@ -244,12 +243,9 @@ Bool_t TProtoClass::FillTClass(TClass* cl) {
          //if (element->IsA() == TObjString::Class()) {
          if (element.IsAClass() ) {
             if (gDebug > 1) Info("","Treating beforehand mother class %s",GetClassName(element.fClassIndex));
-            //int autoloadingOldval=gInterpreter->SetClassAutoloading(false);
             TInterpreter::SuspendAutoParsing autoParseRaii(gInterpreter);
 
             TClass::GetClass(GetClassName(element.fClassIndex));
-
-            //gInterpreter->SetClassAutoloading(autoloadingOldval);
          }
       }
    }
@@ -306,7 +302,7 @@ Bool_t TProtoClass::FillTClass(TClass* cl) {
    cl->fStreamerType = fStreamerType;
 
    // Update pointers to TClass
-   if (cl->fBase) {
+   if (cl->fBase.load()) {
       for (auto base: *cl->fBase) {
          ((TBaseClass*)base)->SetClass(cl);
       }

@@ -7,8 +7,10 @@
 // LICENSE.TXT for details.
 //------------------------------------------------------------------------------
 
-#include "InputValidator.h"
-#include "MetaLexer.h"
+#include "cling/MetaProcessor/InputValidator.h"
+
+#include "cling/MetaProcessor/MetaLexer.h"
+
 #include <algorithm>
 
 namespace cling {
@@ -31,6 +33,7 @@ namespace cling {
         case '*':
           if (commentTok == '*')
             return true;
+          // intentional fall-through:
         default:
           commentTok = 0;
           break;

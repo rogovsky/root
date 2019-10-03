@@ -1,3 +1,9 @@
+# Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.
+# All rights reserved.
+#
+# For the licensing terms see $ROOTSYS/LICENSE.
+# For the list of contributors see $ROOTSYS/README/CREDITS.
+
 #-------------------------------------------------------------------------------
 #
 # RootCTestDriver.cmake
@@ -161,9 +167,19 @@ if(CMD)
 
     if(_errvar0)
       # Filter messages in stderr that are expected
-      string(STRIP ${_errvar0} _errvar0)
+      string(STRIP "${_errvar0}" _errvar0)
       string(REPLACE "\n" ";" _lines "${_errvar0}")
-      list(FILTER _lines EXCLUDE REGEX "^Info in <.+::ACLiC>: creating shared library.+")
+      if(CMAKE_VERSION VERSION_GREATER 3.6)
+        list(FILTER _lines EXCLUDE REGEX "^Info in <.+::ACLiC>: creating shared library.+")
+      else()
+        set(__lines)
+        foreach(_line ${_lines})
+          if(NOT _line MATCHES "^Info in <.+::ACLiC>: creating shared library.+")
+            list(APPEND __lines "${_line}")
+          endif()
+        endforeach()
+        set(_lines ${__lines})
+      endif()
       string(REPLACE ";" "\n" _errvar0 "${_lines}")
       if(_errvar0)
         message(FATAL_ERROR "Unexpected error output")
@@ -171,9 +187,9 @@ if(CMD)
     endif()
 
     if(DEFINED RC AND (NOT "${_rc}" STREQUAL "${RC}"))
-      message(FATAL_ERROR "error code: ${_rc}")
+      message(FATAL_ERROR "got exit code ${_rc} but expected ${RC}")
     elseif(NOT DEFINED RC AND _rc)
-      message(FATAL_ERROR "error code: ${_rc}")
+      message(FATAL_ERROR "got exit code ${_rc} but expected 0")
     endif()
 
     if(CNVCMD)
@@ -261,4 +277,3 @@ if(ERRREF)
     message(FATAL_ERROR "compare 'stderr' error: ${_rc}")
   endif()
 endif()
-

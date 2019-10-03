@@ -7,7 +7,7 @@
 // LICENSE.TXT for details.
 //------------------------------------------------------------------------------
 
-#include "Display.h"
+#include "cling/MetaProcessor/Display.h"
 
 #include "cling/Interpreter/Interpreter.h"
 #include "cling/Interpreter/LookupHelper.h"
@@ -1084,6 +1084,8 @@ public:
   void DisplayGlobal(const std::string& name)const;
 
 private:
+  template <typename T, typename... Args>
+  unsigned DisplayDCDecls(const DeclContext *DC, T filter_func, Args... args) const;
 
   void DisplayVarDecl(const VarDecl* varDecl)const;
   void DisplayEnumeratorDecl(const EnumConstantDecl* enumerator)const;
@@ -1104,9 +1106,32 @@ GlobalsPrinter::GlobalsPrinter(llvm::raw_ostream& stream, const cling::Interpret
 }
 
 //______________________________________________________________________________
+template <typename T, typename... Args>
+unsigned GlobalsPrinter::DisplayDCDecls(const DeclContext *DC, T filter_func, Args... args) const
+{
+  unsigned count = 0;
+  for (auto decl = DC->decls_begin(); decl != DC->decls_end(); ++decl) {
+    if (const auto NS = dyn_cast<NamespaceDecl>(*decl)) {
+      if (NS->isInlineNamespace())  // Recursively visit inline namespaces
+        count += DisplayDCDecls(NS, filter_func, args...);
+    } else if (const auto VD = dyn_cast<VarDecl>(*decl)) {
+      if (filter_func(VD, args...))
+        DisplayVarDecl(VD), count++;
+    } else if (auto ED = dyn_cast<EnumDecl>(*decl)) {
+      // Timur.Pocheptsov: it's not really clear, if I should really check this:
+      if (ED->isComplete() && (ED = ED->getDefinition())) {
+        for (auto I = ED->enumerator_begin(); I != ED->enumerator_end(); ++I)
+          if (filter_func(*I, args...))
+            DisplayEnumeratorDecl(*I), count++;
+      }
+    }
+  }
+  return count;
+}
+
+//______________________________________________________________________________
 void GlobalsPrinter::DisplayGlobals()const
 {
-  typedef EnumDecl::enumerator_iterator enumerator_iterator;
   typedef Preprocessor::macro_iterator macro_iterator;
 
   assert(fInterpreter != 0 && "DisplayGlobals, fInterpreter is null");
@@ -1123,7 +1148,10 @@ void GlobalsPrinter::DisplayGlobals()const
   //Try to print global macro definitions (object-like only).
   const Preprocessor& pp = compiler->getPreprocessor();
   for (macro_iterator macro = pp.macro_begin(); macro != pp.macro_end(); ++macro) {
-    auto MI = macro->second.getLatest()->getMacroInfo();
+    auto* MD = macro->second.getLatest();
+    if (!MD)
+      continue;
+    auto MI = MD->getMacroInfo();
     if (MI && MI->isObjectLike())
       DisplayObjectLikeMacro(macro->first, MI);
   }
@@ -1132,24 +1160,12 @@ void GlobalsPrinter::DisplayGlobals()const
   //It's obviously that for objects we can have one definition and any number
   //of declarations, should I print them?
 
-  for (decl_iterator decl = tuDecl->decls_begin(); decl != tuDecl->decls_end(); ++decl) {
-    if (const VarDecl* const varDecl = dyn_cast<VarDecl>(*decl))
-      DisplayVarDecl(varDecl);
-    else if (const EnumDecl* enumDecl = dyn_cast<EnumDecl>(*decl)) {
-      //it's not really clear, if I should really check this:
-      if (enumDecl->isComplete() && (enumDecl = enumDecl->getDefinition())) {
-        for (enumerator_iterator enumerator = enumDecl->enumerator_begin();
-             enumerator != enumDecl->enumerator_end(); ++enumerator)
-          DisplayEnumeratorDecl(*enumerator);
-      }
-    }
-  }
+  DisplayDCDecls(tuDecl, [] (NamedDecl *D) { return true; });
 }
 
 //______________________________________________________________________________
 void GlobalsPrinter::DisplayGlobal(const std::string& name)const
 {
-  typedef EnumDecl::enumerator_iterator enumerator_iterator;
   typedef Preprocessor::macro_iterator macro_iterator;
 
   //TODO: is it ok to compare 'name' with decl->getNameAsString() ??
@@ -1162,43 +1178,27 @@ void GlobalsPrinter::DisplayGlobal(const std::string& name)const
   const TranslationUnitDecl* const tuDecl = compiler->getASTContext().getTranslationUnitDecl();
   assert(tuDecl != 0 && "DisplayGlobal, translation unit is empty");
 
-  bool found = false;
+  unsigned count = 0;
 
   // Could trigger deserialization of decls.
   Interpreter::PushTransactionRAII RAII(const_cast<Interpreter*>(fInterpreter));
   const Preprocessor& pp = compiler->getPreprocessor();
   for (macro_iterator macro = pp.macro_begin(); macro != pp.macro_end(); ++macro) {
-    auto MI = macro->second.getLatest()->getMacroInfo();
+    auto* MD = macro->second.getLatest();
+    if (!MD)
+      continue;
+    auto MI = MD->getMacroInfo();
     if (MI && MI->isObjectLike()) {
-      if (name == macro->first->getName().data()) {
-        DisplayObjectLikeMacro(macro->first, MI);
-        found = true;
-      }
+      if (name == macro->first->getName().data())
+        DisplayObjectLikeMacro(macro->first, MI), count++;
     }
   }
 
-  for (decl_iterator decl = tuDecl->decls_begin(); decl != tuDecl->decls_end(); ++decl) {
-    if (const VarDecl* const varDecl = dyn_cast<VarDecl>(*decl)) {
-      if (varDecl->getNameAsString() == name) {
-        DisplayVarDecl(varDecl);
-        found = true;
-      }
-    } else if (const EnumDecl* enumDecl = dyn_cast<EnumDecl>(*decl)) {
-      //it's not really clear, if I should really check this:
-      if (enumDecl->isComplete() && (enumDecl = enumDecl->getDefinition())) {
-        for (enumerator_iterator enumerator = enumDecl->enumerator_begin();
-             enumerator != enumDecl->enumerator_end(); ++enumerator) {
-          if (enumerator->getNameAsString() == name) {
-            DisplayEnumeratorDecl(*enumerator);
-            found = true;
-          }
-        }
-      }
-    }
-  }
+  count += DisplayDCDecls(tuDecl, [&name] (NamedDecl *D)
+                                  { return D->getNameAsString() == name; });
 
   //Do as CINT does:
-  if (!found)
+  if (!count)
     fOut.Print(("Variable " + name + " not found\n").c_str());
 }
 

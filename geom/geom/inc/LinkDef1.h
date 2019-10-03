@@ -20,7 +20,15 @@
 #pragma link C++ class TGeoIntersection+;
 #pragma link C++ class TGeoSubtraction+;
 #pragma link C++ class TGeoMedium+;
+#pragma link C++ class TGeoOpticalSurface+;
+#pragma link C++ enum  TGeoOpticalSurface::ESurfaceType;
+#pragma link C++ enum  TGeoOpticalSurface::ESurfaceModel;
+#pragma link C++ enum  TGeoOpticalSurface::ESurfaceFinish;
+#pragma link C++ class TGeoSkinSurface+;
+#pragma link C++ class TGeoBorderSurface+;
 #pragma link C++ class TGeoElement+;
+#pragma read sourceClass="TGeoElement" targetClass="TGeoElement" version="[1-2]" source="" target="" \
+    code="{ newObj->ComputeDerivedQuantities() ; }" 
 #pragma link C++ class TGeoElementRN+;
 #pragma link C++ class TGeoIsotope+;
 #pragma link C++ class TGeoDecayChannel+;
@@ -47,11 +55,15 @@
 #pragma link C++ class TGeoTube+;
 #pragma link C++ class TGeoTorus+;
 #pragma link C++ class TGeoTubeSeg+;
+#pragma read sourceClass="TGeoTubeSeg" targetClass="TGeoTubeSeg" version="[1]" source="" target="" \
+    code="{ newObj->AfterStreamer() ; }" 
 #pragma link C++ class TGeoCtub+;
 #pragma link C++ class TGeoEltu+;
 #pragma link C++ class TGeoHype+;
 #pragma link C++ class TGeoCone+;
 #pragma link C++ class TGeoConeSeg+;
+#pragma read sourceClass="TGeoConeSeg" targetClass="TGeoConeSeg" version="[1]" source="" target="" \
+    code="{ newObj->AfterStreamer() ; }" 
 #pragma link C++ class TGeoParaboloid+;
 #pragma link C++ class TGeoPcon-;
 #pragma link C++ class TGeoPgon+;
@@ -74,6 +86,8 @@
 #pragma link C++ class TGeoNodeMatrix+;
 #pragma link C++ class TGeoNodeOffset+;
 #pragma link C++ class TGeoManager-;
+#pragma link C++ class TGeoRegionCut+;
+#pragma link C++ class TGeoRegion+;
 #pragma link C++ class TVirtualGeoPainter+;
 #pragma link C++ class TVirtualGeoTrack+;
 #pragma link C++ class TVirtualGeoConverter+;
@@ -82,6 +96,7 @@
 #pragma link C++ class TGeoBuilder;
 #pragma link C++ class TGeoNavigator+;
 #pragma link C++ class TGeoNavigatorArray;
+#pragma link C++ class TGDMLMatrix+;
 #pragma link C++ struct std::map<std::thread::id, TGeoNavigatorArray *>;
 #pragma link C++ struct std::pair<std::thread::id, TGeoNavigatorArray *>;
 #pragma link C++ struct std::map<std::thread::id, Int_t>;

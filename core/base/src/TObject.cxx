@@ -54,6 +54,7 @@ Bool_t TObject::fgObjectStat = kTRUE;
 
 ClassImp(TObject);
 
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Copy this to obj.
 
@@ -80,15 +81,7 @@ TObject::~TObject()
    // if (!TestBit(kNotDeleted))
    //    Fatal("~TObject", "object deleted twice");
 
-   TROOT *root = ROOT::Internal::gROOTLocal;
-   if (root) {
-      if (root->MustClean()) {
-         if (root == this) return;
-         if (TestBit(kMustCleanup)) {
-            root->GetListOfCleanups()->RecursiveRemove(this);
-         }
-      }
-   }
+   ROOT::CallRecursiveRemoveIfNeeded(*this);
 
    fBits &= ~kNotDeleted;
 
@@ -153,8 +146,8 @@ TObject *TObject::Clone(const char *) const
    if (gDirectory) {
      return gDirectory->CloneObject(this);
    } else {
-     Fatal("Clone","No gDirectory set");
-     return 0;
+     // Some of the streamer (eg. roofit's) expect(ed?) a valid gDirectory during streaming.
+     return gROOT->CloneObject(this);
    }
 }
 
@@ -422,6 +415,20 @@ Bool_t TObject::HandleTimer(TTimer *)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Return hash value for this object.
+///
+/// Note: If this routine is overloaded in a derived class, this derived class
+/// should also add
+/// ~~~ {.cpp}
+///    ROOT::CallRecursiveRemoveIfNeeded(*this)
+/// ~~~
+/// Otherwise, when RecursiveRemove is called (by ~TObject or example) for this
+/// type of object, the transversal of THashList and THashTable containers will
+/// will have to be done without call Hash (and hence be linear rather than
+/// logarithmic complexity).  You will also see warnings like
+/// ~~~
+/// Error in <ROOT::Internal::TCheckHashRecursiveRemoveConsistency::CheckRecursiveRemove>: The class SomeName overrides TObject::Hash but does not call TROOT::RecursiveRemove in its destructor.
+/// ~~~
+///
 
 ULong_t TObject::Hash() const
 {
@@ -611,35 +618,35 @@ void TObject::SaveAs(const char *filename, Option_t *option) const
 
    //==============Save object as a C, ROOT independant, file===================
    if (filename && strstr(filename,".cc")) {
-      char *fname = 0;
+      TString fname;
       if (filename && strlen(filename) > 0) {
-         fname = (char*)filename;
+         fname = filename;
       } else {
-         fname = Form("%s.cc", GetName());
+         fname.Form("%s.cc", GetName());
       }
       std::ofstream out;
-      out.open(fname, std::ios::out);
+      out.open(fname.Data(), std::ios::out);
       if (!out.good ()) {
-         Error("SaveAs", "cannot open file: %s", fname);
+         Error("SaveAs", "cannot open file: %s", fname.Data());
          return;
       }
       ((TObject*)this)->SavePrimitive(out,"cc");
       out.close();
-      Info("SaveAs", "cc file: %s has been generated", fname);
+      Info("SaveAs", "cc file: %s has been generated", fname.Data());
       return;
    }
 
    //==============Save as a C++ CINT file======================================
-   char *fname = 0;
+   TString fname;
    if (filename && strlen(filename) > 0) {
-      fname = (char*)filename;
+      fname = filename;
    } else {
-      fname = Form("%s.C", GetName());
+      fname.Form("%s.C", GetName());
    }
    std::ofstream out;
-   out.open(fname, std::ios::out);
+   out.open(fname.Data(), std::ios::out);
    if (!out.good ()) {
-      Error("SaveAs", "cannot open file: %s", fname);
+      Error("SaveAs", "cannot open file: %s", fname.Data());
       return;
    }
    out <<"{"<<std::endl;
@@ -648,7 +655,7 @@ void TObject::SaveAs(const char *filename, Option_t *option) const
    ((TObject*)this)->SavePrimitive(out,option);
    out <<"}"<<std::endl;
    out.close();
-   Info("SaveAs", "C++ Macro file: %s has been generated", fname);
+   Info("SaveAs", "C++ Macro file: %s has been generated", fname.Data());
 }
 
 ////////////////////////////////////////////////////////////////////////////////

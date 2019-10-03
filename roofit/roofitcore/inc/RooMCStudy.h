@@ -57,7 +57,7 @@ public:
   // Result accessors
   const RooArgSet* fitParams(Int_t sampleNum) const ;
   const RooFitResult* fitResult(Int_t sampleNum) const ;
-  const RooAbsData* genData(Int_t sampleNum) const ;
+        RooAbsData* genData(Int_t sampleNum) const ;
   const RooDataSet& fitParDataSet() ;
   const RooDataSet* genParDataSet() const { 
     // Return dataset with generator parameters for each toy. When constraints are used these
@@ -111,7 +111,7 @@ protected:
   RooAbsData*       _genSample ;       // Currently generated sample 
   RooAbsPdf*        _genModel ;        // Generator model 
   RooAbsGenContext* _genContext ;      // Generator context 
-  RooArgSet*        _genInitParams ;   // List of originalgenerator parameters
+  RooArgSet*        _genInitParams ;   // List of original generator parameters
   RooArgSet*        _genParams ;       // List of actual generator parameters
   const RooDataSet* _genProtoData ;    // Generator prototype data set
   RooArgSet         _projDeps ;        // List of projected dependents in fit

@@ -1,9 +1,15 @@
+#include "RConfigure.h"
 #include "ROOT/TBufferMerger.hxx"
+
+#include "ROOT/TTaskGroup.hxx"
 
 #include "TFile.h"
 #include "TROOT.h"
 #include "TTree.h"
 
+#include <atomic>
+#include <cstdio>
+#include <future>
 #include <memory>
 #include <thread>
 #include <sys/stat.h>
@@ -22,6 +28,8 @@ static void Fill(TTree *tree, int init, int count)
       n = init + i;
       tree->Fill();
    }
+
+   tree->ResetBranchAddresses();
 }
 
 static bool FileExists(const char *name)
@@ -30,9 +38,19 @@ static bool FileExists(const char *name)
    return stat(name, &buffer) == 0;
 }
 
+static void RemoveFile(const char *name)
+{
+   if (remove(name) != 0) {
+      perror("failed to remove file");
+      exit(1);
+   }
+}
+
 TEST(TBufferMerger, CreateAndDestroy)
 {
    TBufferMerger merger("tbuffermerger_create.root");
+
+   RemoveFile("tbuffermerger_create.root");
 }
 
 TEST(TBufferMerger, CreateAndDestroyWithAttachedFiles)
@@ -48,6 +66,8 @@ TEST(TBufferMerger, CreateAndDestroyWithAttachedFiles)
    }
 
    EXPECT_TRUE(FileExists("tbuffermerger_create.root"));
+
+   RemoveFile("tbuffermerger_create.root");
 }
 
 TEST(TBufferMerger, SequentialTreeFill)
@@ -101,10 +121,59 @@ TEST(TBufferMerger, ParallelTreeFill)
          });
       }
 
-      for (auto &&t : threads) t.join();
+      for (auto &&t : threads)
+         t.join();
    }
 
    EXPECT_TRUE(FileExists("tbuffermerger_parallel.root"));
+}
+
+TEST(TBufferMerger, AutoSave)
+{
+   int nevents = 16384;
+   int nthreads = 8;
+   int events_per_thread = nevents / nthreads;
+
+   ROOT::EnableThreadSafety();
+
+   {
+      TBufferMerger merger("tbuffermerger_autosave.root");
+
+      merger.SetAutoSave(16 * 1024 * 1024); // Auto save every 16MB
+
+      std::vector<std::thread> threads;
+      for (int i = 0; i < nthreads; ++i) {
+         threads.emplace_back([=, &merger]() {
+            auto myfile = merger.GetFile();
+            auto mytree = new TTree("mytree", "mytree");
+
+            // The resetting of the kCleanup bit below is necessary to avoid leaving
+            // the management of this object to ROOT, which leads to a race condition
+            // that may cause a crash once all threads are finished and the final
+            // merge is happening
+            mytree->ResetBit(kMustCleanup);
+
+            Fill(mytree, i * events_per_thread, events_per_thread);
+            myfile->Write();
+         });
+      }
+
+      for (auto &&t : threads)
+         t.join();
+   }
+
+   EXPECT_TRUE(FileExists("tbuffermerger_autosave.root"));
+
+   { // sum of all branch values in sequential mode
+      TFile f("tbuffermerger_autosave.root");
+      auto t = (TTree *)f.Get("mytree");
+
+      int nentries = (int)t->GetEntries();
+
+      EXPECT_EQ(nevents, nentries);
+   }
+
+   RemoveFile("tbuffermerger_autosave.root");
 }
 
 TEST(TBufferMerger, CheckTreeFillResults)
@@ -135,6 +204,7 @@ TEST(TBufferMerger, CheckTreeFillResults)
    { // sum of all branch values in parallel mode
       TFile f("tbuffermerger_parallel.root");
       auto t = (TTree *)f.Get("mytree");
+      ASSERT_TRUE(t != nullptr);
 
       int n, sum = 0;
       int nentries = (int)t->GetEntries();
@@ -153,4 +223,7 @@ TEST(TBufferMerger, CheckTreeFillResults)
 
    EXPECT_EQ(523776, sum_s);
    EXPECT_EQ(523776, sum_p);
+
+   RemoveFile("tbuffermerger_sequential.root");
+   RemoveFile("tbuffermerger_parallel.root");
 }

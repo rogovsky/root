@@ -115,8 +115,9 @@ The following table shows the first 50 default colors.
 
 Begin_Macro
 {
-   TCanvas *c = new TCanvas("c","Text colors",0,0,500,200);
+   TCanvas *c = new TCanvas("c","Fill Area colors",0,0,500,200);
    c->DrawColorTable();
+   return c;
 }
 End_Macro
 
@@ -130,9 +131,9 @@ itself remains fully opaque.
 text->SetTextColorAlpha(kBlue, 0.35);
 ~~~
 
-The transparency is available on all platforms when the `flagOpenGL.CanvasPreferGL` is set to `1`
+The transparency is available on all platforms when the flag `OpenGL.CanvasPreferGL` is set to `1`
 in `$ROOTSYS/etc/system.rootrc`, or on Mac with the Cocoa backend. On the file output
-it is visible with PDF, PNG, Gif, JPEG, SVG ... but not PostScript.
+it is visible with PDF, PNG, Gif, JPEG, SVG, TeX ... but not PostScript.
 
 ## <a name="T4"></a> Text Size
 

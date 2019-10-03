@@ -111,6 +111,22 @@ Double_t TLeafI::GetValue(Int_t i) const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Copy/set fMinimum and fMaximum to include/be wide than those of the parameter
+
+Bool_t TLeafI::IncludeRange(TLeaf *input)
+{
+    if (input) {
+        if (input->GetMaximum() > this->GetMaximum())
+            this->SetMaximum( input->GetMaximum() );
+        if (input->GetMinimum() < this->GetMinimum())
+            this->SetMinimum( input->GetMinimum() );
+        return kTRUE;
+    } else {
+        return kFALSE;
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Import element from ClonesArray into local leaf buffer.
 
 void TLeafI::Import(TClonesArray *list, Int_t n)
@@ -164,6 +180,14 @@ void TLeafI::ReadBasket(TBuffer &b)
          b.ReadFastArray(fValue,fLen);
       }
    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Deserialize input by performing byteswap as needed.
+bool TLeafI::ReadBasketFast(TBuffer& input_buf, Long64_t N)
+{
+   if (R__unlikely(fLeafCount)) {return false;}
+   return input_buf.ByteSwapBuffer(fLen*N, kInt_t);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

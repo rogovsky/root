@@ -21,7 +21,31 @@
 
 RooDataSet is a container class to hold unbinned data. Each data point
 in N-dimensional space is represented by a RooArgSet of RooRealVar, RooCategory 
-or RooStringVar objects 
+or RooStringVar objects.
+
+There are two storage backends:
+- RooVectorDataStore (default): std::vectors in memory. They are fast, but they
+cannot be serialised if the dataset exceeds a size of 1 Gb
+- RooTreeDataStore: Uses a TTree, which can be file backed if a file is opened
+before creating the dataset. This significantly reduces the memory pressure, as the
+baskets of the tree can be written to a file, and only the basket that's currently
+being read stays in RAM.
+  - Enable tree-backed storage similar to this:
+  ```
+  TFile outputFile("filename.root", "RECREATE");
+  RooAbsData::setDefaultStorageType(RooAbsData::Tree);
+  RooDataSet mydata(...);
+  ```
+  - Or convert an existing memory-backed data storage:
+  ```
+  RooDataSet mydata(...);
+
+  TFile outputFile("filename.root", "RECREATE");
+  mydata.convertToTreeStore();
+  ```
+
+For the inverse conversion, see `RooAbsData::convertToVectorStore()`.
+
 **/
 
 #include "RooFit.h"
@@ -61,37 +85,28 @@ char* operator+( streampos&, char* );
 using namespace std;
 
 ClassImp(RooDataSet);
-;
 
+#ifndef USEMEMPOOLFORDATASET
+void RooDataSet::cleanup() {}
+#else
 
-char* RooDataSet::_poolBegin = 0 ;
-char* RooDataSet::_poolCur = 0 ;
-char* RooDataSet::_poolEnd = 0 ;
-#define POOLSIZE 1048576
+#include "MemPoolForRooSets.h"
 
-struct POOLDATA 
-{
-  void* _base ;
-} ;
-
-static std::list<POOLDATA> _memPoolList ;
-
-////////////////////////////////////////////////////////////////////////////////
-/// Clear memoery pool on exit to avoid reported memory leaks
-
-void RooDataSet::cleanup()
-{
-  std::list<POOLDATA>::iterator iter = _memPoolList.begin() ;
-  while(iter!=_memPoolList.end()) {
-    free(iter->_base) ;
-    iter->_base=0 ;
-    iter++ ;
-  }
-  _memPoolList.clear() ;
+RooDataSet::MemPool* RooDataSet::memPool() {
+  RooSentinel::activate();
+  static auto * memPool = new RooDataSet::MemPool();
+  return memPool;
 }
 
+void RooDataSet::cleanup() {
+  auto pool = memPool();
+  pool->teardown();
 
-#ifdef USEMEMPOOL
+  //The pool will have to leak if it's not empty at this point.
+  if (pool->empty())
+    delete pool;
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Overloaded new operator guarantees that all RooDataSets allocated with new
@@ -102,62 +117,10 @@ void RooDataSet::cleanup()
 
 void* RooDataSet::operator new (size_t bytes)
 {
-  // cout << " RooDataSet::operator new(" << bytes << ")" << endl ;
+  //This will fail if a derived class uses this operator
+  assert(sizeof(RooDataSet) == bytes);
 
-  if (!_poolBegin || _poolCur + (sizeof(RooDataSet)) >= _poolEnd) {
-
-     if (_poolBegin != 0) {
-        oocxcoutD((TObject *)0, Caching) << "RooDataSet::operator new(), starting new 1MB memory pool" << endl;
-     }
-
-     // Start pruning empty memory pools if number exceeds 3
-     if (_memPoolList.size() > 3) {
-
-        void *toFree(0);
-
-        for (std::list<POOLDATA>::iterator poolIter = _memPoolList.begin(); poolIter != _memPoolList.end();
-             ++poolIter) {
-
-           // If pool is empty, delete it and remove it from list
-           if ((*(Int_t *)(poolIter->_base)) == 0) {
-              oocxcoutD((TObject *)0, Caching)
-                 << "RooDataSet::operator new(), pruning empty memory pool " << (void *)(poolIter->_base) << endl;
-
-              toFree = poolIter->_base;
-              _memPoolList.erase(poolIter);
-              break;
-           }
-        }
-
-        free(toFree);
-     }
-
-     void *mem = malloc(POOLSIZE);
-     memset(mem, TStorage::kObjectAllocMemValue, POOLSIZE);
-
-     _poolBegin = (char *)mem;
-     // Reserve space for pool counter at head of pool
-     _poolCur = _poolBegin + sizeof(Int_t);
-     _poolEnd = _poolBegin + (POOLSIZE);
-
-     // Clear pool counter
-     *((Int_t *)_poolBegin) = 0;
-
-     POOLDATA p;
-     p._base = mem;
-     _memPoolList.push_back(p);
-
-     RooSentinel::activate();
-  }
-
-  char* ptr = _poolCur ;
-  _poolCur += bytes ;
-
-  // Increment use counter of pool
-  (*((Int_t*)_poolBegin))++ ;
-
-  return ptr ;
-
+  return memPool()->allocate(bytes);
 }
 
 
@@ -168,13 +131,13 @@ void* RooDataSet::operator new (size_t bytes)
 void RooDataSet::operator delete (void* ptr)
 {
   // Decrease use count in pool that ptr is on
-  for (std::list<POOLDATA>::iterator poolIter =  _memPoolList.begin() ; poolIter!=_memPoolList.end() ; ++poolIter) {
-    if ((char*)ptr > (char*)poolIter->_base && (char*)ptr < (char*)poolIter->_base + POOLSIZE) {
-      (*(Int_t*)(poolIter->_base))-- ;
-      break ;
-    }
-  }
-  
+  if (memPool()->deallocate(ptr))
+    return;
+
+  std::cerr << __func__ << " " << ptr << " is not in any of the pools." << std::endl;
+
+  // Not part of any pool; use global op delete:
+  ::operator delete(ptr);
 }
 
 #endif
@@ -196,44 +159,37 @@ RooDataSet::RooDataSet() : _wgtVar(0)
 /// Construct an unbinned dataset from a RooArgSet defining the dimensions of the data space. Optionally, data
 /// can be imported at the time of construction.
 ///
-/// This constructor takes the following optional arguments
-///
-/// Import(TTree*)              -- Import contents of given TTree. Only braches of the TTree that have names
+/// <table>
+/// <tr><th> %RooCmdArg <th> Effect
+/// <tr><td> Import(TTree*)              <td> Import contents of given TTree. Only braches of the TTree that have names
 ///                                corresponding to those of the RooAbsArgs that define the RooDataSet are
 ///                                imported. 
-/// ImportFromFile(const char* fileName, const char* treeName) -- Import tree with given name from file with given name.
-///
-/// Import(RooDataSet&)         -- Import contents of given RooDataSet. Only observables that are common with
-///                                the definition of this dataset will be imported
-///
-/// Index(RooCategory&)         -- Prepare import of datasets into a N+1 dimensional RooDataSet
+/// <tr><td> ImportFromFile(const char* fileName, const char* treeName) <td> Import tree with given name from file with given name.
+/// <tr><td> Import(RooDataSet&)
+///     <td> Import contents of given RooDataSet. Only observables that are common with the definition of this dataset will be imported
+/// <tr><td> Index(RooCategory&)         <td> Prepare import of datasets into a N+1 dimensional RooDataSet
 ///                                where the extra discrete dimension labels the source of the imported histogram.
-///                              
-/// Import(const char*,         -- Import a dataset to be associated with the given state name of the index category
-///              RooDataSet&)      specified in Index(). If the given state name is not yet defined in the index
-///                               category it will be added on the fly. The import command can be specified
-///                                multiple times. 
-///
-/// Link(const char*, RooDataSet&) -- Link contents of supplied RooDataSet to this dataset for given index category state name.
+/// <tr><td> Import(const char*, RooDataSet&)
+///     <td> Import a dataset to be associated with the given state name of the index category
+///                    specified in Index(). If the given state name is not yet defined in the index
+///                    category it will be added on the fly. The import command can be specified multiple times.
+/// <tr><td> Link(const char*, RooDataSet&) <td> Link contents of supplied RooDataSet to this dataset for given index category state name.
 ///                                   In this mode, no data is copied and the linked dataset must be remain live for the duration
 ///                                   of this dataset. Note that link is active for both reading and writing, so modifications
 ///                                   to the aggregate dataset will also modify its components. Link() and Import() are mutually exclusive.
-/// OwnLinked()                    -- Take ownership of all linked datasets
-///
-/// Import(map<string,RooDataSet*>&) -- As above, but allows specification of many imports in a single operation
-/// Link(map<string,RooDataSet*>&)   -- As above, but allows specification of many links in a single operation
-///
-///                              
-/// Cut(const char*)            -- Apply the given cut specification when importing data
-/// Cut(RooFormulaVar&)         
-///
-/// CutRange(const char*)       -- Only accept events in the observable range with the given name
-///
-/// WeightVar(const char*)      -- Interpret the given variable as event weight rather than as observable
-/// WeightVar(const RooAbsArg&) 
-///
-/// StoreError(const RooArgSet&)     -- Store symmetric error along with value for given subset of observables
-/// StoreAsymError(const RooArgSet&) -- Store asymmetric error along with value for given subset of observables
+/// <tr><td> OwnLinked()                    <td> Take ownership of all linked datasets
+/// <tr><td> Import(map<string,RooDataSet*>&) <td> As above, but allows specification of many imports in a single operation
+/// <tr><td> Link(map<string,RooDataSet*>&)   <td> As above, but allows specification of many links in a single operation
+/// <tr><td> Cut(const char*) <br>
+///     Cut(RooFormulaVar&)
+///     <td> Apply the given cut specification when importing data
+/// <tr><td> CutRange(const char*)       <td> Only accept events in the observable range with the given name
+/// <tr><td> WeightVar(const char*) <br>
+///     WeightVar(const RooAbsArg&)
+///     <td> Interpret the given variable as event weight rather than as observable
+/// <tr><td> StoreError(const RooArgSet&)     <td> Store symmetric error along with value for given subset of observables
+/// <tr><td> StoreAsymError(const RooArgSet&) <td> Store asymmetric error along with value for given subset of observables
+/// </table>
 ///
 
 RooDataSet::RooDataSet(const char* name, const char* title, const RooArgSet& vars, const RooCmdArg& arg1, const RooCmdArg& arg2, const RooCmdArg& arg3,
@@ -310,13 +266,13 @@ RooDataSet::RooDataSet(const char* name, const char* title, const RooArgSet& var
     // Make import mapping if index category is specified
     map<string,RooAbsData*> hmap ;  
     if (indexCat) {
-      char tmp[10240] ;
-      strlcpy(tmp,lnkSliceNames,10240) ;      
-      char* token = strtok(tmp,",") ;
-      TIterator* hiter = lnkSliceData.MakeIterator() ;
-      while(token) {
-	hmap[token] = (RooAbsData*) hiter->Next() ;
-	token = strtok(0,",") ;
+       char tmp[64000];
+       strlcpy(tmp, lnkSliceNames, 64000);
+       char *token = strtok(tmp, ",");
+       TIterator *hiter = lnkSliceData.MakeIterator();
+       while (token) {
+          hmap[token] = (RooAbsData *)hiter->Next();
+          token = strtok(0, ",");
       }
       delete hiter ;
     }
@@ -672,7 +628,9 @@ RooDataSet::RooDataSet(const char *name, const char *title, const RooArgSet& var
 /// any variable in the source dataset. For cuts involving variables
 /// other than those contained in the source data set, such as
 /// intermediate formula objects, use the equivalent constructor
-/// accepting RooFormulaVar reference as cut specification
+/// accepting RooFormulaVar reference as cut specification.
+///
+/// This constructor will internally store the data in a TTree.
 ///
 /// For most uses the RooAbsData::reduce() wrapper function, which
 /// uses this constructor, is the most convenient way to create a
@@ -713,6 +671,8 @@ RooDataSet::RooDataSet(const char *name, const char *title, RooDataSet *dset,
 /// exclusively and directly on the data set dimensions, the
 /// equivalent constructor with a string based cut expression is
 /// recommended.
+///
+/// This constructor will internally store the data in a TTree.
 ///
 /// For most uses the RooAbsData::reduce() wrapper function, which
 /// uses this constructor, is the most convenient way to create a
@@ -846,15 +806,23 @@ RooDataSet::RooDataSet(const char *name, const char *title, RooDataSet *dset,
 		       Int_t nStart, Int_t nStop, Bool_t copyCache, const char* wgtVarName) :
   RooAbsData(name,title,vars)
 {
-  _dstore = (defaultStorageType==Tree) ? 
-    ((RooAbsDataStore*) new RooTreeDataStore(name,title,*dset->_dstore,_vars,cutVar,cutRange,nStart,nStop,copyCache,wgtVarName)) :
-    ((RooAbsDataStore*) new RooVectorDataStore(name,title,*dset->_dstore,_vars,cutVar,cutRange,nStart,nStop,copyCache,wgtVarName)) ;
+   _dstore =
+      (defaultStorageType == Tree)
+         ? ((RooAbsDataStore *)new RooTreeDataStore(name, title, *dset->_dstore, _vars, cutVar, cutRange, nStart, nStop,
+                                                    copyCache, wgtVarName))
+         : (
+              //     ( dset->_dstore->IsA()==RooCompositeDataStore::Class() )?
+              //      ((RooAbsDataStore*) new
+              //      RooCompositeDataStore(name,title,(RooCompositeDataStore&)(*dset->_dstore),_vars,cutVar,cutRange,nStart,nStop,copyCache,wgtVarName))
+              //      :
+              ((RooAbsDataStore *)new RooVectorDataStore(name, title, *dset->_dstore, _vars, cutVar, cutRange, nStart,
+                                                         nStop, copyCache, wgtVarName)));
 
-  _cachedVars.add(_dstore->cachedVars()) ;
+   _cachedVars.add(_dstore->cachedVars());
 
-  appendToDir(this,kTRUE) ;
-  initialize(dset->_wgtVar?dset->_wgtVar->GetName():0) ;
-  TRACE_CREATE
+   appendToDir(this, kTRUE);
+   initialize(dset->_wgtVar ? dset->_wgtVar->GetName() : 0);
+   TRACE_CREATE
 }
 
 
@@ -951,17 +919,19 @@ RooAbsData* RooDataSet::reduceEng(const RooArgSet& varSubset, const RooFormulaVa
 {
   checkInit() ;
 
+  //cout << "reduceEng varSubset = " << varSubset << " _wgtVar = " << (_wgtVar ? _wgtVar->GetName() : "") << endl;
+
   RooArgSet tmp(varSubset) ;
   if (_wgtVar) {
     tmp.add(*_wgtVar) ;
   }
   RooDataSet* ret =  new RooDataSet(GetName(), GetTitle(), this, tmp, cutVar, cutRange, nStart, nStop, copyCache,_wgtVar?_wgtVar->GetName():0) ;
-  
+
   // WVE - propagate optional weight variable
   //       check behaviour in plotting.
-//   if (_wgtVar) {
-//     ret->setWeightVar(_wgtVar->GetName()) ;
-//   }
+  // if (_wgtVar) {
+  //   ret->setWeightVar(_wgtVar->GetName()) ;
+  // }
   return ret ;
 }
 
@@ -1010,9 +980,8 @@ Double_t RooDataSet::weight() const
 
 
 
-
 ////////////////////////////////////////////////////////////////////////////////
-/// Return event weight of current event
+/// Return squared event weight of current event
 
 Double_t RooDataSet::weightSquared() const 
 {
@@ -1020,6 +989,13 @@ Double_t RooDataSet::weightSquared() const
 }
 
 
+
+////////////////////////////////////////////////////////////////////////////////
+/// Return event weights of all events in range
+
+RooSpan<const double> RooDataSet::getWeightBatch(std::size_t first, std::size_t last) const {
+  return _dstore->getWeightBatch(first, last);
+}
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1086,7 +1062,7 @@ Double_t RooDataSet::sumEntries(const char* cutSpec, const char* cutRange) const
 {
   // Setup RooFormulaVar for cutSpec if it is present
   RooFormula* select = 0 ;
-  if (cutSpec) {
+  if (cutSpec && strlen(cutSpec) > 0) {
     select = new RooFormula("select",cutSpec,*get()) ;
   }
   
@@ -1160,20 +1136,51 @@ const RooArgSet* RooDataSet::get() const
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Add a data point, with its coordinates specified in the 'data' argset, to the data set. 
-/// Any variables present in 'data' but not in the dataset will be silently ignored
-///
+/// Any variables present in 'data' but not in the dataset will be silently ignored.
+/// \param[in] data Data point.
+/// \param[in] wgt Event weight. Defaults to 1. The current value of the weight variable is
+/// ignored.
+/// \note To obtain weighted events, a variable must be designated `WeightVar` in the constructor.
+/// \param[in] wgtError Optional weight error.
+/// \note This requires including the weight variable in the set of `StoreError` variables when constructing
+/// the dataset.
 
 void RooDataSet::add(const RooArgSet& data, Double_t wgt, Double_t wgtError) 
 {
   checkInit() ;
+
+  const double oldW = _wgtVar ? _wgtVar->getVal() : 0.;
+
   _varsNoWgt = data;
+
   if (_wgtVar) {
     _wgtVar->setVal(wgt) ;
     if (wgtError!=0.) {
       _wgtVar->setError(wgtError) ;
     }
+  } else if ((wgt != 1. || wgtError != 0.) && _errorMsgCount < 5) {
+    ccoutE(DataHandling) << "An event weight/error was passed but no weight variable was defined"
+        << " in the dataset '" << GetName() << "'. The weight will be ignored." << std::endl;
+    ++_errorMsgCount;
   }
+
+  if (_wgtVar && _doWeightErrorCheck
+      && wgtError != 0.
+      && fabs(wgt*wgt - wgtError)/wgtError > 1.E-15 //Exception for standard wgt^2 errors, which need not be stored.
+      && _errorMsgCount < 5 && !_wgtVar->getAttribute("StoreError")) {
+    coutE(DataHandling) << "An event weight error was passed to the RooDataSet '" << GetName()
+        << "', but the weight variable '" << _wgtVar->GetName()
+        << "' does not store errors. Check `StoreError` in the RooDataSet constructor." << std::endl;
+    ++_errorMsgCount;
+  }
+
   fill();
+
+  // Restore weight state
+  if (_wgtVar) {
+    _wgtVar->setVal(oldW);
+    _wgtVar->removeError();
+  }
 }
 
 
@@ -1181,19 +1188,46 @@ void RooDataSet::add(const RooArgSet& data, Double_t wgt, Double_t wgtError)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Add a data point, with its coordinates specified in the 'data' argset, to the data set. 
-/// Any variables present in 'data' but not in the dataset will be silently ignored
-///
+/// Any variables present in 'data' but not in the dataset will be silently ignored.
+/// \param[in] data Data point.
+/// \param[in] wgt Event weight. The current value of the weight variable is ignored.
+/// \note To obtain weighted events, a variable must be designated `WeightVar` in the constructor.
+/// \param[in] wgtErrorLo Asymmetric weight error.
+/// \param[in] wgtErrorHi Asymmetric weight error.
+/// \note This requires including the weight variable in the set of `StoreAsymError` variables when constructing
+/// the dataset.
 
 void RooDataSet::add(const RooArgSet& indata, Double_t inweight, Double_t weightErrorLo, Double_t weightErrorHi) 
 {
   checkInit() ;
 
+  const double oldW = _wgtVar ? _wgtVar->getVal() : 0.;
+
   _varsNoWgt = indata;
   if (_wgtVar) {
     _wgtVar->setVal(inweight) ;
     _wgtVar->setAsymError(weightErrorLo,weightErrorHi) ;
+  } else if (inweight != 1. && _errorMsgCount < 5) {
+    ccoutE(DataHandling) << "An event weight was given but no weight variable was defined"
+        << " in the dataset '" << GetName() << "'. The weight will be ignored." << std::endl;
+    ++_errorMsgCount;
   }
+
+  if (_wgtVar && _doWeightErrorCheck
+      && _errorMsgCount < 5 && !_wgtVar->getAttribute("StoreAsymError")) {
+    coutE(DataHandling) << "An event weight error was passed to the RooDataSet '" << GetName()
+        << "', but the weight variable '" << _wgtVar->GetName()
+        << "' does not store errors. Check `StoreAsymError` in the RooDataSet constructor." << std::endl;
+    ++_errorMsgCount;
+  }
+
   fill();
+
+  // Restore weight state
+  if (_wgtVar) {
+    _wgtVar->setVal(oldW);
+    _wgtVar->removeAsymError();
+  }
 }
 
 
@@ -1202,21 +1236,53 @@ void RooDataSet::add(const RooArgSet& indata, Double_t inweight, Double_t weight
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Add a data point, with its coordinates specified in the 'data' argset, to the data set. 
-/// Layout and size of input argument data is ASSUMED to be the same as RooArgSet returned
-/// RooDataSet::get()
-///
+/// \attention The order and type of the input variables are **assumed** to be the same as
+/// for the RooArgSet returned by RooDataSet::get(). Input values will just be written
+/// into the internal data columns by ordinal position.
+/// \param[in] data Data point.
+/// \param[in] wgt Event weight. Defaults to 1. The current value of the weight variable is
+/// ignored.
+/// \note To obtain weighted events, a variable must be designated `WeightVar` in the constructor.
+/// \param[in] wgtError Optional weight error.
+/// \note This requires including the weight variable in the set of `StoreError` variables when constructing
+/// the dataset.
 
 void RooDataSet::addFast(const RooArgSet& data, Double_t wgt, Double_t wgtError) 
 {
   checkInit() ;
+
+  const double oldW = _wgtVar ? _wgtVar->getVal() : 0.;
+
   _varsNoWgt.assignFast(data,_dstore->dirtyProp());
   if (_wgtVar) {
     _wgtVar->setVal(wgt) ;
     if (wgtError!=0.) {
       _wgtVar->setError(wgtError) ;
     }
+  } else if (wgt != 1. && _errorMsgCount < 5) {
+    ccoutE(DataHandling) << "An event weight was given but no weight variable was defined"
+        << " in the dataset '" << GetName() << "'. The weight will be ignored." << std::endl;
+    ++_errorMsgCount;
   }
+
   fill();
+
+  if (_wgtVar && _doWeightErrorCheck
+      && wgtError != 0. && wgtError != wgt*wgt //Exception for standard weight error, which need not be stored
+      && _errorMsgCount < 5 && !_wgtVar->getAttribute("StoreError")) {
+    coutE(DataHandling) << "An event weight error was passed to the RooDataSet '" << GetName()
+        << "', but the weight variable '" << _wgtVar->GetName()
+        << "' does not store errors. Check `StoreError` in the RooDataSet constructor." << std::endl;
+    ++_errorMsgCount;
+  }
+  if (_wgtVar && _doWeightErrorCheck) {
+    _doWeightErrorCheck = false;
+  }
+
+  if (_wgtVar) {
+    _wgtVar->setVal(oldW);
+    _wgtVar->removeError();
+  }
 }
 
 
@@ -1250,7 +1316,7 @@ Bool_t RooDataSet::merge(list<RooDataSet*>dsetList)
 
   checkInit() ;
   // Sanity checks: data sets must have the same size
-  for (list<RooDataSet*>::iterator iter = dsetList.begin() ; iter != dsetList.end() ; iter++) {
+  for (list<RooDataSet*>::iterator iter = dsetList.begin() ; iter != dsetList.end() ; ++iter) {
     if (numEntries()!=(*iter)->numEntries()) {
       coutE(InputArguments) << "RooDataSet::merge(" << GetName() << ") ERROR: datasets have different size" << endl ;
       return kTRUE ;    
@@ -1259,7 +1325,7 @@ Bool_t RooDataSet::merge(list<RooDataSet*>dsetList)
 
   // Extend vars with elements of other dataset
   list<RooAbsDataStore*> dstoreList ;
-  for (list<RooDataSet*>::iterator iter = dsetList.begin() ; iter != dsetList.end() ; iter++) {
+  for (list<RooDataSet*>::iterator iter = dsetList.begin() ; iter != dsetList.end() ; ++iter) {
     _vars.addClone((*iter)->_vars,kTRUE) ;
     dstoreList.push_back((*iter)->store()) ;
   }
@@ -1440,30 +1506,25 @@ TH2F* RooDataSet::createHistogram(const RooAbsRealLValue& var1, const RooAbsReal
 
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Special plot method for 'X-Y' datasets used in Chi^2 fitting. These datasets 
+/// Special plot method for 'X-Y' datasets used in \f$ \chi^2 \f$ fitting. These datasets
 /// have one observable (X) and have weights (Y) and associated errors.
-///
-/// Contents options
-/// ---------------------
-/// YVar(RooRealVar& var)           -- Designate specified observable as 'y' variable
+/// <table>
+/// <tr><th> Contents options       <th> Effect
+/// <tr><td> YVar(RooRealVar& var)  <td> Designate specified observable as 'y' variable
 ///                                    If not specified, the event weight will be the y variable
-/// Histogram drawing options
-/// -------------------------
-/// DrawOption(const char* opt)     -- Select ROOT draw option for resulting TGraph object
-/// LineStyle(Int_t style)          -- Select line style by ROOT line style code, default is solid
-/// LineColor(Int_t color)          -- Select line color by ROOT color code, default is black
-/// LineWidth(Int_t width)          -- Select line with in pixels, default is 3
-/// MarkerStyle(Int_t style)        -- Select the ROOT marker style, default is 21
-/// MarkerColor(Int_t color)        -- Select the ROOT marker color, default is black
-/// MarkerSize(Double_t size)       -- Select the ROOT marker size
-/// Rescale(Double_t factor)        -- Apply global rescaling factor to histogram
-///
-///
-/// Misc. other options
-/// -------------------
-/// Name(const chat* name)          -- Give curve specified name in frame. Useful if curve is to be referenced later
-/// Invisible(Bool_t flag)          -- Add curve to frame, but do not display. Useful in combination AddTo()
-/// 
+/// <tr><th> Histogram drawing options <th> Effect
+/// <tr><td> DrawOption(const char* opt)     <td> Select ROOT draw option for resulting TGraph object
+/// <tr><td> LineStyle(Int_t style)          <td> Select line style by ROOT line style code, default is solid
+/// <tr><td> LineColor(Int_t color)          <td> Select line color by ROOT color code, default is black
+/// <tr><td> LineWidth(Int_t width)          <td> Select line with in pixels, default is 3
+/// <tr><td> MarkerStyle(Int_t style)        <td> Select the ROOT marker style, default is 21
+/// <tr><td> MarkerColor(Int_t color)        <td> Select the ROOT marker color, default is black
+/// <tr><td> MarkerSize(Double_t size)       <td> Select the ROOT marker size
+/// <tr><td> Rescale(Double_t factor)        <td> Apply global rescaling factor to histogram
+/// <tr><th> Misc. other options <th> Effect
+/// <tr><td> Name(const chat* name)          <td> Give curve specified name in frame. Useful if curve is to be referenced later
+/// <tr><td> Invisible(Bool_t flag)          <td> Add curve to frame, but do not display. Useful in combination AddTo()
+/// </table>
 
 RooPlot* RooDataSet::plotOnXY(RooPlot* frame, const RooCmdArg& arg1, const RooCmdArg& arg2,
 			      const RooCmdArg& arg3, const RooCmdArg& arg4,
@@ -1582,47 +1643,49 @@ RooPlot* RooDataSet::plotOnXY(RooPlot* frame, const RooCmdArg& arg1, const RooCm
 ////////////////////////////////////////////////////////////////////////////////
 /// Read given list of ascii files, and construct a data set, using the given
 /// ArgList as structure definition.
-///
-/// Multiple file names in fileList should be comma separated. Each
+/// \param fileList Multiple file names, comma separated. Each
 /// file is optionally prefixed with 'commonPath' if such a path is
 /// provided
 ///
-/// The arglist specifies the dimensions of the dataset to be built
-/// and describes the order in which these dimensions appear in the
+/// \param varList Specify the dimensions of the dataset to be built.
+/// This list describes the order in which these dimensions appear in the
 /// ascii files to be read. 
-///
-/// Each line in the ascii file should contain N white space separated
-/// tokens, with N the number of args in 'variables'. Any text beyond
+/// Each line in the ascii file should contain N white-space separated
+/// tokens, with N the number of args in `varList`. Any text beyond
 /// N tokens will be ignored with a warning message.
-/// [ NB: This format is written by RooArgList::writeToStream() ]
+/// (NB: This is the default output of RooArgList::writeToStream())
+///
+/// \param verbOpt `Q` be quiet, `D` debug mode (verbose)
+///
+/// \param commonPath All filenames in `fileList` will be prefixed with this optional path.
+///
+/// \param indexCatName Interpret the data as belonging to category `indexCatName`.
+/// When multiple files are read, a RooCategory arg in `varList` can
+/// optionally be designated to hold information about the source file
+/// of each data point. This feature is enabled by giving the name
+/// of the (already existing) category variable in `indexCatName`.
 /// 
-/// If the value of any of the variables on a given line exceeds the
+/// \attention If the value of any of the variables on a given line exceeds the
 /// fit range associated with that dimension, the entire line will be
 /// ignored. A warning message is printed in each case, unless the
-/// 'Q' verbose option is given. (Option 'D' will provide additional
-/// debugging information) The number of events read and skipped
+/// `Q` verbose option is given. The number of events read and skipped
 /// is always summarized at the end.
-///
-/// When multiple files are read, a RooCategory arg in 'variables' can 
-/// optionally be designated to hold information about the source file 
-/// of each data point. This feature is enabled by giving the name
-/// of the (already existing) category variable in 'indexCatName'
 ///
 /// If no further information is given a label name 'fileNNN' will
 /// be assigned to each event, where NNN is the sequential number of
-/// the source file in 'fileList'.
+/// the source file in `fileList`.
 /// 
-/// Alternatively it is possible to override the default label names
+/// Alternatively, it is possible to override the default label names
 /// of the index category by specifying them in the fileList string:
-/// When instead of "file1.txt,file2.txt" the string 
-/// "file1.txt:FOO,file2.txt:BAR" is specified, a state named "FOO"
+/// When instead of `file1.txt,file2.txt` the string
+/// `file1.txt:FOO,file2.txt:BAR` is specified, a state named "FOO"
 /// is assigned to the index category for each event originating from
 /// file1.txt. The labels FOO,BAR may be predefined in the index 
-/// category via defineType(), but don't have to be
+/// category via defineType(), but don't have to be.
 ///
 /// Finally, one can also assign the same label to multiple files,
-/// either by specifying "file1.txt:FOO,file2,txt:FOO,file3.txt:BAR"
-/// or "file1.txt,file2.txt:FOO,file3.txt:BAR"
+/// either by specifying `file1.txt:FOO,file2,txt:FOO,file3.txt:BAR`
+/// or `file1.txt,file2.txt:FOO,file3.txt:BAR`.
 ///
 
 RooDataSet *RooDataSet::read(const char *fileList, const RooArgList &varList,
@@ -1696,10 +1759,10 @@ RooDataSet *RooDataSet::read(const char *fileList, const RooArgList &varList,
 
   Int_t outOfRange(0) ;
 
-  // Make local copy of file list for tokenizing 
-  char fileList2[10240] ;
-  strlcpy(fileList2,fileList,10240) ;
-  
+  // Make local copy of file list for tokenizing
+  char fileList2[64000];
+  strlcpy(fileList2, fileList, 64000);
+
   // Loop over all names in comma separated list
   char *filename = strtok(fileList2,", ") ;
   Int_t fileSeqNum(0) ;
@@ -1814,15 +1877,13 @@ RooDataSet *RooDataSet::read(const char *fileList, const RooArgList &varList,
 
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Write the contents of this dataset to an ASCII file with the specified name
+/// Write the contents of this dataset to an ASCII file with the specified name.
 /// Each event will be written as a single line containing the written values
 /// of each observable in the order they were declared in the dataset and
 /// separated by whitespaces
 
-Bool_t RooDataSet::write(const char* filename)
+Bool_t RooDataSet::write(const char* filename) const
 {
-  checkInit() ;
-
   // Open file for writing 
   ofstream ofs(filename) ;
   if (ofs.fail()) {
@@ -1832,18 +1893,28 @@ Bool_t RooDataSet::write(const char* filename)
 
   // Write all lines as arglist in compact mode
   coutI(DataHandling) << "RooDataSet::write(" << GetName() << ") writing ASCII file " << filename << endl ;
-  Int_t i ;
-  for (i=0 ; i<numEntries() ; i++) {
-    RooArgList list(*get(i),"line") ;
-    list.writeToStream(ofs,kTRUE) ;
+  return write(ofs);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Write the contents of this dataset to the stream.
+/// Each event will be written as a single line containing the written values
+/// of each observable in the order they were declared in the dataset and
+/// separated by whitespaces
+
+Bool_t RooDataSet::write(ostream & ofs) const {
+  checkInit();
+
+  for (Int_t i=0; i<numEntries(); ++i) {
+    get(i)->writeToStream(ofs,kTRUE);
   }
 
   if (ofs.fail()) {
     coutW(DataHandling) << "RooDataSet::write(" << GetName() << "): WARNING error(s) have occured in writing" << endl ;
   }
+
   return ofs.fail() ;
 }
-
 
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -42,6 +42,8 @@ namespace {
 
 static Int_t   gHighestColorIndex = 0;   ///< Highest color index defined
 static Float_t gColorThreshold    = -1.; ///< Color threshold used by GetColor
+static Int_t   gDefinedColors     = 0;   ///< Number of defined colors.
+static Int_t   gLastDefinedColors = 649; ///< Previous number of defined colors
 
 #define fgGrayscaleMode TColor__GrayScaleMode()
 #define fgPalette TColor__Palette()
@@ -146,8 +148,9 @@ to use these keywords in user code instead of hardcoded color numbers, e.g.:
 Begin_Macro(source)
 {
    TColorWheel *w = new TColorWheel();
+   cw = new TCanvas("cw","cw",0,0,400,400);
+   w->SetCanvas(cw);
    w->Draw();
-   return w->GetCanvas();
 }
 End_Macro
 
@@ -193,11 +196,10 @@ image below shows the ROOT color wheel in grayscale mode.
 Begin_Macro(source)
 {
    TColorWheel *w = new TColorWheel();
+   cw = new TCanvas("cw","cw",0,0,400,400);
+   cw->GetCanvas()->SetGrayscale();
+   w->SetCanvas(cw);
    w->Draw();
-   w->GetCanvas()->SetGrayscale();
-   w->GetCanvas()->Modified();
-   w->GetCanvas()->Update();
-   return w->GetCanvas();
 }
 End_Macro
 
@@ -279,7 +281,7 @@ Later on to reuse the palette `MyPalette` it will be enough to do
 
 As only one palette is active, one need to use `TExec` to be able to
 display plots using different palettes on the same pad.
-The following macro illustrate this feature.
+The tutorial multipalette.C illustrates this feature.
 
 Begin_Macro(source)
 ../../../tutorials/graphs/multipalette.C
@@ -314,7 +316,7 @@ kSienna=99,           kSolar=100,       kSouthWest=101,
 kStarryNight=102,     kSunset=103,      kTemperatureMap=104,
 kThermometer=105,     kValentine=106,   kVisibleSpectrum=107,
 kWaterMelon=108,      kCool=109,        kCopper=110,
-kGistEarth=111,       kViridis=112
+kGistEarth=111,       kViridis=112,     kCividis=113
 ~~~
 
 <table border=0>
@@ -896,6 +898,15 @@ Begin_Macro
    f2->Draw("surf2Z"); f2->SetTitle("kViridis");
 }
 End_Macro
+</td><td>
+Begin_Macro
+{
+   c  = new TCanvas("c","c",0,0,300,300);
+   TF2 *f2 = new TF2("f2","0.1+(1-(x-2)*(x-2))*(1-(y-2)*(y-2))",0.999,3.002,0.999,3.002);
+   f2->SetContour(99); gStyle->SetPalette(kCividis);
+   f2->Draw("surf2Z"); f2->SetTitle("kCividis");
+}
+End_Macro
 </td></tr>
 </table>
 
@@ -957,7 +968,7 @@ itself remains fully opaque.
 
 The transparency is available on all platforms when the flag `OpenGL.CanvasPreferGL` is set to `1`
 in `$ROOTSYS/etc/system.rootrc`, or on Mac with the Cocoa backend. On the file output
-it is visible with PDF, PNG, Gif, JPEG, SVG ... but not PostScript.
+it is visible with PDF, PNG, Gif, JPEG, SVG, TeX ... but not PostScript.
 The following macro gives an example of transparency usage:
 
 Begin_Macro(source)
@@ -1017,6 +1028,7 @@ TColor::TColor(Int_t color, Float_t r, Float_t g, Float_t b, const char *name,
    // fill color structure
    SetRGB(r, g, b);
    fAlpha = a;
+   gDefinedColors++;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1037,6 +1049,7 @@ TColor::TColor(Float_t r, Float_t g, Float_t b, Float_t a): TNamed("","")
    // enter in the list of colors
    TObjArray *lcolors = (TObjArray*)gROOT->GetListOfColors();
    lcolors->AddAtAndExpand(this, fNumber);
+   gDefinedColors++;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1054,6 +1067,12 @@ TColor::~TColor()
 TColor::TColor(const TColor &color) : TNamed(color)
 {
    ((TColor&)color).Copy(*this);
+}
+
+TColor &TColor::operator=(const TColor &color)
+{
+   ((TColor &)color).Copy(*this);
+   return *this;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1378,11 +1397,33 @@ Int_t TColor::GetColorPalette(Int_t i)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Static function returning the current active palette.
+
+const TArrayI& TColor::GetPalette()
+{
+   return fgPalette;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Static function returning number of colors in the color palette.
 
 Int_t TColor::GetNumberOfColors()
 {
    return fgPalette.fN;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Static function returning kTRUE if some new colors have been defined after
+/// initialisation or since the last call to this method. This allows to avoid
+/// the colors and palette streaming in TCanvas::Streamer if not needed.
+
+Bool_t TColor::DefinedColors()
+{
+   // After initialization gDefinedColors == 649. If it is bigger it means some new
+   // colors have been defined
+   Bool_t hasChanged = (gDefinedColors - gLastDefinedColors) > 50;
+   gLastDefinedColors = gDefinedColors;
+   return hasChanged;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1699,6 +1740,7 @@ void TColor::SetRGB(Float_t r, Float_t g, Float_t b)
       if (nplanes > 8) light->SetRGB(lr, lg, lb);
       else             light->SetRGB(0.8,0.8,0.8);
    }
+   gDefinedColors++;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2318,6 +2360,7 @@ Int_t TColor::CreateGradientColorTable(UInt_t Number, Double_t* Stops,
 /// if ncolors = 110 and colors=0, a Copper palette is used.
 /// if ncolors = 111 and colors=0, a Gist Earth palette is used.
 /// if ncolors = 112 and colors=0, a Viridis palette is used.
+/// if ncolors = 113 and colors=0, a Cividis palette is used.
 /// ~~~
 /// These palettes can also be accessed by names:
 /// ~~~ {.cpp}
@@ -2341,7 +2384,7 @@ Int_t TColor::CreateGradientColorTable(UInt_t Number, Double_t* Stops,
 /// kStarryNight=102,     kSunset=103,      kTemperatureMap=104,
 /// kThermometer=105,     kValentine=106,   kVisibleSpectrum=107,
 /// kWaterMelon=108,      kCool=109,        kCopper=110,
-/// kGistEarth=111        kViridis=112
+/// kGistEarth=111        kViridis=112,     kCividis=113
 /// ~~~
 /// For example:
 /// ~~~ {.cpp}
@@ -2392,7 +2435,7 @@ void TColor::SetPalette(Int_t ncolors, Int_t *colors, Float_t alpha)
    // High quality palettes (255 levels)
    if (colors == 0 && ncolors>50) {
 
-      if (!fgPalettesList.fN) fgPalettesList.Set(62);        // Right now 62 high quality palettes
+      if (!fgPalettesList.fN) fgPalettesList.Set(63);        // Right now 63 high quality palettes
       Int_t Idx = (Int_t)fgPalettesList.fArray[ncolors-51];  // High quality palettes indices start at 51
 
       // This high quality palette has already been created. Reuse it.
@@ -3036,6 +3079,16 @@ void TColor::SetPalette(Int_t ncolors, Int_t *colors, Float_t alpha)
             Double_t red[9]   = { 26./255., 51./255.,  43./255.,  33./255.,  28./255.,  35./255.,  74./255., 144./255., 246./255.};
             Double_t green[9] = {  9./255., 24./255.,  55./255.,  87./255., 118./255., 150./255., 180./255., 200./255., 222./255.};
             Double_t blue[9]  = { 30./255., 96./255., 112./255., 114./255., 112./255., 101./255.,  72./255.,  35./255.,   0./255.};
+            Idx = TColor::CreateGradientColorTable(9, stops, red, green, blue, 255, alpha);
+         }
+         break;
+
+      // Cividis
+      case 113:
+         {
+            Double_t red[9]   = {  0./255.,   5./255.,  65./255.,  97./255., 124./255., 156./255., 189./255., 224./255., 255./255.};
+            Double_t green[9] = { 32./255.,  54./255.,  77./255., 100./255., 123./255., 148./255., 175./255., 203./255., 234./255.};
+            Double_t blue[9]  = { 77./255., 110./255., 107./255., 111./255., 120./255., 119./255., 111./255.,  94./255.,  70./255.};
             Idx = TColor::CreateGradientColorTable(9, stops, red, green, blue, 255, alpha);
          }
          break;

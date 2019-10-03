@@ -46,14 +46,11 @@ namespace RooStats {
       /// re-implement HypoTest computation using the asymptotic
       virtual HypoTestResult *GetHypoTest() const;
 
-      /// make the asimov data from the ModelConfig and list of poi - return data set and snapshot of global obs
-      /// poiValues is the snapshot of POI used for finding the best nuisance parameter values (conditioned at these values)
-      /// genPoiValues is optionally a different set of POI values used for generating. By default the same POI are used for generating and for finding the nuisance parameters
+      /// Make Asimov data.
       static RooAbsData * MakeAsimovData( RooAbsData & data, const ModelConfig & model,  const RooArgSet & poiValues, RooArgSet & globObs, const RooArgSet * genPoiValues = 0);
 
 
-      /// make a nominal asimov data from the ModelConfig and parameter values
-      /// The parameter values (including the nuisance) could be given from a fit to data or be at the nominal values
+      /// Make a nominal Asimov data set from a model.
       static RooAbsData * MakeAsimovData( const ModelConfig & model,  const RooArgSet & allParamValues, RooArgSet & globObs);
 
 
@@ -122,7 +119,7 @@ namespace RooStats {
       static void FillBins(const RooAbsPdf & pdf, const RooArgList &obs, RooAbsData & data, int &index,  double
                            &binVolume, int &ibin);
 
-      static double EvaluateNLL(RooAbsPdf & pdf, RooAbsData& data, const RooArgSet * condObs, const RooArgSet *poiSet = 0 );
+      static double EvaluateNLL(RooAbsPdf & pdf, RooAbsData& data, const RooArgSet * condObs, const RooArgSet * globObs, const RooArgSet *poiSet = 0 );
 
       static bool SetObsToExpected(RooAbsPdf &pdf, const RooArgSet &obs);
       static bool SetObsToExpected(RooProdPdf &prod, const RooArgSet &obs);

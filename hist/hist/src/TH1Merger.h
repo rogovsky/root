@@ -16,14 +16,15 @@
 
 class TH1Merger {
 
-public: 
-
+public:
    enum EMergerType {
-      kNotCompatible = -1, // histogram arenot compatible and cannot be merged
-      kAllSameAxes = 0,   // histogram have all some axes
-      kAllNoLimits  = 1,  // all histogram don't have limits (the buffer is used)
-      kHasNewLimits  = 2,  // all histogram don't have limits (the buffer is used)
-      kAllLabel = 3  // histogram have labels all axis
+      kNotCompatible = -1,   // histogram arenot compatible and cannot be merged
+      kAllSameAxes = 0,      // histogram have all some axes
+      kAllNoLimits = 1,      // all histogram don't have limits (the buffer is used)
+      kHasNewLimits = 2,     // all histogram don't have limits (the buffer is used)
+      kAllLabel = 3,         // histogram have labels all axis
+      kAutoP2HaveLimits = 4, // P2 (power-of-2) algorithm: all histogram have limits
+      kAutoP2NeedLimits = 5  // P2 algorithm: some histogram still need projections
    };
 
    static Bool_t AxesHaveLimits(const TH1 * h);
@@ -45,13 +46,27 @@ public:
       return outAxis.FindBin(inAxis.GetBinCenter(ibin));
    }
 
+   // Function to find if axis label list  has duplicates
+   static Bool_t HasDuplicateLabels(const THashList * labels);
+
+    // check if histogram has duplicate labels
+   static Int_t CheckForDuplicateLabels(const TH1 * hist);
    
-   TH1Merger(TH1 & h, TCollection & l) :
+   
+   TH1Merger(TH1 & h, TCollection & l, Option_t * opt = "") :
       fH0(&h),
       fHClone(nullptr),
       fNewAxisFlag(0)
    {
-      fInputList.AddAll(&l); 
+      fInputList.AddAll(&l);
+      TString option(opt);
+      if (!option.IsNull() ) { 
+         option.ToUpper();
+         if (option.Contains("NOL") ) 
+            fNoLabelMerge = true;
+          if (option.Contains("NOCHECK") ) 
+            fNoCheck = true; 
+      }
    }
 
    ~TH1Merger() {
@@ -65,13 +80,20 @@ public:
    // function douing the actual merge
    Bool_t operator() ();
 
-private: 
+private:
+   Bool_t AutoP2BuildAxes(TH1 *);
 
    EMergerType ExamineHistograms();
 
-   void DefineNewAxes(); 
-   
+   void DefineNewAxes();
+
+   void CopyBuffer(TH1 *hsrc, TH1 *hdes);
+
    Bool_t BufferMerge();
+
+   Bool_t AutoP2BufferMerge();
+
+   Bool_t AutoP2Merge();
 
    Bool_t SameAxesMerge();
 
@@ -80,11 +102,13 @@ private:
    Bool_t LabelMerge();
 
 
+   Bool_t fNoLabelMerge = kFALSE; // force merger to not use labels and do bin center by bin center
+   Bool_t fNoCheck = kFALSE;     // skip check on duplicate labels 
    TH1 * fH0;  //! histogram on which the list is merged
    TH1 * fHClone;  //! copy of fH0 - managed by this class
    TList fInputList; // input histogram List
    TAxis fNewXAxis; 
    TAxis fNewYAxis; 
    TAxis fNewZAxis; 
-   UInt_t fNewAxisFlag; 
+   UInt_t fNewAxisFlag;
 };

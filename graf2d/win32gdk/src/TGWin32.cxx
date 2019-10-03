@@ -52,7 +52,6 @@ by Olivier Couet (package X11INT).
 #include "KeySymbols.h"
 #include "TWinNTSystem.h"
 #include "TGWin32VirtualXProxy.h"
-#include "TGWin32InterpreterProxy.h"
 #include "TWin32SplashThread.h"
 #include "TString.h"
 #include "TObjString.h"
@@ -191,6 +190,7 @@ static struct {
 //
 // Keep style values for line GdkGC
 //
+static int  gLineWidth = 0;
 static int  gLineStyle = GDK_LINE_SOLID;
 static int  gCapStyle  = GDK_CAP_BUTT;
 static int  gJoinStyle = GDK_JOIN_MITER;
@@ -805,9 +805,6 @@ TGWin32::TGWin32(const char *name, const char *title) : TVirtualX(name,title), f
       TGWin32ProxyBase::fgMainThreadId = ::GetCurrentThreadId(); // gMainThread->fId;
       TGWin32VirtualXProxy::fgRealObject = this;
       gPtr2VirtualX = &TGWin32VirtualXProxy::ProxyObject;
-#ifdef OLD_THREAD_IMPLEMENTATION
-      gPtr2Interpreter = &TGWin32InterpreterProxy::ProxyObject;
-#endif
    }
 }
 
@@ -904,14 +901,7 @@ void TGWin32::CloseDisplay()
 
    // terminate server thread
    gPtr2VirtualX = 0;
-#if ROOT_VERSION_CODE < ROOT_VERSION(6,00,00)
-   gPtr2Interpreter = 0;
-#endif
    gVirtualX = TGWin32VirtualXProxy::RealObject();
-   // Following the change in revision 47611,
-   // gInterpreter is a read-only variable but its value
-   // is overridden by gPtr2Interpreter when it is not null.
-   //   gInterpreter = TGWin32InterpreterProxy::RealObject();
 
    // The lock above does not work, so at least
    // minimize the risk
@@ -3262,7 +3252,7 @@ void TGWin32::SetLineType(int n, int *dash)
 {
    if (n <= 0) {
       gLineStyle = GDK_LINE_SOLID;
-      gdk_gc_set_line_attributes(gGCline, fLineWidth,
+      gdk_gc_set_line_attributes(gGCline, gLineWidth,
                                  (GdkLineStyle)gLineStyle,
                                  (GdkCapStyle) gCapStyle,
                                  (GdkJoinStyle) gJoinStyle);
@@ -3276,7 +3266,8 @@ void TGWin32::SetLineType(int n, int *dash)
       }
       gDashOffset = 0;
       gLineStyle = GDK_LINE_ON_OFF_DASH;
-      gdk_gc_set_line_attributes(gGCdash, fLineWidth,
+      if (gLineWidth == 0) gLineWidth =1;
+      gdk_gc_set_line_attributes(gGCdash, gLineWidth,
                                  (GdkLineStyle) gLineStyle,
                                  (GdkCapStyle) gCapStyle,
                                  (GdkJoinStyle) gJoinStyle);
@@ -3336,13 +3327,11 @@ void TGWin32::UpdateLineStyle()
 
 void TGWin32::SetLineWidth(Width_t width)
 {
-   if ((fLineWidth==width) || (width<0)) return;
+   if (fLineWidth == width) return;
+   fLineWidth = width;
 
-   if (width == 1) {
-      fLineWidth = 0;
-   } else {
-      fLineWidth = width;
-   }
+   if (width == 1 && gLineStyle == GDK_LINE_SOLID) gLineWidth = 0;
+   else gLineWidth = width;
 
    fPenModified = kTRUE;
 }
@@ -3408,7 +3397,7 @@ void TGWin32::SetMarkerType(int type, int n, GdkPoint * xy)
 
 void TGWin32::SetMarkerStyle(Style_t markerstyle)
 {
-   if ((fMarkerStyle==markerstyle) || (markerstyle >= 35)) return;
+   if ((fMarkerStyle == markerstyle) || (markerstyle >= 50)) return;
    fMarkerStyle = TMath::Abs(markerstyle);
    fMarkerStyleModified = kTRUE;
 }
@@ -3691,7 +3680,7 @@ void TGWin32::UpdateMarkerStyle()
       shape[11].x= -im;  shape[11].y= imx;
       shape[12].x= -im;  shape[12].y=-imx;
       SetMarkerType(3,13,shape);
-   } else if (markerstyle == 35) {
+   } else if (fMarkerStyle == 35) {
       // square with diagonal cross
       shape[0].x = -im;  shape[0].y = -im;
       shape[1].x =  im;  shape[1].y = -im;
@@ -3702,7 +3691,7 @@ void TGWin32::UpdateMarkerStyle()
       shape[6].x = -im;  shape[6].y = im;
       shape[7].x =  im;  shape[7].y = -im;
       SetMarkerType(2,8,shape);
-   } else if (markerstyle == 36) {
+   } else if (fMarkerStyle == 36) {
       // diamond with cross
       shape[0].x =-im;  shape[0].y = 0;
       shape[1].x =  0;  shape[1].y = -im;
@@ -3713,7 +3702,7 @@ void TGWin32::UpdateMarkerStyle()
       shape[6].x =  0;  shape[6].y = im;
       shape[7].x =  0;  shape[7].y =-im;
       SetMarkerType(2,8,shape);
-   } else if (markerstyle == 37) {
+   } else if (fMarkerStyle == 37) {
       // open three triangles
       Int_t im2 = Int_t(2.0*fMarkerSize + 0.5);
       shape[0].x =   0;  shape[0].y =   0;
@@ -3727,7 +3716,7 @@ void TGWin32::UpdateMarkerStyle()
       shape[8].x = im2;  shape[8].y =  im;
       shape[9].x =   0;  shape[9].y =   0;
       SetMarkerType(2,10,shape);
-   } else if (markerstyle == 38) {
+   } else if (fMarkerStyle == 38) {
       // + shaped marker with octagon
       Int_t im2 = Int_t(2.0*fMarkerSize + 0.5);
       shape[0].x = -im;  shape[0].y = 0;
@@ -3746,7 +3735,7 @@ void TGWin32::UpdateMarkerStyle()
       shape[13].x =  0;  shape[13].y = im;
       shape[14].x =  0;  shape[14].y = 0;
       SetMarkerType(2,15,shape);
-   } else if (markerstyle == 39) {
+   } else if (fMarkerStyle == 39) {
       // filled three triangles
       Int_t im2 = Int_t(2.0*fMarkerSize + 0.5);
       shape[0].x =   0;  shape[0].y =   0;
@@ -3759,7 +3748,7 @@ void TGWin32::UpdateMarkerStyle()
       shape[7].x =  im;  shape[7].y =   0;
       shape[8].x = im2;  shape[8].y =  im;
       SetMarkerType(3,9,shape);
-   } else if (markerstyle == 40) {
+   } else if (fMarkerStyle == 40) {
       // four open triangles X
       Int_t im2 = Int_t(2.0*fMarkerSize + 0.5);
       shape[0].x =     0;  shape[0].y =    0;
@@ -3776,7 +3765,7 @@ void TGWin32::UpdateMarkerStyle()
       shape[11].x =  -im2;  shape[11].y =   im;
       shape[12].x =     0;  shape[12].y =  0;
       SetMarkerType(2,13,shape);
-   } else if (markerstyle == 41) {
+   } else if (fMarkerStyle == 41) {
       // four filled triangles X
       Int_t im2 = Int_t(2.0*fMarkerSize + 0.5);
       shape[0].x =     0;  shape[0].y =    0;
@@ -3793,7 +3782,7 @@ void TGWin32::UpdateMarkerStyle()
       shape[11].x =  -im2;  shape[11].y =   im;
       shape[12].x =     0;  shape[12].y =  0;
       SetMarkerType(3,13,shape);
-   } else if (markerstyle == 42) {
+   } else if (fMarkerStyle == 42) {
       // open double diamonds
       Int_t imx = Int_t(fMarkerSize + 0.5);
       shape[0].x=     0;   shape[0].y= im;
@@ -3806,7 +3795,7 @@ void TGWin32::UpdateMarkerStyle()
       shape[7].x=   imx;   shape[7].y= imx;
       shape[8].x=     0;   shape[8].y= im;
       SetMarkerType(2,9,shape);
-   } else if (markerstyle == 43) {
+   } else if (fMarkerStyle == 43) {
       // filled double diamonds
       Int_t imx = Int_t(fMarkerSize + 0.5);
       shape[0].x =    0;   shape[0].y =   im;
@@ -3819,7 +3808,7 @@ void TGWin32::UpdateMarkerStyle()
       shape[7].x =  imx;   shape[7].y =  imx;
       shape[8].x =    0;   shape[8].y =   im;
       SetMarkerType(3,9,shape);
-   } else if (markerstyle == 44) {
+   } else if (fMarkerStyle == 44) {
       // open four triangles plus
       Int_t im2 = Int_t(2.0*fMarkerSize + 0.5);
       shape[0].x =    0;  shape[0].y =    0;
@@ -3834,7 +3823,7 @@ void TGWin32::UpdateMarkerStyle()
       shape[9].x =  -im;  shape[9].y = -im2;
       shape[10].x =    0;  shape[10].y =    0;
       SetMarkerType(2,11,shape);
-   } else if (markerstyle == 45) {
+   } else if (fMarkerStyle == 45) {
       // filled four triangles plus
       Int_t im0 = Int_t(0.4*fMarkerSize + 0.5);
       Int_t im2 = Int_t(2.0*fMarkerSize + 0.5);
@@ -3852,7 +3841,7 @@ void TGWin32::UpdateMarkerStyle()
       shape[11].x =   im;  shape[11].y =  im2;
       shape[12].x =  im0;  shape[12].y =  im0;
       SetMarkerType(3,13,shape);
-   } else if (markerstyle == 46) {
+   } else if (fMarkerStyle == 46) {
       // open four triangles X
       Int_t im2 = Int_t(2.0*fMarkerSize + 0.5);
       shape[0].x =    0;  shape[0].y =  im2;
@@ -3869,7 +3858,7 @@ void TGWin32::UpdateMarkerStyle()
       shape[11].x = im2;  shape[11].y =  im;
       shape[12].x =   0;  shape[12].y = im2;
       SetMarkerType(2,13,shape);
-   } else if (markerstyle == 47) {
+   } else if (fMarkerStyle == 47) {
       // filled four triangles X
       Int_t im2 = Int_t(2.0*fMarkerSize + 0.5);
       shape[0].x =    0;  shape[0].y =  im2;
@@ -3886,7 +3875,7 @@ void TGWin32::UpdateMarkerStyle()
       shape[11].x = im2;  shape[11].y =  im;
       shape[12].x =   0;  shape[12].y = im2;
       SetMarkerType(3,13,shape);
-   } else if (markerstyle == 48) {
+   } else if (fMarkerStyle == 48) {
       // four filled squares X
       Int_t im2 = Int_t(2.0*fMarkerSize + 0.5);
       shape[0].x =    0;  shape[0].y =  im2*1.005;
@@ -3907,7 +3896,7 @@ void TGWin32::UpdateMarkerStyle()
       shape[15].x = -im2*0.995;  shape[15].y =    0;
       shape[16].x =    0;  shape[16].y =  im2*0.995;
       SetMarkerType(3,16,shape);
-   } else if (markerstyle == 49) {
+   } else if (fMarkerStyle == 49) {
       // four filled squares plus
       Int_t imx = Int_t(1.33*fMarkerSize + 0.5);
       shape[0].x =-imx;  shape[0].y =-imx*1.005;
@@ -4537,6 +4526,7 @@ Pixmap_t TGWin32::ReadGIF(int x0, int y0, const char *file, Window_t id)
    if (fread(GIFarr, filesize, 1, fd) != 1) {
       fclose(fd);
       Error("ReadGIF", "GIF file read failed");
+      free(GIFarr);
       return pic;
    }
    fclose(fd);

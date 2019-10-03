@@ -20,7 +20,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 
-#include "RConfig.h"
+#include <ROOT/RConfig.hxx>
 
 #include <stddef.h> // size_t, NULL
 

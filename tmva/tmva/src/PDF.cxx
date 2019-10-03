@@ -264,7 +264,7 @@ void TMVA::PDF::BuildPDF( const TH1* hist )
 
    // histogram should be non empty
    if (hist->GetEntries() <= 0)
-      Log() << kFATAL << "Number of entries <= 0 (" << hist->GetEntries() << " in histogram: " << hist->GetTitle() << Endl;
+      Log() << kFATAL << "Number of entries <= 0 (" << hist->GetEntries() << " in histogram: " << hist->GetTitle() << ")" << Endl;
 
    if (fInterpolMethod == PDF::kKDE) {
      Log()<< kDEBUG << "Create "
@@ -498,11 +498,7 @@ void TMVA::PDF::SmoothHistogram()
             else MaxBin=bin;
          }
          else if (MaxBin >= 0) {
-#if ROOT_VERSION_CODE > ROOT_VERSION(5,19,2)
             fHist->Smooth(1,"R");
-#else
-            fHist->Smooth(1,MinBin+1,MaxBin+1);
-#endif
             MinBin=MaxBin=-1;
          }
          else     // can't smooth a single bin

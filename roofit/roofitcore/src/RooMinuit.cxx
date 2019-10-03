@@ -1137,7 +1137,7 @@ void RooMinuit::profileStop()
 void RooMinuit::backProp()
 {
   Double_t val,err,vlo,vhi, eplus, eminus, eparab, globcc;
-  char buffer[10240];
+  char buffer[64000];
   Int_t index ;
   for(index= 0; index < _nPar; index++) {
     _theFitter->GetParameter(index, buffer, val, err, vlo, vhi);
@@ -1222,7 +1222,7 @@ void RooMinuitGlue(Int_t& /*np*/, Double_t* /*gin*/,
   f= context->_func->getVal() ;
   RooAbsReal::setHideOffset(kTRUE) ;
   context->_evalCounter++ ;
-  if ( RooAbsPdf::evalError() || RooAbsReal::numEvalErrors()>0 || f>1e30) {
+  if (RooAbsReal::numEvalErrors()>0 || f>1e30) {
 
     if (context->_printEvalErrors>=0) {
 
@@ -1253,7 +1253,6 @@ void RooMinuitGlue(Int_t& /*np*/, Double_t* /*gin*/,
       f = maxFCN+1 ;
     }
 
-    RooAbsPdf::clearEvalError() ;
     RooAbsReal::clearEvalErrorLog() ;
     context->_numBadNLL++ ;
   } else if (f>maxFCN) {

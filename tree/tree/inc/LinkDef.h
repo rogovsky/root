@@ -8,7 +8,7 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#ifdef __CINT__
+#ifdef __CLING__
 
 #pragma link off all globals;
 #pragma link off all classes;
@@ -32,6 +32,7 @@
 #pragma link C++ class TEntryListBlock+;
 #pragma link C++ class TEventList-;
 #pragma link C++ class TFriendElement+;
+#pragma link C++ class ROOT::TIOFeatures+;
 #pragma link C++ class TTreeFriendLeafIter;
 #pragma link C++ class TLeaf-;
 #pragma link C++ class TLeafElement+;
@@ -39,7 +40,9 @@
 #pragma link C++ class TLeafB+;
 #pragma link C++ class TLeafC+;
 #pragma link C++ class TLeafD+;
+#pragma link C++ class TLeafD32-;
 #pragma link C++ class TLeafF+;
+#pragma link C++ class TLeafF16-;
 #pragma link C++ class TLeafI+;
 #pragma link C++ class TLeafS+;
 #pragma link C++ class TLeafL+;

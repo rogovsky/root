@@ -8,11 +8,6 @@
 #pragma extra_include "Math/IFunctionfwd.h";
 #pragma extra_include "Math/IFunction.h";
 
-#ifndef ROOT_PCH
-// We cannot assume that the source directory is available when building a PCH.
-#pragma extra_include "math/mathmore/src/GSLError.h";
-#endif
-
 #pragma link C++ nestedclasses;
 #pragma link C++ nestedtypedef;
 
@@ -28,13 +23,7 @@
 
 #pragma link C++ class ROOT::Math::ParamFunction<ROOT::Math::IParametricGradFunctionOneDim>+;
 
-#ifndef _WIN32
-// virtual inheritance gives problem when making dictionary on Windows
 #pragma link C++ class ROOT::Math::Polynomial+;
-#else
-#pragma link C++ class ROOT::Math::Polynomial-;
-#endif
-
 #pragma link C++ class ROOT::Math::ChebyshevApprox+;
 #pragma link C++ class ROOT::Math::Derivator+;
 
@@ -99,6 +88,7 @@
 #pragma link C++ class ROOT::Math::QuasiRandom<ROOT::Math::GSLQRngNiederreiter2>+;
 #pragma link C++ typedef ROOT::Math::QuasiRandomSobol;
 #pragma link C++ typedef ROOT::Math::QuasiRandomNiederreiter;
+#pragma link C++ class ROOT::Math::GSLQuasiRandomEngine+;
 
 
 

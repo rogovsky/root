@@ -13,8 +13,6 @@ CXXFLAGS=$5
 SOFLAGS=$6
 LDFLAGS=$7
 SOEXT=$8
-SYSLIBS=$9
-shift
 LIBDIR=$9
 shift
 ROOTLIBS=$9
@@ -31,8 +29,6 @@ ARCH=$9
 shift
 ROOTBUILD=$9
 shift
-EXPLICITLINK=$9
-shift
 
 if [ "$INCDIR" = "$ROOTSYS/include" ]; then
    INCDIR=\$ROOTSYS/include
@@ -41,11 +37,7 @@ if [ "$LIBDIR" = "$ROOTSYS/lib" ]; then
    LIBDIR=\$ROOTSYS/lib
 fi
 
-if [ "$EXPLICITLINK" = "yes" ]; then
-   EXPLLINKLIBS="\$LinkedLibs"
-else
-   EXPLLINKLIBS="\$DepLibs"
-fi
+EXPLLINKLIBS="\$LinkedLibs"
 
 if [ "$ARCH" = "macosx" ] || [ "$ARCH" = "macosx64" ] || \
    [ "$ARCH" = "macosxicc" ]; then
@@ -118,12 +110,12 @@ echo "#define CXX \"$BXX\"" >> ${COMPILEDATA}.tmp
 echo "#define COMPILER \""`type -path $CXX`"\"" >> ${COMPILEDATA}.tmp
 echo "#define COMPILERVERS \"$COMPILERVERS\"" >> ${COMPILEDATA}.tmp
 if [ "$CUSTOMSHARED" = "" ]; then
-   echo "#define MAKESHAREDLIB  \"cd \$BuildDir ; $BXX -c \$Opt $CXXFLAGS \$IncludePath \$SourceFiles ; $BXX \$ObjectFiles $SOFLAGS $LDFLAGS $EXPLLINKLIBS -o \$SharedLib\"" >> ${COMPILEDATA}.tmp
+   echo "#define MAKESHAREDLIB  \"cd \$BuildDir ; $BXX -fPIC -c \$Opt $CXXFLAGS \$IncludePath \$SourceFiles ; $BXX \$Opt \$ObjectFiles $SOFLAGS $LDFLAGS $EXPLLINKLIBS -o \$SharedLib\"" >> ${COMPILEDATA}.tmp
 else
    echo "#define MAKESHAREDLIB \"$CUSTOMSHARED\"" >> ${COMPILEDATA}.tmp
 fi
 if [ "$CUSTOMEXE" = "" ]; then
-   echo "#define MAKEEXE \"cd \$BuildDir ; $BXX -c $OPT $CXXFLAGS \$IncludePath \$SourceFiles; $BXX \$ObjectFiles $LDFLAGS -o \$ExeName \$LinkedLibs $SYSLIBS\""  >> ${COMPILEDATA}.tmp
+   echo "#define MAKEEXE \"cd \$BuildDir ; $BXX -c $OPT $CXXFLAGS \$IncludePath \$SourceFiles; $BXX \$ObjectFiles $LDFLAGS -o \$ExeName \$LinkedLibs\""  >> ${COMPILEDATA}.tmp
 else
    echo "#define MAKEEXE \"$CUSTOMEXE\"" >> ${COMPILEDATA}.tmp
 fi

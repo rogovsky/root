@@ -1,14 +1,26 @@
 #include "ROOT/TThreadExecutor.hxx"
+#include "ROOT/TTaskGroup.hxx"
+
+#if !defined(_MSC_VER)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wshadow"
+#endif
+
 #include "tbb/tbb.h"
+
+#if !defined(_MSC_VER)
+#pragma GCC diagnostic pop
+#endif
 
 //////////////////////////////////////////////////////////////////////////
 ///
 /// \class ROOT::TThreadExecutor
+/// \ingroup Parallelism
 /// \brief This class provides a simple interface to execute the same task
 /// multiple times in parallel, possibly with different arguments every
 /// time. This mimics the behaviour of python's pool.Map method.
 ///
-/// ###ROOT::TThreadExecutor::Map
+/// ### ROOT::TThreadExecutor::Map
 /// This class inherits its interfaces from ROOT::TExecutor\n.
 /// The two possible usages of the Map method are:\n
 /// * Map(F func, unsigned nTimes): func is executed nTimes with no arguments
@@ -48,18 +60,19 @@
 /// root[] ROOT::TThreadExecutor pool(2); auto squares = pool.Map([](int a) { return a*a; }, {1,2,3});
 /// ~~~
 ///
-/// ###ROOT::TThreadExecutor::MapReduce
+/// ### ROOT::TThreadExecutor::MapReduce
 /// This set of methods behaves exactly like Map, but takes an additional
 /// function as a third argument. This function is applied to the set of
 /// objects returned by the corresponding Map execution to "squash" them
-/// to a single object. 
+/// to a single object. This function should be independent of the size of
+/// the vector returned by Map due to optimization of the number of chunks.
 ///
 /// If this function is a binary operator, the "squashing" will be performed in parallel.
 /// This is exclusive to ROOT::TThreadExecutor and not any other ROOT::TExecutor-derived classes.\n
 /// An integer can be passed as the fourth argument indicating the number of chunks we want to divide our work in.
 /// This may be useful to avoid the overhead introduced when running really short tasks.
 ///
-/// ####Examples:
+/// #### Examples:
 /// ~~~{.cpp}
 /// root[] ROOT::TThreadExecutor pool; auto ten = pool.MapReduce([]() { return 1; }, 10, [](std::vector<int> v) { return std::accumulate(v.begin(), v.end(), 0); })
 /// root[] ROOT::TThreadExecutor pool; auto hist = pool.MapReduce(CreateAndFillHists, 10, PoolUtils::ReduceObjects);
@@ -67,6 +80,53 @@
 ///
 //////////////////////////////////////////////////////////////////////////
 
+/*
+VERY IMPORTANT NOTE ABOUT WORK ISOLATION
+
+We enclose the parallel_for and parallel_reduce invocations in a
+task_arena::isolate because we want to prevent a thread to start executing an
+outer task when the task it's running spawned subtasks, e.g. with a parallel_for,
+and is waiting on inner tasks to be completed.
+
+While this change has a negligible performance impact, it has benefits for
+several applications, for example big parallelised HEP frameworks and
+RDataFrame analyses.
+- For HEP Frameworks, without work isolation, it can happen that a huge
+framework task is pulled by a yielding ROOT task.
+This causes to delay the processing of the event which is interrupted by the
+long task.
+For example, work isolation avoids that during the wait due to the parallel
+flushing of baskets, a very long simulation task is pulled in by the idle task.
+- For RDataFrame analyses we want to guarantee that each entry is processed from
+the beginning to the end without TBB interrupting it to pull in other work items.
+As a corollary, the usage of ROOT (or TBB in work isolation mode) in actions
+and transformations guarantee that each entry is processed from the beginning to
+the end without being interrupted by the processing of outer tasks.
+*/
+
+namespace ROOT {
+namespace Internal {
+
+/// A helper function to implement the TThreadExecutor::ParallelReduce methods
+template<typename T>
+static T ParallelReduceHelper(const std::vector<T> &objs, const std::function<T(T a, T b)> &redfunc)
+{
+   using BRange_t = tbb::blocked_range<decltype(objs.begin())>;
+
+   auto pred = [redfunc](BRange_t const & range, T init) {
+      return std::accumulate(range.begin(), range.end(), init, redfunc);
+   };
+
+   BRange_t objRange(objs.begin(), objs.end());
+
+   return tbb::this_task_arena::isolate([&]{
+      return tbb::parallel_reduce(objRange, T{}, pred, redfunc);
+   });
+
+}
+
+} // End NS Internal
+} // End NS ROOT
 
 namespace ROOT {
 
@@ -86,22 +146,23 @@ namespace ROOT {
 
    void TThreadExecutor::ParallelFor(unsigned int start, unsigned int end, unsigned step, const std::function<void(unsigned int i)> &f)
    {
-      tbb::parallel_for(start, end, step, f);
+      tbb::this_task_arena::isolate([&]{
+         tbb::parallel_for(start, end, step, f);
+      });
    }
 
    double TThreadExecutor::ParallelReduce(const std::vector<double> &objs, const std::function<double(double a, double b)> &redfunc)
    {
-      return tbb::parallel_reduce(tbb::blocked_range<decltype(objs.begin())>(objs.begin(), objs.end()), double{},
-      [redfunc](tbb::blocked_range<decltype(objs.begin())> const & range, double init) {
-         return std::accumulate(range.begin(), range.end(), init, redfunc);
-      }, redfunc);
+      return ROOT::Internal::ParallelReduceHelper<double>(objs, redfunc);
    }
 
    float TThreadExecutor::ParallelReduce(const std::vector<float> &objs, const std::function<float(float a, float b)> &redfunc)
    {
-      return tbb::parallel_reduce(tbb::blocked_range<decltype(objs.begin())>(objs.begin(), objs.end()), float{},
-      [redfunc](tbb::blocked_range<decltype(objs.begin())> const & range, float init) {
-         return std::accumulate(range.begin(), range.end(), init, redfunc);
-      }, redfunc);
+      return ROOT::Internal::ParallelReduceHelper<float>(objs, redfunc);
    }
+
+   unsigned TThreadExecutor::GetPoolSize(){
+      return ROOT::Internal::TPoolManager::GetPoolSize();
+   }
+
 }

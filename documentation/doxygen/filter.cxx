@@ -16,7 +16,10 @@
 /// `Begin_Macro(source)`. This parameter allows to show the macro's code in addition.
 /// `Begin_Macro` also accept the image file type as option. "png" or "svg".
 /// "png" is the default value. For example: `Begin_Macro(source, svg)` will show
-/// the code of the macro and the image will be is svg format.
+/// the code of the macro and the image will be is svg format. The "width" keyword
+/// can be added to define the width of the picture in pixel: "width=400" will
+/// scale a picture to 400 pixel width. This allow to define large picture which
+/// can then be scale done to have a better definition.
 ///
 /// ## In the ROOT tutorials
 ///
@@ -47,7 +50,11 @@
 ///
 ///  1. `\macro_image`
 ///  The images produced by this macro are shown. A caption can be added to document
-///  the pictures: `\macro_image This is a picture`
+///  the pictures: `\macro_image This is a picture`. When the option `(nobatch)`
+///  is passed, the macro is executed without the batch option.
+///  Some tutorials generate pictures (png or pdf) with `Print` or `SaveAs`.
+///  Such pictures can be displayed with `\macro_image (picture_name.png[.pdf])`
+///  When the option (js) is used the image is displayed as JavaScript.
 ///
 ///  2. `\macro_code`
 ///  The macro code is shown.  A caption can be added: `\macro_code This is code`
@@ -96,9 +103,11 @@ string gClassName;     // Current class name
 string gImageName;     // Current image name
 string gMacroName;     // Current macro name
 string gImageType;     // Type of image used to produce pictures (png, svg ...)
+string gImageWidth;    // Width of image
 string gCwd;           // Current working directory
 string gOutDir;        // Output directory
 string gSourceDir;     // Source directory
+string gPythonExec;    // Python executable
 string gOutputName;    // File containing a macro std::out
 bool   gHeader;        // True if the input file is a header
 bool   gSource;        // True if the input file is a source file
@@ -107,7 +116,6 @@ bool   gImageSource;   // True the source of the current macro should be shown
 int    gInMacro;       // >0 if parsing a macro in a class documentation.
 int    gImageID;       // Image Identifier.
 int    gMacroID;       // Macro identifier in class documentation.
-int    gShowTutSource; // >0 if the tutorial source code should be shown
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -126,7 +134,7 @@ int main(int argc, char *argv[])
    gMacroID       = 0;
    gOutputName    = "stdout.dat";
    gImageType     = "png";
-   gShowTutSource = 0;
+   gImageWidth    = "";
    if (EndsWith(gFileName,".cxx")) gSource = true;
    if (EndsWith(gFileName,".h"))   gHeader = true;
    if (EndsWith(gFileName,".py"))  gPython = true;
@@ -143,6 +151,10 @@ int main(int argc, char *argv[])
    // Retrieve the source directory
    gSourceDir = getenv("DOXYGEN_SOURCE_DIRECTORY");
    ReplaceAll(gSourceDir,"\"","");
+
+   // Retrieve the python executable
+   gPythonExec = getenv("PYTHON_EXECUTABLE");
+   ReplaceAll(gPythonExec,"\"","");
 
    // Open the input file name.
    f = fopen(gFileName.c_str(),"r");
@@ -176,7 +188,6 @@ void FilterClass()
          gLineString = gLine;
 
          if (gInMacro && gLineString.find("End_Macro") != string::npos) {
-            ReplaceAll(gLineString,"End_Macro","");
             gImageSource = false;
             gInMacro = 0;
             spos = 0;
@@ -189,6 +200,13 @@ void FilterClass()
                                               , gOutDir.c_str()));
                ExecuteCommand(StringFormat("rm %s_%3.3d.C", gClassName.c_str(), gMacroID));
             }
+            int ImageSize = 300;
+            FILE *f = fopen("ImagesSizes.dat", "r");
+            fscanf(f, "%d", &ImageSize);
+            fclose(f);
+            remove("ImagesSizes.dat");
+            ReplaceAll(gImageWidth,"IMAGESIZE",StringFormat("%d",ImageSize));
+            ReplaceAll(gLineString,"End_Macro", StringFormat("\\image html pict1_%s_%3.3d.%s %s", gClassName.c_str(), gImageID, gImageType.c_str(), gImageWidth.c_str()));
          }
 
          if (gInMacro) {
@@ -216,7 +234,7 @@ void FilterClass()
             } else {
                if (m) fprintf(m,"%s",gLineString.c_str());
                if (BeginsWith(gLineString,"}")) {
-                  ReplaceAll(gLineString,"}", StringFormat("\\image html pict1_%s_%3.3d.%s", gClassName.c_str(), gImageID, gImageType.c_str()));
+                  ReplaceAll(gLineString,"}","");
                } else {
                   gLineString = "\n";
                }
@@ -236,6 +254,14 @@ void FilterClass()
                gImageType = "svg";
             } else {
                gImageType = "png";
+            }
+            gImageWidth = "";
+            int wpos1 = gLineString.find("\"width=");
+            if (wpos1 != string::npos) {
+               int wpos2 = gLineString.find_first_of("\"", wpos1+1);
+               gImageWidth = gLineString.substr(wpos1+1, wpos2-wpos1-1);
+             } else {
+                gImageWidth = "width=IMAGESIZE";
             }
             gImageID++;
             gInMacro++;
@@ -273,9 +299,17 @@ void FilterTutorial()
    // File for inline macros.
    FILE *m = 0;
 
+   int showTutSource = 0;
+   int incond = 0;
+
    // Extract the macro name
-   int i1      = gFileName.rfind('/')+1;
-   int i2      = gFileName.rfind('C');
+   int i1 = gFileName.rfind('/')+1;
+   int i2;
+   if (gPython) {
+      i2 = gFileName.rfind('y');
+   } else {
+      i2 = gFileName.rfind('C');
+   }
    gMacroName  = gFileName.substr(i1,i2-i1+1);
    gImageName  = StringFormat("%s.%s", gMacroName.c_str(), gImageType.c_str()); // Image name
    gOutputName = StringFormat("%s.out", gMacroName.c_str()); // output name
@@ -288,70 +322,105 @@ void FilterTutorial()
       if (gLineString.find("\\macro_image") != string::npos) {
          bool nobatch = (gLineString.find("(nobatch)") != string::npos);
          ReplaceAll(gLineString,"(nobatch)","");
-         if (gPython) {
-            if (nobatch) {
-               ExecuteCommand(StringFormat("./makeimage.py %s %s %s 0 1 0",
-                                          gFileName.c_str(), gImageName.c_str(), gOutDir.c_str()));
-            } else {
-               ExecuteCommand(StringFormat("./makeimage.py %s %s %s 0 1 1",
-                                          gFileName.c_str(), gImageName.c_str(), gOutDir.c_str()));
-            }
+         bool js = (gLineString.find("(js)") != string::npos);
+         ReplaceAll(gLineString,"(js)","");
+         bool image_created_by_macro = (gLineString.find(".png)") != string::npos) ||
+                                       (gLineString.find(".svg)") != string::npos) ||
+                                       (gLineString.find(".pdf)") != string::npos);
+         if (image_created_by_macro) {
+            string image_name = gLineString;
+            ReplaceAll(image_name, " ", "");
+            ReplaceAll(image_name, "///\\macro_image(", "");
+            ReplaceAll(image_name, ")\n", "");
+            ExecuteCommand(StringFormat("root -l -b -q %s", gFileName.c_str()));
+            ExecuteCommand(StringFormat("mv %s %s/html", image_name.c_str(), gOutDir.c_str()));
+            ReplaceAll(gLineString, "macro_image (", "image html ");
+            ReplaceAll(gLineString, ")", "");
+         } else if (js) {
+            string IN;
+            IN = gImageName;
+            int i = IN.find(".C");
+            IN.erase(i,IN.length());
+            ExecuteCommand(StringFormat("root -l -b -q \"makerootfile.C(\\\"%s\\\",\\\"%s\\\",\\\"%s\\\",false,false)\"",
+                                         gFileName.c_str(), IN.c_str(), gOutDir.c_str()));
+            ReplaceAll(gLineString, "macro_image", StringFormat("htmlinclude %s.html",IN.c_str()));
          } else {
-            if (nobatch) {
-               ExecuteCommand(StringFormat("root -l -q \"makeimage.C(\\\"%s\\\",\\\"%s\\\",\\\"%s\\\",false,false)\"",
-                                            gFileName.c_str(), gImageName.c_str(), gOutDir.c_str()));
+            if (gPython) {
+               if (nobatch) {
+                  ExecuteCommand(StringFormat("%s makeimage.py %s %s %s 0 1 0",
+                                             gPythonExec.c_str(),
+                                             gFileName.c_str(), gImageName.c_str(), gOutDir.c_str()));
+               } else {
+                  ExecuteCommand(StringFormat("%s makeimage.py %s %s %s 0 1 1",
+                                             gPythonExec.c_str(),
+                                             gFileName.c_str(), gImageName.c_str(), gOutDir.c_str()));
+               }
             } else {
-               ExecuteCommand(StringFormat("root -l -b -q \"makeimage.C(\\\"%s\\\",\\\"%s\\\",\\\"%s\\\",false,false)\"",
-                                            gFileName.c_str(), gImageName.c_str(), gOutDir.c_str()));
+               if (nobatch) {
+                  ExecuteCommand(StringFormat("root -l -q \"makeimage.C(\\\"%s\\\",\\\"%s\\\",\\\"%s\\\",false,false)\"",
+                                               gFileName.c_str(), gImageName.c_str(), gOutDir.c_str()));
+               } else {
+                  ExecuteCommand(StringFormat("root -l -b -q \"makeimage.C(\\\"%s\\\",\\\"%s\\\",\\\"%s\\\",false,false)\"",
+                                               gFileName.c_str(), gImageName.c_str(), gOutDir.c_str()));
+               }
             }
+            ReplaceAll(gLineString, "\\macro_image", ImagesList(gImageName));
+            remove(gOutputName.c_str());
          }
-         ReplaceAll(gLineString, "\\macro_image", ImagesList(gImageName));
-         remove(gOutputName.c_str());
       }
 
       // \macro_code found
       if (gLineString.find("\\macro_code") != string::npos) {
-         gShowTutSource = 1;
+         showTutSource = 1;
          m = fopen(StringFormat("%s/macros/%s",gOutDir.c_str(),gMacroName.c_str()).c_str(), "w");
          ReplaceAll(gLineString, "\\macro_code", StringFormat("\\include %s",gMacroName.c_str()));
       }
 
       // notebook found
       if (gLineString.find("\\notebook") != string::npos) {
-         ExecuteCommand(StringFormat("python converttonotebook.py %s %s/notebooks/",
+         ExecuteCommand(StringFormat("%s converttonotebook.py %s %s/notebooks/",
+                                          gPythonExec.c_str(),
                                           gFileName.c_str(), gOutDir.c_str()));
-
          if (gPython){
              gLineString = "## ";
          }
          else{
              gLineString = "/// ";
          }
-         gLineString += StringFormat( "\\htmlonly <a href=\"http://nbviewer.jupyter.org/url/root.cern.ch/doc/master/notebooks/%s.nbconvert.ipynb\" target=\"_blank\"><img src= notebook.gif alt=\"View in nbviewer\" style=\"height:1em\" ></a> <a href=\"https://cern.ch/swanserver/cgi-bin/go?projurl=https://root.cern.ch/doc/master/notebooks/%s.nbconvert.ipynb\" target=\"_blank\"><img src=\"http://swanserver.web.cern.ch/swanserver/images/badge_swan_white_150.png\"  alt=\"Open in SWAN\" style=\"height:1em\" ></a> \\endhtmlonly \n", gMacroName.c_str() , gMacroName.c_str());
-
+         gLineString += StringFormat( "\\htmlonly <a href=\"https://nbviewer.jupyter.org/url/root.cern/doc/master/notebooks/%s.nbconvert.ipynb\" target=\"_blank\"><img src= notebook.gif alt=\"View in nbviewer\" style=\"height:1em\" ></a> <a href=\"https://cern.ch/swanserver/cgi-bin/go?projurl=https://root.cern/doc/master/notebooks/%s.nbconvert.ipynb\" target=\"_blank\"><img src=\"https://swanserver.web.cern.ch/swanserver/images/badge_swan_white_150.png\"  alt=\"Open in SWAN\" style=\"height:1em\" ></a> \\endhtmlonly \n", gMacroName.c_str() , gMacroName.c_str());
       }
+
       // \macro_output found
       if (gLineString.find("\\macro_output") != string::npos) {
+         remove(gOutputName.c_str());
          if (!gPython) ExecuteCommand(StringFormat("root -l -b -q %s", gFileName.c_str()).c_str());
-         else          ExecuteCommand(StringFormat("python %s", gFileName.c_str()).c_str());
+         else          ExecuteCommand(StringFormat("%s %s", gPythonExec.c_str(), gFileName.c_str()).c_str());
+         ExecuteCommand(StringFormat("sed -i '/Processing/d' %s", gOutputName.c_str()).c_str());
          rename(gOutputName.c_str(), StringFormat("%s/macros/%s",gOutDir.c_str(), gOutputName.c_str()).c_str());
          ReplaceAll(gLineString, "\\macro_output", StringFormat("\\include %s",gOutputName.c_str()));
       }
 
       // \author is the last comment line.
-      if (gLineString.find("\\author")  != string::npos) {
+      if (gLineString.find("\\author") != string::npos) {
          if (gPython) printf("%s",StringFormat("%s \n## \\cond \n",gLineString.c_str()).c_str());
          else         printf("%s",StringFormat("%s \n/// \\cond \n",gLineString.c_str()).c_str());
-         if (gShowTutSource == 1) gShowTutSource = 2;
+         if (showTutSource == 1) {
+            showTutSource = 2;
+            m = fopen(StringFormat("%s/macros/%s",gOutDir.c_str(),gMacroName.c_str()).c_str(), "w");
+         }
+         incond = 1;
       } else {
          printf("%s",gLineString.c_str());
-         if (m && gShowTutSource == 2) fprintf(m,"%s",gLineString.c_str());
+         if (m && showTutSource == 2) fprintf(m,"%s",gLineString.c_str());
       }
    }
 
-   if (m) {
+   if (incond) {
       if (gPython) printf("## \\endcond \n");
       else         printf("/// \\endcond \n");
+   }
+
+   if (m) {
       fclose(m);
    }
 }
@@ -407,12 +476,9 @@ void ExecuteMacro()
    // Execute the macro
    ExecuteCommand(gLineString);
 
-   // Inline the directives to show the picture and/or the code
-   if (gImageSource) {
-      gLineString = StringFormat("\\include %s\n\\image html pict1_%s\n", gMacroName.c_str(), gImageName.c_str());
-   } else {
-      gLineString = StringFormat("\n\\image html pict1_%s\n", gImageName.c_str());
-   }
+   // Inline the directives to show the code
+   if (gImageSource) gLineString = StringFormat("\\include %s\n", gMacroName.c_str());
+   else gLineString = "";
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -485,13 +551,33 @@ string ImagesList(string& name) {
 
    int N = NumberOfImages();
 
-   char val[300];
+   // evaluate the size of the output string
+   char evalstring[300];
+   sprintf(&evalstring[0]," \n/// \\image html pict%d_%s width=%d",N,name.c_str(),10000);
+   int evallen = (int)strlen(evalstring);
+
+   // allocate the output string
+   char *val = (char *) malloc(sizeof(char)*evallen*N);
+
    int len = 0;
+
+   int ImageSize = 300;
+   FILE *f = fopen("ImagesSizes.dat", "r");
+
    for (int i = 1; i <= N; i++){
-      if (i>1) sprintf(&val[len]," \n/// \\image html pict%d_%s",i,name.c_str());
-      else     sprintf(&val[len],"\\image html pict%d_%s",i,name.c_str());
+      fscanf(f, "%d", &ImageSize);
+      if (i>1) {
+         if (gPython) sprintf(&val[len]," \n## \\image html pict%d_%s width=%d",i,name.c_str(),ImageSize);
+         else         sprintf(&val[len]," \n/// \\image html pict%d_%s width=%d",i,name.c_str(),ImageSize);
+      } else {
+         sprintf(&val[len],"\\image html pict%d_%s width=%d",i,name.c_str(),ImageSize);
+      }
       len = (int)strlen(val);
    }
+
+   fclose(f);
+   remove("ImagesSizes.dat");
+
    return (string)val;
 }
 

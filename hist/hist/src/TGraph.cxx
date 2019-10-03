@@ -19,7 +19,6 @@
 #include "TF1.h"
 #include "TStyle.h"
 #include "TMath.h"
-#include "TFrame.h"
 #include "TVector.h"
 #include "TVectorD.h"
 #include "Foption.h"
@@ -67,7 +66,7 @@ The picture below gives an example:
 
 Begin_Macro(source)
 {
-   TCanvas *c1 = new TCanvas("c1","A Simple Graph Example",200,10,700,500);
+   TCanvas *c1 = new TCanvas("c1","A Simple Graph Example",200,10,500,300);
    Double_t x[100], y[100];
    Int_t n = 20;
    for (Int_t i=0;i<n;i++) {
@@ -83,7 +82,7 @@ End_Macro
 ////////////////////////////////////////////////////////////////////////////////
 /// Graph default constructor.
 
-TGraph::TGraph(): TNamed(), TAttLine(), TAttFill(1, 1001), TAttMarker()
+TGraph::TGraph(): TNamed(), TAttLine(), TAttFill(0, 1000), TAttMarker()
 {
    fNpoints = -1;  //will be reset to 0 in CtorAllocate
    if (!CtorAllocate()) return;
@@ -94,7 +93,7 @@ TGraph::TGraph(): TNamed(), TAttLine(), TAttFill(1, 1001), TAttMarker()
 /// the arrays x and y will be set later
 
 TGraph::TGraph(Int_t n)
-   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(1, 1001), TAttMarker()
+   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(0, 1000), TAttMarker()
 {
    fNpoints = n;
    if (!CtorAllocate()) return;
@@ -105,7 +104,7 @@ TGraph::TGraph(Int_t n)
 /// Graph normal constructor with ints.
 
 TGraph::TGraph(Int_t n, const Int_t *x, const Int_t *y)
-   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(1, 1001), TAttMarker()
+   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(0, 1000), TAttMarker()
 {
    if (!x || !y) {
       fNpoints = 0;
@@ -123,7 +122,7 @@ TGraph::TGraph(Int_t n, const Int_t *x, const Int_t *y)
 /// Graph normal constructor with floats.
 
 TGraph::TGraph(Int_t n, const Float_t *x, const Float_t *y)
-   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(1, 1001), TAttMarker()
+   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(0, 1000), TAttMarker()
 {
    if (!x || !y) {
       fNpoints = 0;
@@ -141,7 +140,7 @@ TGraph::TGraph(Int_t n, const Float_t *x, const Float_t *y)
 /// Graph normal constructor with doubles.
 
 TGraph::TGraph(Int_t n, const Double_t *x, const Double_t *y)
-   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(1, 1001), TAttMarker()
+   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(0, 1000), TAttMarker()
 {
    if (!x || !y) {
       fNpoints = 0;
@@ -246,7 +245,7 @@ TGraph& TGraph::operator=(const TGraph &gr)
 /// in vx and vy.
 
 TGraph::TGraph(const TVectorF &vx, const TVectorF &vy)
-   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(1, 1001), TAttMarker()
+   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(0, 1000), TAttMarker()
 {
    fNpoints = TMath::Min(vx.GetNrows(), vy.GetNrows());
    if (!CtorAllocate()) return;
@@ -265,7 +264,7 @@ TGraph::TGraph(const TVectorF &vx, const TVectorF &vy)
 /// in vx and vy.
 
 TGraph::TGraph(const TVectorD &vx, const TVectorD &vy)
-   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(1, 1001), TAttMarker()
+   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(0, 1000), TAttMarker()
 {
    fNpoints = TMath::Min(vx.GetNrows(), vy.GetNrows());
    if (!CtorAllocate()) return;
@@ -281,7 +280,7 @@ TGraph::TGraph(const TVectorD &vx, const TVectorD &vy)
 /// Graph constructor importing its parameters from the TH1 object passed as argument
 
 TGraph::TGraph(const TH1 *h)
-   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(1, 1001), TAttMarker()
+   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(0, 1000), TAttMarker()
 {
    if (!h) {
       Error("TGraph", "Pointer to histogram is null");
@@ -323,7 +322,7 @@ TGraph::TGraph(const TH1 *h)
 ///                at the fNpx+1 points of f and the integral is normalized to 1.
 
 TGraph::TGraph(const TF1 *f, Option_t *option)
-   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(1, 1001), TAttMarker()
+   : TNamed("Graph", "Graph"), TAttLine(), TAttFill(0, 1000), TAttMarker()
 {
    char coption = ' ';
    if (!f) {
@@ -382,7 +381,7 @@ TGraph::TGraph(const TF1 *f, Option_t *option)
 /// Note in that case, the instantiation is about 2 times slower.
 
 TGraph::TGraph(const char *filename, const char *format, Option_t *option)
-   : TNamed("Graph", filename), TAttLine(), TAttFill(1, 1001), TAttMarker()
+   : TNamed("Graph", filename), TAttLine(), TAttFill(0, 1000), TAttMarker()
 {
    Double_t x, y;
    TString fname = filename;
@@ -456,12 +455,14 @@ TGraph::TGraph(const char *filename, const char *format, Option_t *option)
       Int_t value_idx = 0 ;
 
       // Looping
+      char *rest;
       while (std::getline(infile, line, '\n')) {
          if (line != "") {
             if (line[line.size() - 1] == char(13)) {  // removing DOS CR character
                line.erase(line.end() - 1, line.end()) ;
             }
-            token = strtok(const_cast<char*>(line.c_str()), option) ;
+            //token = R__STRTOK_R(const_cast<char *>(line.c_str()), option, rest);
+            token = R__STRTOK_R(const_cast<char *>(line.c_str()), option, &rest);
             while (token != NULL && value_idx < 2) {
                if (isTokenToBeSaved[token_idx]) {
                   token_str = TString(token) ;
@@ -474,7 +475,7 @@ TGraph::TGraph(const char *filename, const char *format, Option_t *option)
                      value_idx++ ;
                   }
                }
-               token = strtok(NULL, option) ; //next token
+               token = R__STRTOK_R(NULL, option, &rest); // next token
                token_idx++ ;
             }
             if (!isLineToBeSkipped && value_idx == 2) {
@@ -607,7 +608,7 @@ Double_t TGraph::Chisquare(TF1 *func, Option_t * option) const
 
 Bool_t TGraph::CompareArg(const TGraph* gr, Int_t left, Int_t right)
 {
-   Double_t xl, yl, xr, yr;
+   Double_t xl = 0, yl = 0, xr = 0, yr = 0;
    gr->GetPoint(left, xl, yl);
    gr->GetPoint(right, xr, yr);
    return (TMath::ATan2(yl, xl) > TMath::ATan2(yr, xr));
@@ -981,7 +982,6 @@ void TGraph::Expand(Int_t newsize)
 ////////////////////////////////////////////////////////////////////////////////
 /// If graph capacity is less than newsize points then make array sizes
 /// equal to least multiple of step to contain newsize points.
-/// Returns kTRUE if size was altered
 
 void TGraph::Expand(Int_t newsize, Int_t step)
 {
@@ -1051,15 +1051,14 @@ TFitResultPtr TGraph::Fit(const char *fname, Option_t *option, Option_t *, Axis_
 {
    char *linear;
    linear = (char*) strstr(fname, "++");
-   TF1 *f1 = 0;
-   if (linear)
-      f1 = new TF1(fname, fname, xmin, xmax);
-   else {
-      f1 = (TF1*)gROOT->GetFunction(fname);
-      if (!f1) {
-         Printf("Unknown function: %s", fname);
-         return -1;
-      }
+   if (linear) {
+      TF1 f1(fname, fname, xmin, xmax);
+      return Fit(&f1, option, "", xmin, xmax);
+   }
+   TF1 * f1 = (TF1*)gROOT->GetFunction(fname);
+   if (!f1) {
+      Printf("Unknown function: %s", fname);
+      return -1;
    }
    return Fit(f1, option, "", xmin, xmax);
 }
@@ -1490,9 +1489,9 @@ TH1F *TGraph::GetHistogram() const
             return fHistogram;
          }
       } else {
-         historg = fHistogram;
          const_cast <TGraph*>(this)->ResetBit(kResetHisto);
       }
+      historg = fHistogram;
    }
 
    if (rwxmin == rwxmax) rwxmax += 1.;
@@ -1579,8 +1578,7 @@ TH1F *TGraph::GetHistogram() const
 
 Int_t TGraph::GetPoint(Int_t i, Double_t &x, Double_t &y) const
 {
-   if (i < 0 || i >= fNpoints) return -1;
-   if (!fX || !fY) return -1;
+   if (i < 0 || i >= fNpoints || !fX || !fY) return -1;
    x = fX[i];
    y = fY[i];
    return i;
@@ -1721,17 +1719,40 @@ Int_t TGraph::InsertPoint()
       if (dpx * dpx + dpy * dpy < 25) ipoint = 0;
       else                      ipoint = fNpoints;
    }
+
+
+   InsertPointBefore(ipoint, gPad->AbsPixeltoX(px), gPad->AbsPixeltoY(py));
+
+   gPad->Modified();
+   return ipoint;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// Insert a new point with coordinates (x,y) before the point number `ipoint`.
+
+void TGraph::InsertPointBefore(Int_t ipoint, Double_t x, Double_t y)
+{
+   if (ipoint < 0) {
+      Error("TGraph", "Inserted point index should be >= 0");
+      return;
+   }
+
+   if (ipoint > fNpoints-1) {
+      Error("TGraph", "Inserted point index should be <= %d", fNpoints-1);
+      return;
+   }
+
    Double_t **ps = ExpandAndCopy(fNpoints + 1, ipoint);
    CopyAndRelease(ps, ipoint, fNpoints++, ipoint + 1);
 
    // To avoid redefinitions in descendant classes
    FillZero(ipoint, ipoint + 1);
 
-   fX[ipoint] = gPad->PadtoX(gPad->AbsPixeltoX(px));
-   fY[ipoint] = gPad->PadtoY(gPad->AbsPixeltoY(py));
-   gPad->Modified();
-   return ipoint;
+   fX[ipoint] = x;
+   fY[ipoint] = y;
 }
+
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Integrate the TGraph data within a given (index) range.
@@ -2078,8 +2099,13 @@ void TGraph::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
          out << "   graph->GetListOfFunctions()->Add(ptstats);" << std::endl;
          out << "   ptstats->SetParent(graph->GetListOfFunctions());" << std::endl;
       } else {
+         TString objname;
+         objname.Form("%s%d",obj->GetName(),frameNumber);
+         if (obj->InheritsFrom("TF1")) {
+            out << "   " << objname << "->SetParent(graph);\n";
+         }
          out << "   graph->GetListOfFunctions()->Add("
-             << Form("%s%d",obj->GetName(),frameNumber) << ");" << std::endl;
+             << objname << ");" << std::endl;
       }
    }
 
@@ -2133,6 +2159,20 @@ void TGraph::SetEditable(Bool_t editable)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Set highlight (enable/disble) mode for the graph
+/// by default highlight mode is disable
+
+void TGraph::SetHighlight(Bool_t set)
+{
+   if (IsHighlight() == set) return;
+
+   TVirtualGraphPainter *painter = TVirtualGraphPainter::GetPainter();
+   if (!painter) return;
+   SetBit(kIsHighlight, set);
+   painter->SetHighlight(this);
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Set the maximum of the graph.
 
 void TGraph::SetMaximum(Double_t maximum)
@@ -2175,12 +2215,47 @@ void TGraph::SetPoint(Int_t i, Double_t x, Double_t y)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Set graph title.
+/// Set graph name.
+void TGraph::SetName(const char *name)
+{
+   fName = name;
+   if (fHistogram) fHistogram->SetName(name);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Change (i.e. set) the title
+///
+/// if title is in the form `stringt;stringx;stringy;stringz`
+/// the graph title is set to `stringt`, the x axis title to `stringx`,
+/// the y axis title to `stringy`, and the z axis title to `stringz`.
+///
+/// To insert the character `;` in one of the titles, one should use `#;`
+/// or `#semicolon`.
 
 void TGraph::SetTitle(const char* title)
 {
    fTitle = title;
-   if (fHistogram) fHistogram->SetTitle(title);
+   fTitle.ReplaceAll("#;",2,"#semicolon",10);
+   Int_t p = fTitle.Index(";");
+
+   if (p>0) {
+      if (!fHistogram) GetHistogram();
+      fHistogram->SetTitle(title);
+      Int_t n = fTitle.Length()-p;
+      if (p>0) fTitle.Remove(p,n);
+      fTitle.ReplaceAll("#semicolon",10,"#;",2);
+   } else {
+      if (fHistogram) fHistogram->SetTitle(title);
+   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Set graph name and title
+
+void TGraph::SetNameTitle(const char *name, const char *title)
+{
+   SetName(name);
+   SetTitle(title);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2394,18 +2469,45 @@ Int_t TGraph::Merge(TCollection* li)
    }
    return GetN();
 }
+
 ////////////////////////////////////////////////////////////////////////////////
 ///  protected function to perform the merge operation of a graph
 
 Bool_t TGraph::DoMerge(const TGraph* g)
 {
-   Double_t x, y;
+   Double_t x = 0, y = 0;
    for (Int_t i = 0 ; i < g->GetN(); i++) {
       g->GetPoint(i, x, y);
       SetPoint(GetN(), x, y);
    }
    return kTRUE;
 }
+
+////////////////////////////////////////////////////////////////////////////////
+/// Move all graph points on specified values dx,dy
+/// If log argument specified, calculation done in logarithmic scale like:
+///  new_value = exp( log(old_value) + delta );
+
+void TGraph::MovePoints(Double_t dx, Double_t dy, Bool_t logx, Bool_t logy)
+{
+   Double_t x = 0, y = 0;
+   for (Int_t i = 0 ; i < GetN(); i++) {
+      GetPoint(i, x, y);
+      if (!logx) {
+         x += dx;
+      } else if (x > 0) {
+         x = TMath::Exp(TMath::Log(x) + dx);
+      }
+      if (!logy) {
+         y += dy;
+      } else if (y > 0) {
+         y = TMath::Exp(TMath::Log(y) + dy);
+      }
+      SetPoint(i, x, y);
+   }
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Find zero of a continuous function.
 /// This function finds a real zero of the continuous real

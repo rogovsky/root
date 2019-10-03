@@ -1,3 +1,9 @@
+# Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.
+# All rights reserved.
+#
+# For the licensing terms see $ROOTSYS/LICENSE.
+# For the list of contributors see $ROOTSYS/README/CREDITS.
+
 ############################################################################
 # CMakeLists.txt file for building ROOT graf2d/win32gdk package
 # @author Pere Mato, CERN
@@ -26,6 +32,8 @@ if(winrtdebug)
 else()
   set(nmcxxflags "${CMAKE_CXX_FLAGS}")
 endif()
+
+string(REPLACE "-std=c++14" "" nmcxxflags "${nmcxxflags}")
 
 # Build iconv
 
@@ -82,16 +90,33 @@ add_custom_target(GDKLIB DEPENDS ${gdklib})
 set_target_properties(GDKLIB PROPERTIES FOLDER Builtins)
 
 ROOT_STANDARD_LIBRARY_PACKAGE(Win32gdk
-                              HEADERS TGWin32.h TGWin32GL.h
-                              DEPENDENCIES Cling Core Graf
-                              SOURCES *.cxx *.c
-                              LIBRARIES ${FREETYPE_LIBRARIES} ${gdklib} ${gliblib} Glu32.lib Opengl32.lib
-                              BUILTINS FREETYPE)
+  HEADERS
+    TGWin32.h
+    TGWin32GL.h
+  SOURCES
+    src/gifdecode.c
+    src/gifencode.c
+    src/gifquantize.c
+    src/TGWin32.cxx
+    src/TGWin32GL.cxx
+    src/TGWin32ProxyBase.cxx
+    src/TGWin32VirtualGLProxy.cxx
+    src/TGWin32VirtualXProxy.cxx
+  DICTIONARY_OPTIONS
+    -writeEmptyRootPCM
+  LIBRARIES
+    ${FREETYPE_LIBRARIES}
+    ${gdklib}
+    ${gliblib}
+    Glu32.lib
+    Opengl32.lib
+  DEPENDENCIES
+    Cling
+    Core
+    Graf
+  BUILTINS
+    FREETYPE
+)
 
 add_dependencies(Win32gdk GDKLIB glib)
-
-install(FILES  ${gdkdlla}
-			   ${glibdlla}
-			   ${iconvdlla}
-			   DESTINATION ${CMAKE_INSTALL_BINDIR})
-
+install(FILES ${gdkdlla} ${glibdlla} ${iconvdlla} DESTINATION ${CMAKE_INSTALL_BINDIR})

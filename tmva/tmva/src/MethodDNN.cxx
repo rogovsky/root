@@ -119,18 +119,7 @@ Bool_t TMVA::MethodDNN::HasAnalysisType(Types::EAnalysisType type,
 ////////////////////////////////////////////////////////////////////////////////
 /// default initializations
 
-void TMVA::MethodDNN::Init()
-{
-   // TODO: Remove once weights are considered by the method.
-   auto &dsi = this->DataInfo();
-   auto numClasses = dsi.GetNClasses();
-   for (UInt_t i = 0; i < numClasses; ++i) {
-      if (dsi.GetWeightExpression(i) != TString("")) {
-         Log() << kERROR << "Currently event weights are not considered properly by this method." << Endl;
-         break;
-      }
-   }
-}
+void TMVA::MethodDNN::Init() {}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Options to be set in the option string:
@@ -139,6 +128,11 @@ void TMVA::MethodDNN::Init()
 ///  - DecayRate       <float>      Decay rate for learning parameter.
 ///  - TestRate        <int>        Period of validation set error computation.
 ///  - BatchSize       <int>        Number of event per batch.
+///
+///  - ValidationSize  <string>     How many events to use for validation. "0.2"
+///                                 or "20%" indicates that a fifth of the
+///                                 training data should be used. "100"
+///                                 indicates that 100 events should be used.
 
 void TMVA::MethodDNN::DeclareOptions()
 {
@@ -146,6 +140,13 @@ void TMVA::MethodDNN::DeclareOptions()
    DeclareOptionRef(fLayoutString="SOFTSIGN|(N+100)*2,LINEAR",
                                   "Layout",
                                   "Layout of the network.");
+
+   DeclareOptionRef(fValidationSize = "20%", "ValidationSize",
+                    "Part of the training data to use for "
+                    "validation. Specify as 0.2 or 20% to use a "
+                    "fifth of the data set as validation set. "
+                    "Specify as 100 to use exactly 100 events. "
+                    "(Default: 20%)");
 
    DeclareOptionRef(fErrorStrategy="CROSSENTROPY",
                     "ErrorStrategy",
@@ -544,9 +545,15 @@ void TMVA::MethodDNN::ProcessOptions()
    // Training settings.
    //
 
+   // Force validation of the ValidationSize option
+   GetNumValidationSamples();
+
    KeyValueVector_t strategyKeyValues = ParseKeyValueString(fTrainingStrategyString,
                                                             TString ("|"),
                                                             TString (","));
+
+   std::cout << "Parsed Training DNN string " << fTrainingStrategyString << std::endl;
+   std::cout << "STring has size " << strategyKeyValues.size() << std::endl;
    for (auto& block : strategyKeyValues) {
       TTrainingSettings settings;
 
@@ -565,6 +572,8 @@ void TMVA::MethodDNN::ProcessOptions()
          settings.regularization = DNN::ERegularization::kL1;
       } else if (regularization == "L2") {
          settings.regularization = DNN::ERegularization::kL2;
+      } else {
+         settings.regularization = DNN::ERegularization::kNone;
       }
 
       TString strMultithreading = fetchValue(block, "Multithreading",
@@ -580,6 +589,66 @@ void TMVA::MethodDNN::ProcessOptions()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Validation of the ValidationSize option. Allowed formats are 20%, 0.2 and
+/// 100 etc.
+///    - 20% and 0.2 selects 20% of the training set as validation data.
+///    - 100 selects 100 events as the validation data.
+///
+/// @return number of samples in validation set
+///
+
+UInt_t TMVA::MethodDNN::GetNumValidationSamples()
+{
+   Int_t nValidationSamples = 0;
+   UInt_t trainingSetSize = GetEventCollection(Types::kTraining).size();
+
+   // Parsing + Validation
+   // --------------------
+   if (fValidationSize.EndsWith("%")) {
+      // Relative spec. format 20%
+      TString intValStr = TString(fValidationSize.Strip(TString::kTrailing, '%'));
+
+      if (intValStr.IsFloat()) {
+         Double_t valSizeAsDouble = fValidationSize.Atof() / 100.0;
+         nValidationSamples = GetEventCollection(Types::kTraining).size() * valSizeAsDouble;
+      } else {
+         Log() << kFATAL << "Cannot parse number \"" << fValidationSize
+               << "\". Expected string like \"20%\" or \"20.0%\"." << Endl;
+      }
+   } else if (fValidationSize.IsFloat()) {
+      Double_t valSizeAsDouble = fValidationSize.Atof();
+
+      if (valSizeAsDouble < 1.0) {
+         // Relative spec. format 0.2
+         nValidationSamples = GetEventCollection(Types::kTraining).size() * valSizeAsDouble;
+      } else {
+         // Absolute spec format 100 or 100.0
+         nValidationSamples = valSizeAsDouble;
+      }
+   } else {
+      Log() << kFATAL << "Cannot parse number \"" << fValidationSize << "\". Expected string like \"0.2\" or \"100\"."
+            << Endl;
+   }
+
+   // Value validation
+   // ----------------
+   if (nValidationSamples < 0) {
+      Log() << kFATAL << "Validation size \"" << fValidationSize << "\" is negative." << Endl;
+   }
+
+   if (nValidationSamples == 0) {
+      Log() << kFATAL << "Validation size \"" << fValidationSize << "\" is zero." << Endl;
+   }
+
+   if (nValidationSamples >= (Int_t)trainingSetSize) {
+      Log() << kFATAL << "Validation size \"" << fValidationSize
+            << "\" is larger than or equal in size to training set (size=\"" << trainingSetSize << "\")." << Endl;
+   }
+
+   return nValidationSamples;
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 void TMVA::MethodDNN::Train()
 {
@@ -589,6 +658,24 @@ void TMVA::MethodDNN::Train()
       // JsMVA progress bar maximum (100%)
       fIPyMaxIter = 100;
    }
+
+   for (TTrainingSettings & settings : fTrainingSettings) {
+      size_t nValidationSamples = GetNumValidationSamples();
+      size_t nTrainingSamples = GetEventCollection(Types::kTraining).size() - nValidationSamples;
+      size_t nTestSamples = nValidationSamples;
+
+      if (nTrainingSamples < settings.batchSize ||
+          nValidationSamples < settings.batchSize ||
+          nTestSamples < settings.batchSize) {
+         Log() << kFATAL << "Number of samples in the datasets are train: "
+                         << nTrainingSamples << " valid: " << nValidationSamples
+                         << " test: " << nTestSamples << ". "
+                         << "One of these is smaller than the batch size of "
+                         << settings.batchSize << ". Please increase the batch"
+                         << " size to be at least the same size as the smallest"
+                         << " of these values." << Endl;
+      }
+  }
 
    if (fArchitectureString == "GPU") {
        TrainGpu();
@@ -610,8 +697,12 @@ void TMVA::MethodDNN::Train()
    std::vector<Pattern> trainPattern;
    std::vector<Pattern> testPattern;
 
-   const std::vector<TMVA::Event*>& eventCollectionTraining = GetEventCollection (Types::kTraining);
-   const std::vector<TMVA::Event*>& eventCollectionTesting  = GetEventCollection (Types::kTesting);
+   size_t nValidationSamples = GetNumValidationSamples();
+   size_t nTrainingSamples = GetEventCollection(Types::kTraining).size() - nValidationSamples;
+
+   const std::vector<TMVA::Event *> &allData = GetEventCollection(Types::kTraining);
+   const std::vector<TMVA::Event *> eventCollectionTraining{allData.begin(), allData.begin() + nTrainingSamples};
+   const std::vector<TMVA::Event *> eventCollectionTesting{allData.begin() + nTrainingSamples, allData.end()};
 
    for (auto &event : eventCollectionTraining) {
       const std::vector<Float_t>& values = event->GetValues();
@@ -805,11 +896,14 @@ void TMVA::MethodDNN::TrainGpu()
 {
 
 #ifdef DNNCUDA // Included only if DNNCUDA flag is set.
+   Log() << kINFO << "Start of neural network training on GPU." << Endl << Endl;
 
-   size_t nTrainingSamples = GetEventCollection(Types::kTraining).size();
-   size_t nTestSamples     = GetEventCollection(Types::kTesting).size();
+   size_t nValidationSamples = GetNumValidationSamples();
+   size_t nTrainingSamples = GetEventCollection(Types::kTraining).size() - nValidationSamples;
+   size_t nTestSamples = nValidationSamples;
 
-   Log() << kINFO << "Start of neural network training on GPU." << Endl;
+   Log() << kDEBUG << "Using " << nValidationSamples << " validation samples." << Endl;
+   Log() << kDEBUG << "Using " << nTestSamples << " training samples." << Endl;
 
    size_t trainingPhase = 1;
    fNet.Initialize(fWeightInitialization);
@@ -840,11 +934,29 @@ void TMVA::MethodDNN::TrainGpu()
 
       using DataLoader_t = TDataLoader<TMVAInput_t, TCuda<>>;
 
+      // Split training data into training and validation set
+      const std::vector<Event *> &allData = GetEventCollection(Types::kTraining);
+      const std::vector<Event *> trainingInputData =
+         std::vector<Event *>(allData.begin(), allData.begin() + nTrainingSamples);
+      const std::vector<Event *> testInputData =
+         std::vector<Event *>(allData.begin() + nTrainingSamples, allData.end());
+
+      if (trainingInputData.size() != nTrainingSamples) {
+         Log() << kFATAL << "Inconsistent training sample size" << Endl;
+      }
+      if (testInputData.size() != nTestSamples) {
+         Log() << kFATAL << "Inconsistent test sample size" << Endl;
+      }
+
       size_t nThreads = 1;
-      DataLoader_t trainingData(std::tie(GetEventCollection(Types::kTraining), DataInfo()), nTrainingSamples,
-                                net.GetBatchSize(), net.GetInputWidth(), net.GetOutputWidth(), nThreads);
-      DataLoader_t testData(std::tie(GetEventCollection(Types::kTesting), DataInfo()), nTestSamples,
-                            testNet.GetBatchSize(), net.GetInputWidth(), net.GetOutputWidth(), nThreads);
+      TMVAInput_t trainingTuple = std::tie(trainingInputData, DataInfo());
+      TMVAInput_t testTuple = std::tie(testInputData, DataInfo());
+      DataLoader_t trainingData(trainingTuple, nTrainingSamples,
+                                net.GetBatchSize(), net.GetInputWidth(),
+                                net.GetOutputWidth(), nThreads);
+      DataLoader_t testData(testTuple, nTestSamples, testNet.GetBatchSize(),
+                            net.GetInputWidth(), net.GetOutputWidth(),
+                            nThreads);
       DNN::TGradientDescent<TCuda<>> minimizer(settings.learningRate,
                                              settings.convergenceSteps,
                                              settings.testInterval);
@@ -950,8 +1062,8 @@ void TMVA::MethodDNN::TrainGpu()
          }
       }
       for (size_t l = 0; l < net.GetDepth(); l++) {
-         fNet.GetLayer(l).GetWeights() = (TMatrixT<Double_t>) net.GetLayer(l).GetWeights();
-         fNet.GetLayer(l).GetBiases()  = (TMatrixT<Double_t>) net.GetLayer(l).GetBiases();
+         fNet.GetLayer(l).GetWeights() = (TMatrixT<Scalar_t>) net.GetLayer(l).GetWeights();
+         fNet.GetLayer(l).GetBiases()  = (TMatrixT<Scalar_t>) net.GetLayer(l).GetBiases();
       }
    }
 
@@ -969,11 +1081,14 @@ void TMVA::MethodDNN::TrainCpu()
 {
 
 #ifdef DNNCPU // Included only if DNNCPU flag is set.
-
-   size_t nTrainingSamples = GetEventCollection(Types::kTraining).size();
-   size_t nTestSamples     = GetEventCollection(Types::kTesting).size();
-
    Log() << kINFO << "Start of neural network training on CPU." << Endl << Endl;
+
+   size_t nValidationSamples = GetNumValidationSamples();
+   size_t nTrainingSamples = GetEventCollection(Types::kTraining).size() - nValidationSamples;
+   size_t nTestSamples = nValidationSamples;
+
+   Log() << kDEBUG << "Using " << nValidationSamples << " validation samples." << Endl;
+   Log() << kDEBUG << "Using " << nTestSamples << " training samples." << Endl;
 
    fNet.Initialize(fWeightInitialization);
 
@@ -998,17 +1113,34 @@ void TMVA::MethodDNN::TrainCpu()
          p = 1.0 - p;
       }
       net.SetDropoutProbabilities(dropoutVector);
-      //net.SetDropoutProbabilities(settings.dropoutProbabilities);
       net.InitializeGradients();
       auto testNet = net.CreateClone(settings.batchSize);
 
       using DataLoader_t = TDataLoader<TMVAInput_t, TCpu<>>;
 
+      // Split training data into training and validation set
+      const std::vector<Event *> &allData = GetEventCollection(Types::kTraining);
+      const std::vector<Event *> trainingInputData =
+         std::vector<Event *>(allData.begin(), allData.begin() + nTrainingSamples);
+      const std::vector<Event *> testInputData =
+         std::vector<Event *>(allData.begin() + nTrainingSamples, allData.end());
+
+      if (trainingInputData.size() != nTrainingSamples) {
+         Log() << kFATAL << "Inconsistent training sample size" << Endl;
+      }
+      if (testInputData.size() != nTestSamples) {
+         Log() << kFATAL << "Inconsistent test sample size" << Endl;
+      }
+
       size_t nThreads = 1;
-      DataLoader_t trainingData(std::tie(GetEventCollection(Types::kTraining), DataInfo()), nTrainingSamples,
-                                net.GetBatchSize(), net.GetInputWidth(), net.GetOutputWidth(), nThreads);
-      DataLoader_t testData(std::tie(GetEventCollection(Types::kTesting), DataInfo()), nTestSamples,
-                            testNet.GetBatchSize(), net.GetInputWidth(), net.GetOutputWidth(), nThreads);
+      TMVAInput_t trainingTuple = std::tie(trainingInputData, DataInfo());
+      TMVAInput_t testTuple = std::tie(testInputData, DataInfo());
+      DataLoader_t trainingData(trainingTuple, nTrainingSamples,
+                                net.GetBatchSize(), net.GetInputWidth(),
+                                net.GetOutputWidth(), nThreads);
+      DataLoader_t testData(testTuple, nTestSamples, testNet.GetBatchSize(),
+                            net.GetInputWidth(), net.GetOutputWidth(),
+                            nThreads);
       DNN::TGradientDescent<TCpu<>> minimizer(settings.learningRate,
                                                settings.convergenceSteps,
                                                settings.testInterval);
@@ -1088,7 +1220,7 @@ void TMVA::MethodDNN::TrainCpu()
             }
             trainingError /= (Double_t) (nTrainingSamples / settings.batchSize);
 
-       if (fInteractive){
+            if (fInteractive){
                fInteractive->AddPoint(stepCount, trainingError, testError);
                fIPyCurrentIter = 100*(double)minimizer.GetConvergenceCount() /(double)settings.convergenceSteps;
                if (fExitFromTraining) break;
@@ -1124,8 +1256,8 @@ void TMVA::MethodDNN::TrainCpu()
 
       for (size_t l = 0; l < net.GetDepth(); l++) {
          auto & layer = fNet.GetLayer(l);
-         layer.GetWeights() = (TMatrixT<Double_t>) net.GetLayer(l).GetWeights();
-         layer.GetBiases()  = (TMatrixT<Double_t>) net.GetLayer(l).GetBiases();
+         layer.GetWeights() = (TMatrixT<Scalar_t>) net.GetLayer(l).GetWeights();
+         layer.GetBiases()  = (TMatrixT<Scalar_t>) net.GetLayer(l).GetBiases();
       }
    }
 

@@ -22,8 +22,8 @@
 #include "TMessage.h"
 #include "Compression.h"
 #include "TVirtualStreamerInfo.h"
+#include "TList.h"
 #include "Bytes.h"
-#include "TFile.h"
 #include "TProcessID.h"
 #include "RZip.h"
 
@@ -34,17 +34,18 @@ ClassImp(TMessage);
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a TMessage object for storing objects. The "what" integer
-/// describes the type of message. Predifined ROOT system message types
+/// describes the type of message. Predefined ROOT system message types
 /// can be found in MessageTypes.h. Make sure your own message types are
 /// unique from the ROOT defined message types (i.e. 0 - 10000 are
 /// reserved by ROOT). In case you OR "what" with kMESS_ACK, the message
-/// will wait for an acknowledgement from the remote side. This makes
+/// will wait for an acknowledgment from the remote side. This makes
 /// the sending process synchronous. In case you OR "what" with kMESS_ZIP,
 /// the message will be compressed in TSocket using the zip algorithm
 /// (only if message is > 256 bytes).
 
 TMessage::TMessage(UInt_t what, Int_t bufsiz) :
-   TBufferFile(TBuffer::kWrite, bufsiz + 2*sizeof(UInt_t))
+   TBufferFile(TBuffer::kWrite, bufsiz + 2*sizeof(UInt_t)),
+   fCompress(ROOT::RCompressionSetting::EAlgorithm::kUseGlobal)
 {
    // space at the beginning of the message reserved for the message length
    UInt_t   reserved = 0;
@@ -53,12 +54,11 @@ TMessage::TMessage(UInt_t what, Int_t bufsiz) :
    fWhat  = what;
    *this << what;
 
-   fClass      = 0;
-   fCompress   = 0;
-   fBufComp    = 0;
-   fBufCompCur = 0;
-   fCompPos    = 0;
-   fInfos      = 0;
+   fClass      = nullptr;
+   fBufComp    = nullptr;
+   fBufCompCur = nullptr;
+   fCompPos    = nullptr;
+   fInfos      = nullptr;
    fEvolution  = kFALSE;
 
    SetBit(kCannotHandleMemberWiseStreaming);
@@ -68,25 +68,25 @@ TMessage::TMessage(UInt_t what, Int_t bufsiz) :
 /// Create a TMessage object for reading objects. The objects will be
 /// read from buf. Use the What() method to get the message type.
 
-TMessage::TMessage(void *buf, Int_t bufsize) : TBufferFile(TBuffer::kRead, bufsize, buf)
+TMessage::TMessage(void *buf, Int_t bufsize) : TBufferFile(TBuffer::kRead, bufsize, buf),
+                                               fCompress(ROOT::RCompressionSetting::EAlgorithm::kUseGlobal)
 {
    // skip space at the beginning of the message reserved for the message length
    fBufCur += sizeof(UInt_t);
 
    *this >> fWhat;
 
-   fCompress   = 0;
-   fBufComp    = 0;
-   fBufCompCur = 0;
-   fCompPos    = 0;
-   fInfos      = 0;
+   fBufComp    = nullptr;
+   fBufCompCur = nullptr;
+   fCompPos    = nullptr;
+   fInfos      = nullptr;
    fEvolution  = kFALSE;
 
    if (fWhat & kMESS_ZIP) {
       // if buffer has kMESS_ZIP set, move it to fBufComp and uncompress
       fBufComp    = fBuffer;
       fBufCompCur = fBuffer + bufsize;
-      fBuffer     = 0;
+      fBuffer     = nullptr;
       Uncompress();
    }
 
@@ -96,12 +96,12 @@ TMessage::TMessage(void *buf, Int_t bufsize) : TBufferFile(TBuffer::kRead, bufsi
       SetBufferOffset(sizeof(UInt_t) + sizeof(fWhat));
       ResetMap();
    } else {
-      fClass = 0;
+      fClass = nullptr;
    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Clean up compression buffer.
+/// Destructor
 
 TMessage::~TMessage()
 {
@@ -156,6 +156,14 @@ void TMessage::Forward()
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Remember that the StreamerInfo is being used in writing.
+///
+/// When support for schema evolution is enabled the list of TStreamerInfo
+/// used to stream this object is kept in fInfos. This information is used
+/// by TSocket::Send that sends this list through the socket. This list is in
+/// turn used by TSocket::Recv to store the TStreamerInfo objects in the
+/// relevant TClass in case the TClass does not know yet about a particular
+/// class version. This feature is implemented to support clients and servers
+/// with either different ROOT versions or different user classes versions.
 
 void TMessage::TagStreamerInfo(TVirtualStreamerInfo *info)
 {
@@ -175,10 +183,16 @@ void TMessage::Reset()
 
    if (fBufComp) {
       delete [] fBufComp;
-      fBufComp    = 0;
-      fBufCompCur = 0;
-      fCompPos    = 0;
+      fBufComp    = nullptr;
+      fBufCompCur = nullptr;
+      fCompPos    = nullptr;
    }
+
+   if (fgEvolution || fEvolution) {
+      if (fInfos)
+         fInfos->Clear();
+   }
+   fBitsPIDs.ResetAllBits();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -199,9 +213,9 @@ void TMessage::SetLength() const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Using this method one can change the message type a-posteriory.
+/// Using this method one can change the message type a-posteriori
 /// In case you OR "what" with kMESS_ACK, the message will wait for
-/// an acknowledgement from the remote side. This makes the sending
+/// an acknowledgment from the remote side. This makes the sending
 /// process synchronous.
 
 void TMessage::SetWhat(UInt_t what)
@@ -220,27 +234,29 @@ void TMessage::SetWhat(UInt_t what)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Set compression algorithm
 
 void TMessage::SetCompressionAlgorithm(Int_t algorithm)
 {
-   if (algorithm < 0 || algorithm >= ROOT::kUndefinedCompressionAlgorithm) algorithm = 0;
+   if (algorithm < 0 || algorithm >= ROOT::RCompressionSetting::EAlgorithm::kUndefined) algorithm = 0;
    Int_t newCompress;
    if (fCompress < 0) {
-      newCompress = 100 * algorithm + 1;
+      newCompress = 100 * algorithm + ROOT::RCompressionSetting::ELevel::kUseMin;
    } else {
       int level = fCompress % 100;
       newCompress = 100 * algorithm + level;
    }
    if (newCompress != fCompress && fBufComp) {
       delete [] fBufComp;
-      fBufComp    = 0;
-      fBufCompCur = 0;
-      fCompPos    = 0;
+      fBufComp    = nullptr;
+      fBufCompCur = nullptr;
+      fCompPos    = nullptr;
    }
    fCompress = newCompress;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Set compression level
 
 void TMessage::SetCompressionLevel(Int_t level)
 {
@@ -251,27 +267,28 @@ void TMessage::SetCompressionLevel(Int_t level)
       newCompress = level;
    } else {
       int algorithm = fCompress / 100;
-      if (algorithm >= ROOT::kUndefinedCompressionAlgorithm) algorithm = 0;
+      if (algorithm >= ROOT::RCompressionSetting::EAlgorithm::kUndefined) algorithm = 0;
       newCompress = 100 * algorithm + level;
    }
    if (newCompress != fCompress && fBufComp) {
       delete [] fBufComp;
-      fBufComp    = 0;
-      fBufCompCur = 0;
-      fCompPos    = 0;
+      fBufComp    = nullptr;
+      fBufCompCur = nullptr;
+      fCompPos    = nullptr;
    }
    fCompress = newCompress;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Set compression settings
 
 void TMessage::SetCompressionSettings(Int_t settings)
 {
    if (settings != fCompress && fBufComp) {
       delete [] fBufComp;
-      fBufComp    = 0;
-      fBufCompCur = 0;
-      fCompPos    = 0;
+      fBufComp    = nullptr;
+      fBufCompCur = nullptr;
+      fCompPos    = nullptr;
    }
    fCompress = settings;
 }
@@ -291,9 +308,9 @@ Int_t TMessage::Compress()
       // no compression specified
       if (fBufComp) {
          delete [] fBufComp;
-         fBufComp    = 0;
-         fBufCompCur = 0;
-         fCompPos    = 0;
+         fBufComp    = nullptr;
+         fBufCompCur = nullptr;
+         fCompPos    = nullptr;
       }
       return 0;
    }
@@ -306,9 +323,9 @@ Int_t TMessage::Compress()
    // remove any existing compressed buffer before compressing modified message
    if (fBufComp) {
       delete [] fBufComp;
-      fBufComp    = 0;
-      fBufCompCur = 0;
-      fCompPos    = 0;
+      fBufComp    = nullptr;
+      fBufCompCur = nullptr;
+      fCompPos    = nullptr;
    }
 
    if (Length() <= (Int_t)(256 + 2*sizeof(UInt_t))) {
@@ -332,13 +349,14 @@ Int_t TMessage::Compress()
          bufmax = messlen - nzip;
       else
          bufmax = kMAXZIPBUF;
-      R__zipMultipleAlgorithm(compressionLevel, &bufmax, messbuf, &bufmax, bufcur, &nout, compressionAlgorithm);
+      R__zipMultipleAlgorithm(compressionLevel, &bufmax, messbuf, &bufmax, bufcur, &nout,
+                              static_cast<ROOT::RCompressionSetting::EAlgorithm::EValues>(compressionAlgorithm));
       if (nout == 0 || nout >= messlen) {
          //this happens when the buffer cannot be compressed
          delete [] fBufComp;
-         fBufComp    = 0;
-         fBufCompCur = 0;
-         fCompPos    = 0;
+         fBufComp    = nullptr;
+         fBufCompCur = nullptr;
+         fCompPos    = nullptr;
          return -1;
       }
       bufcur  += nout;
@@ -403,29 +421,6 @@ Int_t TMessage::Uncompress()
    fCompress = 1;
 
    return 0;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Write object to message buffer.
-/// When support for schema evolution is enabled the list of TStreamerInfo
-/// used to stream this object is kept in fInfos. This information is used
-/// by TSocket::Send that sends this list through the socket. This list is in
-/// turn used by TSocket::Recv to store the TStreamerInfo objects in the
-/// relevant TClass in case the TClass does not know yet about a particular
-/// class version. This feature is implemented to support clients and servers
-/// with either different ROOT versions or different user classes versions.
-
-void TMessage::WriteObject(const TObject *obj)
-{
-   if (fgEvolution || fEvolution) {
-      if (fInfos)
-         fInfos->Clear();
-      else
-         fInfos = new TList();
-   }
-
-   fBitsPIDs.ResetAllBits();
-   WriteObjectAny(obj, TObject::Class());
 }
 
 ////////////////////////////////////////////////////////////////////////////////

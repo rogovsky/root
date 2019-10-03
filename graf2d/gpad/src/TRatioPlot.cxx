@@ -997,11 +997,11 @@ Int_t TRatioPlot::BuildLowerPlot()
       std::vector<double> ci1;
       std::vector<double> ci2;
 
-      Double_t x_arr[fH1->GetNbinsX()];
+      Double_t *x_arr = new Double_t[fH1->GetNbinsX()];
       std::fill_n(x_arr, fH1->GetNbinsX(), 0);
-      Double_t ci_arr1[fH1->GetNbinsX()];
+      Double_t *ci_arr1 = new Double_t[fH1->GetNbinsX()];
       std::fill_n(ci_arr1, fH1->GetNbinsX(), 0);
-      Double_t ci_arr2[fH1->GetNbinsX()];
+      Double_t *ci_arr2 = new Double_t[fH1->GetNbinsX()];
       std::fill_n(ci_arr2, fH1->GetNbinsX(), 0);
       for (Int_t i=0; i<fH1->GetNbinsX();++i) {
          x_arr[i] = fH1->GetBinCenter(i+1);
@@ -1074,16 +1074,18 @@ Int_t TRatioPlot::BuildLowerPlot()
             ((TGraphAsymmErrors*)fRatioGraph)->SetPointError(ipoint,  fH1->GetBinWidth(i)/2., fH1->GetBinWidth(i)/2., 0.5, 0.5);
 
             fConfidenceInterval1->SetPoint(ipoint, x, 0);
-            fConfidenceInterval1->SetPointError(ipoint, x, ci1[i] / error);
+            fConfidenceInterval1->SetPointError(ipoint, x, i < (Int_t)ci1.size() ? ci1[i] / error : 0);
             fConfidenceInterval2->SetPoint(ipoint, x, 0);
-            fConfidenceInterval2->SetPointError(ipoint, x, ci2[i] / error);
+            fConfidenceInterval2->SetPointError(ipoint, x, i < (Int_t)ci2.size() ? ci2[i] / error : 0);
 
             ++ipoint;
 
          }
 
       }
-
+      delete [] x_arr;
+      delete [] ci_arr1;
+      delete [] ci_arr2;
    } else if (fMode == TRatioPlot::CalculationMode::kDivideHist){
       SetGridlines(divideGridlines, 3);
 

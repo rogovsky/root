@@ -15,7 +15,7 @@
 #include "TGraph.h"
 #include "TPolyLine.h"
 #include "TPolyMarker.h"
-#include "TVirtualPad.h"
+#include "TCanvas.h"
 #include "TView.h"
 #include "TStyle.h"
 #include "TH1.h"
@@ -30,10 +30,15 @@
 #include "TLatex.h"
 #include "TArrow.h"
 #include "TFrame.h"
+#include "TMarker.h"
 #include "TVirtualPadEditor.h"
 
 Double_t *gxwork, *gywork, *gxworkl, *gyworkl;
 Int_t TGraphPainter::fgMaxPointsPerLine = 50;
+
+static Int_t    gHighlightPoint  = -1;   // highlight point of graph
+static TGraph  *gHighlightGraph  = 0;    // pointer to graph with highlight point
+static TMarker *gHighlightMarker = 0;    // highlight marker
 
 ClassImp(TGraphPainter);
 
@@ -55,6 +60,7 @@ ClassImp(TGraphPainter);
 - [Colors automatically picked in palette](#GP05)
 - [Reverse graphs' axis](#GP06)
 - [Graphs in logarithmic scale](#GP07)
+- [Highlight mode for graph](#GP08)
 
 
 ### <a name="GP00"></a> Introduction
@@ -160,7 +166,7 @@ Begin_Macro(source)
       x[i] = i*0.1;
       y[i] = 10*sin(x[i]+0.2)-6;
    }
-   gr = new TGraph(n,x,y);
+   auto gr = new TGraph(n,x,y);
    gr->SetFillColor(38);
    c47->cd(1); gr->Draw("AB");
    c47->cd(2); gr->Draw("AB1");
@@ -229,7 +235,7 @@ Begin_Macro(source)
    double y[] = {0, 2, 4, 1, 3};
    double ex[] = {0.1, 0.2, 0.3, 0.4, 0.5};
    double ey[] = {1, 0.5, 1, 0.5, 1};
-   TGraphErrors* ge = new TGraphErrors(5, x, y, ex, ey);
+   auto ge = new TGraphErrors(5, x, y, ex, ey);
    ge->Draw("ap");
 }
 End_Macro
@@ -243,10 +249,10 @@ Begin_Macro(source)
    float err_x[] = {0,0,0};
    float err_y[] = {5,5,5};
    float y[]     = {1,4,9};
-   TGraphErrors tg(3,x,y,err_x,err_y);
+   auto tg = new TGraphErrors(3,x,y,err_x,err_y);
    c48->Divide(2,1);
-   c48->cd(1); gPad->DrawFrame(0,0,4,8); tg.Draw("PC");
-   c48->cd(2); gPad->DrawFrame(0,0,4,8); tg.Draw("0PC");
+   c48->cd(1); gPad->DrawFrame(0,0,4,8); tg->Draw("PC");
+   c48->cd(2); gPad->DrawFrame(0,0,4,8); tg->Draw("0PC");
 }
 End_Macro
 
@@ -259,7 +265,7 @@ Begin_Macro(source)
    double y[] = {0, 2, 4, 1, 3};
    double ex[] = {0.1, 0.2, 0.3, 0.4, 0.5};
    double ey[] = {1, 0.5, 1, 0.5, 1};
-   TGraphErrors* ge = new TGraphErrors(5, x, y, ex, ey);
+   auto ge = new TGraphErrors(5, x, y, ex, ey);
    ge->SetFillColor(4);
    ge->SetFillStyle(3010);
    ge->Draw("a3");
@@ -279,7 +285,7 @@ Begin_Macro(source)
    double y[] = {0, 2, 4, 1, 3};
    double ex[] = {0.1, 0.2, 0.3, 0.4, 0.5};
    double ey[] = {1, 0.5, 1, 0.5, 1};
-   TGraphErrors* ge = new TGraphErrors(5, x, y, ex, ey);
+   auto ge = new TGraphErrors(5, x, y, ex, ey);
    ge->SetFillColor(6);
    ge->SetFillStyle(3005);
    ge->Draw("a4");
@@ -310,25 +316,25 @@ Begin_Macro(source)
    // Now draw data set (1)
 
    // We first have to draw it only with the stat errors
-   TGraphErrors *graph1 = new TGraphErrors(5, x, py1, zero, ey_stat1);
+   auto graph1 = new TGraphErrors(5, x, py1, zero, ey_stat1);
    graph1->SetMarkerStyle(20);
    graph1->Draw("P");
 
    // Now we have to somehow depict the sys errors
 
-   TGraphErrors *graph1_sys = new TGraphErrors(5, x, py1, zero, ey_sys1);
+   auto graph1_sys = new TGraphErrors(5, x, py1, zero, ey_sys1);
    graph1_sys->Draw("[]");
 
    // Now draw data set (2)
 
    // We first have to draw it only with the stat errors
-   TGraphErrors *graph2 = new TGraphErrors(5, x, y2, zero, ey_stat2);
+   auto graph2 = new TGraphErrors(5, x, y2, zero, ey_stat2);
    graph2->SetMarkerStyle(24);
    graph2->Draw("P");
 
    // Now we have to somehow depict the sys errors
 
-   TGraphErrors *graph2_sys = new TGraphErrors(5, x, y2, zero, ey_sys2);
+   auto graph2_sys = new TGraphErrors(5, x, y2, zero, ey_sys2);
    graph2_sys->Draw("[]");
 }
 End_Macro
@@ -347,7 +353,7 @@ Begin_Macro(source)
    double aexh[] = {0.5, 0.4, 0.3, 0.2, 0.1};
    double aeyl[] = {1, 0.5, 1, 0.5, 1};
    double aeyh[] = {0.5, 1, 0.5, 1, 0.5};
-   TGraphAsymmErrors* gae = new TGraphAsymmErrors(5, ax, ay, aexl, aexh, aeyl, aeyh);
+   auto gae = new TGraphAsymmErrors(5, ax, ay, aexl, aexh, aeyl, aeyh);
    gae->SetFillColor(2);
    gae->SetFillStyle(3001);
    gae->Draw("a2");
@@ -375,7 +381,7 @@ Begin_Macro(source)
    Double_t eyld[n] = {.0,.0,.05,.0,.0,.0,.0,.0,.0,.0};
    Double_t exhd[n] = {.0,.0,.0,.0,.0,.0,.0,.0,.0,.0};
    Double_t eyhd[n] = {.0,.0,.0,.0,.0,.0,.0,.0,.05,.0};
-   TGraphBentErrors *gr = new TGraphBentErrors(n,x,y,exl,exh,eyl,eyh,exld,exhd,eyld,eyhd);
+   auto gr = new TGraphBentErrors(n,x,y,exl,exh,eyl,eyh,exld,exhd,eyld,eyhd);
    gr->SetTitle("TGraphBentErrors Example");
    gr->SetMarkerColor(4);
    gr->SetMarkerStyle(21);
@@ -401,7 +407,7 @@ The drawing options for the polar graphs are the following:
 Begin_Macro(source)
 {
    auto c46 = new TCanvas("c46","c46",500,500);
-   TGraphPolar * grP1 = new TGraphPolar();
+   auto grP1 = new TGraphPolar();
    grP1->SetTitle("TGraphPolar example");
 
    grP1->SetPoint(0, (1*TMath::Pi())/4., 0.05);
@@ -459,9 +465,9 @@ values from top to bottom. The following example illustrate how to use these opt
 
 Begin_Macro(source)
 {
-   auto *c = new TCanvas();
+   auto c = new TCanvas();
    c->Divide(2,1);
-   auto *g = new TGraphErrors();
+   auto g = new TGraphErrors();
    g->SetTitle("Simple Graph");
 
    g->SetPoint(0,-4,-3);
@@ -509,7 +515,7 @@ Begin_Macro(source)
    Int_t n = 10000;
    Double_t dx = (xmax-xmin)/n;
    Double_t x = xmin;
-   TGraph*g2 = new TGraph();
+   auto g2 = new TGraph();
    for (Int_t i=0; i<n; i++) {
       g2->SetPoint(i, x, g->Eval(x));
       x = x + dx;
@@ -527,6 +533,47 @@ Begin_Macro(source)
 }
 
 End_Macro
+
+#### <a name="GP08"></a> Highlight mode for graph
+
+\since **ROOT version 6.15/01**
+
+\image html hlGraph1.gif "Highlight mode"
+
+Highlight mode is implemented for `TGraph` (and for `TH1`) class. When
+highlight mode is on, mouse movement over the point will be represented
+graphically. Point will be highlighted as "point circle" (presented by
+marker object). Moreover, any highlight (change of point) emits signal
+`TCanvas::Highlighted()` which allows the user to react and call their own
+function. For a better understanding please see also the tutorials
+`$ROOTSYS/tutorials/graphs/hlGraph*.C` files.
+
+Highlight mode is switched on/off by `TGraph::SetHighlight()` function
+or interactively from `TGraph` context menu. `TGraph::IsHighlight()` to verify
+whether the highlight mode enabled or disabled, default it is disabled.
+
+~~~ {.cpp}
+    root [0] .x $ROOTSYS/tutorials/graphs/gerrors2.C
+    root [1] // try SetHighlight() interactively from TGraph context menu
+~~~
+
+\image html hlgerrors2.gif "Highlight mode for graph"
+
+See how it is used
+<a href="classTHistPainter.html#HP30a">highlight mode and user function</a>
+(is fully equivalent as for histogram).
+
+NOTE all parameters of user function are taken from
+
+    void TCanvas::Highlighted(TVirtualPad *pad, TObject *obj, Int_t x, Int_t y)
+
+  - `pad` is pointer to pad with highlighted graph
+  - `obj` is pointer to highlighted graph
+  - `x` is highlighted x-th (i-th) point for graph
+  - `y` not in use (only for 2D histogram)
+
+For more complex demo please see for example `$ROOTSYS/tutorials/math/hlquantiles.C` file.
+
 */
 
 
@@ -623,12 +670,19 @@ Int_t TGraphPainter::DistancetoPrimitiveHelper(TGraph *theGraph, Int_t px, Int_t
       theY   = theGraph->GetY();
    }
 
+   Int_t hpoint = -1;
    for (i=0;i<theNpoints;i++) {
       pxp = gPad->XtoAbsPixel(gPad->XtoPad(theX[i]));
       pyp = gPad->YtoAbsPixel(gPad->YtoPad(theY[i]));
       d   = TMath::Abs(pxp-px) + TMath::Abs(pyp-py);
-      if (d < distance) distance = d;
+      if (d < distance) {
+         distance = d;
+         hpoint = i;
+      }
    }
+
+   if (theGraph->IsHighlight()) // only if highlight is enable
+      HighlightPoint(theGraph, hpoint, distance);
    if (distance < kMaxDiff) return distance;
 
    for (i=0;i<theNpoints-1;i++) {
@@ -979,6 +1033,107 @@ char *TGraphPainter::GetObjectInfoHelper(TGraph * /*theGraph*/, Int_t /*px*/, In
 
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Return the highlighted point for theGraph
+
+Int_t TGraphPainter::GetHighlightPoint(TGraph *theGraph) const
+{
+   if (theGraph == gHighlightGraph) return gHighlightPoint;
+   else return -1;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// Set highlight (enable/disable) mode for theGraph
+
+void TGraphPainter::SetHighlight(TGraph *theGraph)
+{
+   gHighlightPoint = -1; // must be -1
+   gHighlightGraph = 0;
+   if (theGraph->IsHighlight()) return;
+
+   // delete previous highlight marker
+   if (gHighlightMarker) { gHighlightMarker->Delete(); gHighlightMarker = 0; }
+   // emit Highlighted() signal (user can check on disabled)
+   if (gPad->GetCanvas()) gPad->GetCanvas()->Highlighted(gPad, theGraph, gHighlightPoint, -1);
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// Check on highlight point
+
+void TGraphPainter::HighlightPoint(TGraph *theGraph, Int_t hpoint, Int_t distance)
+{
+   // call from DistancetoPrimitiveHelper (only if highlight is enable)
+
+   const Int_t kHighlightRange = 50; // maybe as fgHighlightRange and Set/Get
+   static Int_t distanceOld = kHighlightRange;
+   if (gHighlightPoint == -1) distanceOld = kHighlightRange; // reset
+
+   if ((distance < kHighlightRange) && (distance < distanceOld)) { // closest point
+      if ((gHighlightPoint != hpoint) || (gHighlightGraph != theGraph)) { // was changed
+         //   Info("HighlightPoint", "graph: %p\tpoint: %d", (void *)theGraph, hpoint);
+         gHighlightPoint = hpoint;
+         gHighlightGraph = theGraph;
+
+         // paint highlight point as marker (recursive calls PaintHighlightPoint)
+         gPad->Modified(kTRUE);
+         gPad->Update();
+
+         // emit Highlighted() signal
+         if (gPad->GetCanvas()) gPad->GetCanvas()->Highlighted(gPad, theGraph, gHighlightPoint, -1);
+      }
+   }
+   if (gHighlightGraph == theGraph) distanceOld = distance;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// Paint highlight point as TMarker object (open circle)
+
+void TGraphPainter::PaintHighlightPoint(TGraph *theGraph, Option_t * /*option*/)
+{
+   // call from PaintGraphSimple
+
+   if ((!theGraph->IsHighlight()) || (gHighlightGraph != theGraph)) return;
+
+   Double_t hx, hy;
+   if (theGraph->GetPoint(gHighlightPoint, hx, hy) == -1) {
+      // special case, e.g. after interactive remove last point
+      if (gHighlightMarker) { gHighlightMarker->Delete(); gHighlightMarker = 0; }
+      return;
+   }
+   // testing specific possibility (after zoom, draw with "same", log, etc.)
+   Double_t uxmin = gPad->GetUxmin();
+   Double_t uxmax = gPad->GetUxmax();
+   Double_t uymin = gPad->GetUymin();
+   Double_t uymax = gPad->GetUymax();
+   if (gPad->GetLogx()) {
+      uxmin = TMath::Power(10.0, uxmin);
+      uxmax = TMath::Power(10.0, uxmax);
+   }
+   if (gPad->GetLogy()) {
+      uymin = TMath::Power(10.0, uymin);
+      uymax = TMath::Power(10.0, uymax);
+   }
+   if ((hx < uxmin) || (hx > uxmax)) return;
+   if ((hy < uymin) || (hy > uymax)) return;
+
+   if (!gHighlightMarker) {
+      gHighlightMarker = new TMarker(hx, hy, 24);
+      gHighlightMarker->SetBit(kCannotPick);
+   }
+   gHighlightMarker->SetX(hx);
+   gHighlightMarker->SetY(hy);
+   gHighlightMarker->SetMarkerSize(theGraph->GetMarkerSize()*2.0);
+   if (gHighlightMarker->GetMarkerSize() < 1.0) gHighlightMarker->SetMarkerSize(1.0); // always visible
+   gHighlightMarker->SetMarkerColor(theGraph->GetMarkerColor());
+   gHighlightMarker->Paint();
+   //   Info("PaintHighlightPoint", "graph: %p\tpoint: %d",
+   //        (void *)gHighlightGraph, gHighlightPoint);
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
 /// Paint a any kind of TGraph
 
 void TGraphPainter::PaintHelper(TGraph *theGraph, Option_t *option)
@@ -993,9 +1148,9 @@ void TGraphPainter::PaintHelper(TGraph *theGraph, Option_t *option)
       char *l3 = strstr(chopt,"pmc"); // Automatic Marker Color
       if (l1 || l2 || l3) {
          Int_t i = gPad->NextPaletteColor();
-         if (l1) {strncpy(l1,"   ",3); theGraph->SetFillColor(i);}
-         if (l2) {strncpy(l2,"   ",3); theGraph->SetLineColor(i);}
-         if (l3) {strncpy(l3,"   ",3); theGraph->SetMarkerColor(i);}
+         if (l1) {memcpy(l1,"   ",3); theGraph->SetFillColor(i);}
+         if (l2) {memcpy(l2,"   ",3); theGraph->SetLineColor(i);}
+         if (l3) {memcpy(l3,"   ",3); theGraph->SetMarkerColor(i);}
       }
 
       SetBit(TGraph::kClipFrame, theGraph->TestBit(TGraph::kClipFrame));
@@ -1023,6 +1178,26 @@ void TGraphPainter::PaintHelper(TGraph *theGraph, Option_t *option)
       } else {
          PaintGraphSimple(theGraph,chopt);
       }
+
+      // Paint the fit parameters if needed.
+      TF1 *fit = 0;
+      TList *functions = theGraph->GetListOfFunctions();
+      TObject *f;
+      if (functions) {
+         f = (TF1*)functions->First();
+         if (f) {
+            if (f->InheritsFrom(TF1::Class())) fit = (TF1*)f;
+         }
+         TIter   next(functions);
+         while ((f = (TObject*) next())) {
+            if (f->InheritsFrom(TF1::Class())) {
+               fit = (TF1*)f;
+               break;
+            }
+         }
+      }
+      if (fit) PaintStats(theGraph, fit);
+
    }
 }
 
@@ -1140,9 +1315,9 @@ void TGraphPainter::PaintGraph(TGraph *theGraph, Int_t npoints, const Double_t *
       // Create a temporary histogram and fill each bin with the
       // function value.
       char chopth[8] = " ";
-      if (strstr(chopt,"x+")) strncat(chopth, "x+",2);
-      if (strstr(chopt,"y+")) strncat(chopth, "y+",2);
-      if (optionIAxis) strncat(chopth, "A",1);
+      if (strstr(chopt,"x+")) strncat(chopth, "x+",3);
+      if (strstr(chopt,"y+")) strncat(chopth, "y+",3);
+      if (optionIAxis) strncat(chopth, "A",2);
       if (!theGraph->GetHistogram()) {
          // the graph is created with at least as many bins as there are
          // points to permit zooming on the full range.
@@ -1158,6 +1333,7 @@ void TGraphPainter::PaintGraph(TGraph *theGraph, Int_t npoints, const Double_t *
          theGraph->GetHistogram()->GetYaxis()->SetLimits(rwymin,rwymax);
          theGraph->GetHistogram()->SetBit(TH1::kNoStats);
          theGraph->GetHistogram()->SetDirectory(0);
+         theGraph->GetHistogram()->Sumw2(kFALSE);
          theGraph->GetHistogram()->Paint(chopth); // Draw histogram axis, title and grid
       } else {
          if (gPad->GetLogy()) {
@@ -1165,30 +1341,13 @@ void TGraphPainter::PaintGraph(TGraph *theGraph, Int_t npoints, const Double_t *
             theGraph->GetHistogram()->SetMaximum(rwymax);
             theGraph->GetHistogram()->GetYaxis()->SetLimits(rwymin,rwymax);
          }
+         theGraph->GetHistogram()->Sumw2(kFALSE);
          theGraph->GetHistogram()->Paint(chopth); // Draw histogram axis, title and grid
       }
    }
 
    // Set Clipping option
    gPad->SetBit(TGraph::kClipFrame, theGraph->TestBit(TGraph::kClipFrame));
-
-   TF1 *fit = 0;
-   TList *functions = theGraph->GetListOfFunctions();
-   TObject *f;
-   if (functions) {
-      f = (TF1*)functions->First();
-      if (f) {
-         if (f->InheritsFrom(TF1::Class())) fit = (TF1*)f;
-      }
-      TIter   next(functions);
-      while ((f = (TObject*) next())) {
-         if (f->InheritsFrom(TF1::Class())) {
-            fit = (TF1*)f;
-            break;
-         }
-      }
-   }
-   if (fit) PaintStats(theGraph, fit);
 
    rwxmin   = gPad->GetUxmin();
    rwxmax   = gPad->GetUxmax();
@@ -1237,7 +1396,8 @@ void TGraphPainter::PaintGraph(TGraph *theGraph, Int_t npoints, const Double_t *
                if (optionFill) {
                   gPad->PaintFillArea(npt,gyworkl,gxworkl);
                   if (bord) gPad->PaintPolyLine(npt,gyworkl,gxworkl);
-               } else {
+               }
+               if (optionLine) {
                   if (TMath::Abs(theGraph->GetLineWidth())>99) PaintPolyLineHatches(theGraph, npt, gyworkl, gxworkl);
                   gPad->PaintPolyLine(npt,gyworkl,gxworkl);
                }
@@ -1245,7 +1405,8 @@ void TGraphPainter::PaintGraph(TGraph *theGraph, Int_t npoints, const Double_t *
                if (optionFill) {
                   gPad->PaintFillArea(npt,gxworkl,gyworkl);
                   if (bord) gPad->PaintPolyLine(npt,gxworkl,gyworkl);
-               } else {
+               }
+               if (optionLine) {
                   if (TMath::Abs(theGraph->GetLineWidth())>99) PaintPolyLineHatches(theGraph, npt, gxworkl, gyworkl);
                   gPad->PaintPolyLine(npt,gxworkl,gyworkl);
                }
@@ -1378,6 +1539,8 @@ void TGraphPainter::PaintGraph(TGraph *theGraph, Int_t npoints, const Double_t *
             xlow  = x[i-1] - dbar;
             xhigh = x[i-1] + dbar;
             yhigh = y[i-1];
+            if (xlow  < uxmin && xhigh < uxmin) continue;
+            if (xhigh > uxmax && xlow  > uxmax) continue;
             if (xlow  < uxmin) xlow = uxmin;
             if (xhigh > uxmax) xhigh = uxmax;
             if (!optionOne) ylow = TMath::Max((Double_t)0,gPad->GetUymin());
@@ -1904,6 +2067,7 @@ void TGraphPainter::PaintGrapHist(TGraph *theGraph, Int_t npoints, const Double_
    //    Draw the histogram with a simple line
 
    if (optionLine) {
+      gPad->SetBit(TGraph::kClipFrame);
       wminstep = wmin + 0.5*delta;
       Axis_t ax1,ax2,ay1,ay2;
       gPad->GetRangeAxis(ax1,ay1,ax2,ay2);
@@ -1927,11 +2091,9 @@ void TGraphPainter::PaintGrapHist(TGraph *theGraph, Int_t npoints, const Double_
             gywork[npt-1] = y[i-1];
             gywork[npt]   = y[i-1]; //new
             if ((gywork[npt-1] < rwymin) || ((gywork[npt-1] > rwymax) && !optionFill2)) {
-               if ((gywork[npt-1] < rwymin)) gywork[npt-1] = rwymin;
-               if ((gywork[npt-1] > rwymax)) gywork[npt-1] = rwymax;
                if (npt > 2) {
                   ComputeLogs(npt, optionZ);
-                  gPad->PaintPolyLine(npt,gxworkl,gyworkl,noClip);
+                  gPad->PaintPolyLine(npt,gxworkl,gyworkl);
                }
                gxwork[0] = gxwork[npt-1];
                gywork[0] = gywork[npt-1];
@@ -3046,7 +3208,7 @@ void TGraphPainter::PaintGraphPolar(TGraph *theGraph, Option_t* options)
       }
       if (theEX) {
          for (i=0; i<theNpoints; i++) {
-            Double_t rad    = c*(theY[i]-rwrmin)/radiusNDC;
+            Double_t rad    = (theY[i]-rwrmin)/radiusNDC;
             Double_t phimin = c*(theX[i]-theEX[i]-rwtmin)/thetaNDC*180/TMath::Pi();
             Double_t phimax = c*(theX[i]+theEX[i]-rwtmin)/thetaNDC*180/TMath::Pi();
             theGraphPolar->TAttLine::Modify();
@@ -3286,6 +3448,8 @@ void TGraphPainter::PaintGraphReverse(TGraph *theGraph, Option_t *option)
 
    Bool_t lrx = opt.Contains("rx");
    Bool_t lry = opt.Contains("ry");
+   Bool_t axis = opt.Contains("a");
+   opt.ReplaceAll("a", "");
 
    Double_t LOX = theHist->GetXaxis()->GetLabelOffset();
    Double_t TLX = theHist->GetXaxis()->GetTickLength();
@@ -3294,7 +3458,7 @@ void TGraphPainter::PaintGraphReverse(TGraph *theGraph, Option_t *option)
    Int_t XACOL  = theHist->GetXaxis()->GetAxisColor();
    Int_t YACOL  = theHist->GetYaxis()->GetAxisColor();
 
-   if (opt.Contains("a")) {
+   if (axis) {
       if (lrx) {
          theHist->GetXaxis()->SetTickLength(0.);
          theHist->GetXaxis()->SetLabelOffset(999.);
@@ -3306,50 +3470,58 @@ void TGraphPainter::PaintGraphReverse(TGraph *theGraph, Option_t *option)
          theHist->GetYaxis()->SetAxisColor(gPad->GetFrameFillColor());
       }
       theHist->Paint("0");
-      opt.ReplaceAll("a", "");
    }
 
    Int_t     N  = theGraph->GetN();
    Double_t *X  = theGraph->GetX();
    Double_t *Y  = theGraph->GetY();
-   Double_t XA1 = theGraph->GetXaxis()->GetXmin();
-   Double_t XA2 = theGraph->GetXaxis()->GetXmax();
-   Double_t YA1 = theGraph->GetYaxis()->GetXmin();
-   Double_t YA2 = theGraph->GetYaxis()->GetXmax();
+   Double_t XA1, XA2, YA1, YA2;
+   if (axis) {
+      XA1 = theGraph->GetXaxis()->GetXmin();
+      XA2 = theGraph->GetXaxis()->GetXmax();
+      YA1 = theGraph->GetYaxis()->GetXmin();
+      YA2 = theGraph->GetYaxis()->GetXmax();
+   } else {
+      XA1 = gPad->GetUxmin();
+      XA2 = gPad->GetUxmax();
+      YA1 = gPad->GetUymin();
+      YA2 = gPad->GetUymax();
+   }
    Double_t dX  = XA1+XA2;
    Double_t dY  = YA1+YA2;
-   Double_t newX[N];
-   Double_t newY[N];
+
+   std::vector<Double_t> newX(N);
+   std::vector<Double_t> newY(N);
 
    if (lrx) {
       opt.ReplaceAll("rx", "");
+      if (axis) {
+         Double_t GL = 0.;
+         theHist->GetXaxis()->SetTickLength(0.);
+         theHist->GetXaxis()->SetLabelOffset(999.);
 
-      Double_t GL = 0.;
-      theHist->GetXaxis()->SetTickLength(0.);
-      theHist->GetXaxis()->SetLabelOffset(999.);
-
-      // Redraw the new X axis
-      gPad->Update();
-      TString optax = "-SDH";
-      if (gPad->GetGridx()) {
-         GL = (YA2-YA1)/(gPad->GetY2() - gPad->GetY1());
-         optax.Append("W");
+         // Redraw the new X axis
+         gPad->Update();
+         TString optax = "-SDH";
+         if (gPad->GetGridx()) {
+            GL = (YA2 - YA1) / (gPad->GetY2() - gPad->GetY1());
+            optax.Append("W");
+         }
+         auto *theNewAxis = new TGaxis(gPad->GetUxmax(),
+                                       gPad->GetUymin(),
+                                       gPad->GetUxmin(),
+                                       gPad->GetUymin(),
+                                       theGraph->GetXaxis()->GetXmin(),
+                                       theGraph->GetXaxis()->GetXmax(),
+                                       theHist->GetNdivisions("X"),
+                                       optax.Data(), -GL);
+         theNewAxis->SetLabelFont(theGraph->GetXaxis()->GetLabelFont());
+         theNewAxis->SetLabelSize(theGraph->GetXaxis()->GetLabelSize());
+         theNewAxis->SetLabelColor(theGraph->GetXaxis()->GetLabelColor());
+         theNewAxis->SetTickLength(TLX);
+         theNewAxis->SetLabelOffset(LOX - theGraph->GetXaxis()->GetLabelSize());
+         theNewAxis->Paint();
       }
-      TGaxis *theNewAxis = new TGaxis(gPad->GetUxmax(),
-                                      gPad->GetUymin(),
-                                      gPad->GetUxmin(),
-                                      gPad->GetUymin(),
-                                      theGraph->GetXaxis()->GetXmin(),
-                                      theGraph->GetXaxis()->GetXmax(),
-                                      theHist->GetNdivisions("X"),
-                                      optax.Data(), -GL);
-      theNewAxis->SetLabelFont(theGraph->GetXaxis()->GetLabelFont());
-      theNewAxis->SetLabelSize(theGraph->GetXaxis()->GetLabelSize());
-      theNewAxis->SetLabelColor(theGraph->GetXaxis()->GetLabelColor());
-      theNewAxis->SetTickLength(TLX);
-      theNewAxis->SetLabelOffset(LOX-theGraph->GetXaxis()->GetLabelSize());
-      theNewAxis->Paint();
-
       // Reverse X coordinates
       for (Int_t i=0; i<N; i++) newX[i] = dX-X[i];
    } else {
@@ -3358,31 +3530,31 @@ void TGraphPainter::PaintGraphReverse(TGraph *theGraph, Option_t *option)
 
    if (lry) {
       opt.ReplaceAll("ry", "");
-      Double_t GL = 0.;
+      if (axis) {
+         Double_t GL = 0.;
+         // Redraw the new Y axis
+         gPad->Update();
+         TString optax = "-SDH";
 
-      // Redraw the new Y axis
-      gPad->Update();
-      TString optax = "-SDH";
-
-      if (gPad->GetGridy()) {
-         GL = (XA2-XA1)/(gPad->GetX2() - gPad->GetX1());
-         optax.Append("W");
+         if (gPad->GetGridy()) {
+            GL = (XA2 - XA1) / (gPad->GetX2() - gPad->GetX1());
+            optax.Append("W");
+         }
+         auto *theNewAxis = new TGaxis(gPad->GetUxmin(),
+                                       gPad->GetUymax(),
+                                       gPad->GetUxmin(),
+                                       gPad->GetUymin(),
+                                       theGraph->GetYaxis()->GetXmin(),
+                                       theGraph->GetYaxis()->GetXmax(),
+                                       theHist->GetNdivisions("Y"),
+                                       optax.Data(), GL);
+         theNewAxis->SetLabelFont(theGraph->GetYaxis()->GetLabelFont());
+         theNewAxis->SetLabelSize(theGraph->GetYaxis()->GetLabelSize());
+         theNewAxis->SetLabelColor(theGraph->GetYaxis()->GetLabelColor());
+         theNewAxis->SetTickLength(-TLY);
+         theNewAxis->SetLabelOffset(LOY-TLY);
+         theNewAxis->Paint();
       }
-      TGaxis *theNewAxis = new TGaxis(gPad->GetUxmin(),
-                                   gPad->GetUymax(),
-                                   gPad->GetUxmin(),
-                                   gPad->GetUymin(),
-                                   theGraph->GetYaxis()->GetXmin(),
-                                   theGraph->GetYaxis()->GetXmax(),
-                                   theHist->GetNdivisions("Y"),
-                                   optax.Data(), GL);
-      theNewAxis->SetLabelFont(theGraph->GetYaxis()->GetLabelFont());
-      theNewAxis->SetLabelSize(theGraph->GetYaxis()->GetLabelSize());
-      theNewAxis->SetLabelColor(theGraph->GetYaxis()->GetLabelColor());
-      theNewAxis->SetTickLength(-TLY);
-      theNewAxis->SetLabelOffset(LOY-TLY);
-      theNewAxis->Paint();
-
       // Reverse Y coordinates
       for (Int_t i=0; i<N; i++) newY[i] = dY-Y[i];
    } else {
@@ -3419,6 +3591,8 @@ void TGraphPainter::PaintGraphSimple(TGraph *theGraph, Option_t *option)
    } else {
       PaintGraph(theGraph, theGraph->GetN(), theGraph->GetX(), theGraph->GetY(), option);
    }
+
+   PaintHighlightPoint(theGraph, option);
 
    // Paint associated objects in the list of functions (for instance
    // the fit function).

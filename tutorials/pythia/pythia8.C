@@ -8,11 +8,6 @@
 ///  root > .x pythia8.C
 /// ~~~
 ///
-/// Note that before executing this script,
-///
-///  - the env variable PYTHIA8 must point to the pythia8100 (or newer) directory
-///  - the env variable PYTHIA8DATA must be defined and it must point to $PYTHIA8/xmldoc
-///
 /// \macro_code
 ///
 /// \author Andreas Morsch
@@ -27,34 +22,7 @@
 
 void pythia8(Int_t nev  = 100, Int_t ndeb = 1)
 {
-   const char *p8dataenv = gSystem->Getenv("PYTHIA8DATA");
-   if (!p8dataenv) {
-      const char *p8env = gSystem->Getenv("PYTHIA8");
-      if (!p8env) {
-         Error("pythia8.C",
-               "Environment variable PYTHIA8 must contain path to pythia directory!");
-         return;
-      }
-      TString p8d = p8env;
-      p8d += "/xmldoc";
-      gSystem->Setenv("PYTHIA8DATA", p8d);
-   }
-
-   const char* path = gSystem->ExpandPathName("$PYTHIA8DATA");
-   if (gSystem->AccessPathName(path)) {
-         Error("pythia8.C",
-               "Environment variable PYTHIA8DATA must contain path to $PYTHIA8/xmldoc directory !");
-      return;
-   }
-
 // Load libraries
-#ifndef G__WIN32 // Pythia8 is a static library on Windows
-   if (gSystem->Getenv("PYTHIA8")) {
-      gSystem->Load("$PYTHIA8/lib/libpythia8");
-   } else {
-      gSystem->Load("libpythia8");
-   }
-#endif
    gSystem->Load("libEG");
    gSystem->Load("libEGPythia8");
 // Histograms
@@ -67,8 +35,19 @@ void pythia8(Int_t nev  = 100, Int_t ndeb = 1)
 // Create pythia8 object
    TPythia8* pythia8 = new TPythia8();
 
+#if PYTHIA_VERSION_INTEGER == 8235
+   // Pythia 8.235 is known to cause crashes:
+   printf("ABORTING PYTHIA8 TUTORIAL!\n");
+   printf("The version of Pythia you use is known to case crashes due to memory errors.\n");
+   printf("They have been reported to the authors; the Pythia versions 8.1... are known to work.\n");
+   return;
+#endif
+
 // Configure
    pythia8->ReadString("HardQCD:all = on");
+   pythia8->ReadString("Random:setSeed = on");
+   // use a reproducible seed: always the same results for the tutorial.
+   pythia8->ReadString("Random:seed = 42");
 
 
 // Initialize

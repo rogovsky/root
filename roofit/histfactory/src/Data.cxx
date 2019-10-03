@@ -9,14 +9,9 @@
  *************************************************************************/
 
 ////////////////////////////////////////////////////////////////////////////////
-
-/*
-BEGIN_HTML
-<p>
-</p>
-END_HTML
+/** \class RooStats::HistFactory::Data
+ *  \ingroup HistFactory 
 */
-//
  
 
 #include "RooStats/HistFactory/Data.h"
@@ -25,14 +20,6 @@ END_HTML
 RooStats::HistFactory::Data::Data() : fName("") {
   ;
 }
-
-RooStats::HistFactory::Data::Data( const Data& other ) :
-  fName( other.fName ),
-  fInputFile( other.fInputFile ),
-  fHistoName( other.fHistoName ),
-  fHistoPath( other.fHistoPath ),
-  fhData( other.fhData )
-{ ; }
 
 RooStats::HistFactory::Data::Data( std::string HistoName, std::string InputFile, 
 				   std::string HistoPath ) :

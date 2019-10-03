@@ -19,10 +19,10 @@
 \class RooRealVar
 \ingroup Roofitcore
 
-RooRealVar represents a fundamental (non-derived) real valued object
+RooRealVar represents a fundamental (non-derived) real-valued object.
 
 This class also holds an (asymmetic) error, a default range and
-a optionally series of alternate named ranges.
+optionally a series of alternate named ranges.
 **/
 
 
@@ -31,10 +31,6 @@ a optionally series of alternate named ranges.
 #include "RooTrace.h"
 
 #include <math.h>
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-#include <iomanip>
 #include "TObjString.h"
 #include "TTree.h"
 #include "RooRealVar.h"
@@ -63,6 +59,7 @@ RooRealVarSharedProperties RooRealVar::_nullProp("00000000-0000-0000-0000-000000
 
 RooRealVar::RooRealVar()  :  _error(0), _asymErrLo(0), _asymErrHi(0), _binning(0), _sharedProp(0)
 {
+  _binning = new RooUniformBinning() ;
   _fast = kTRUE ;
   TRACE_CREATE
 }
@@ -128,12 +125,15 @@ RooRealVar::RooRealVar(const char *name, const char *title,
 		       const char *unit) :
   RooAbsRealLValue(name, title, unit), _error(-1), _asymErrLo(1), _asymErrHi(-1), _sharedProp(0)
 {
-  _value = value ;
-  _fast = kTRUE ;
+    _fast = kTRUE ;
+    _binning = new RooUniformBinning(minValue,maxValue,100) ;
+    setRange(minValue,maxValue) ;
 
-  _binning = new RooUniformBinning(minValue,maxValue,100) ;
-  setRange(minValue,maxValue) ;
-  TRACE_CREATE
+    Double_t clipValue ;
+    inRange(value,0,&clipValue) ;
+    _value = clipValue ;
+
+    TRACE_CREATE
 }
 
 
@@ -173,7 +173,6 @@ RooRealVar::RooRealVar(const RooRealVar& other, const char* name) :
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Destructor
-///   cout << "RooRealVar::dtor(" << this << ")" << endl ;
 
 RooRealVar::~RooRealVar()
 {
@@ -194,6 +193,25 @@ RooRealVar::~RooRealVar()
 Double_t RooRealVar::getValV(const RooArgSet*) const
 {
   return _value ;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// Return batch of data between begin and end.
+/// This requires that this instance is attached to a data store.
+/// \param begin First event to return.
+/// \param batchSize   Size of the batch.
+/// \return Span with event data. May be empty if not attached to a data storage.
+RooSpan<const double> RooRealVar::getValBatch(std::size_t begin, std::size_t batchSize,
+    const RooArgSet*) const {
+  const auto batchStatus = _batchData.status(begin, batchSize);
+  if (batchStatus == BatchHelpers::BatchData::kNoBatch) {
+    return {};
+  }
+
+  assert(batchStatus == BatchHelpers::BatchData::kReadyAndConstant);
+  return _batchData.getBatch(begin, batchSize);
 }
 
 
@@ -262,7 +280,7 @@ Bool_t RooRealVar::hasBinning(const char* name) const
 /// Return binning definition with name. If binning with 'name' is not found it is created
 /// on the fly as a clone of the default binning if createOnTheFly is true, otherwise
 /// a reference to the default binning is returned. If verbose is true a message
-/// is printed if a binning is created on the gly
+/// is printed if a binning is created on the fly.
 
 const RooAbsBinning& RooRealVar::getBinning(const char* name, Bool_t verbose, Bool_t createOnTheFly) const
 {
@@ -275,7 +293,7 @@ const RooAbsBinning& RooRealVar::getBinning(const char* name, Bool_t verbose, Bo
 /// Return binning definition with name. If binning with 'name' is not found it is created
 /// on the fly as a clone of the default binning if createOnTheFly is true, otherwise
 /// a reference to the default binning is returned. If verbose is true a message
-/// is printed if a binning is created on the gly
+/// is printed if a binning is created on the fly.
 
 RooAbsBinning& RooRealVar::getBinning(const char* name, Bool_t verbose, Bool_t createOnTheFly)
 {
@@ -996,7 +1014,9 @@ void RooRealVar::attachToVStore(RooVectorDataStore& vstore)
   if (getAttribute("StoreError") || getAttribute("StoreAsymError") || vstore.isFullReal(this) ) {
 
     RooVectorDataStore::RealFullVector* rfv = vstore.addRealFull(this) ;
-    rfv->setBuffer(this,&_value) ;
+    rfv->setBuffer(this,&_value);
+
+    _batchData.attachForeignStorage(rfv->data());
 
     // Attach/create additional branch for error
     if (getAttribute("StoreError") || vstore.hasError(this) ) {

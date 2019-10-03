@@ -366,6 +366,8 @@ PyObject* PyROOT::T##name##ArrayExecutor::Execute(                           \
 PYROOT_IMPLEMENT_ARRAY_EXECUTOR( Bool,   Bool_t )
 PYROOT_IMPLEMENT_ARRAY_EXECUTOR( Short,  Short_t )
 PYROOT_IMPLEMENT_ARRAY_EXECUTOR( UShort, UShort_t )
+PYROOT_IMPLEMENT_ARRAY_EXECUTOR( Char,  Char_t )
+PYROOT_IMPLEMENT_ARRAY_EXECUTOR( UChar, UChar_t )
 PYROOT_IMPLEMENT_ARRAY_EXECUTOR( Int,    Int_t )
 PYROOT_IMPLEMENT_ARRAY_EXECUTOR( UInt,   UInt_t )
 PYROOT_IMPLEMENT_ARRAY_EXECUTOR( Long,   Long_t )
@@ -681,7 +683,7 @@ PyROOT::TExecutor* PyROOT::CreateExecutor( const std::string& fullType,
    TExecutor* result = 0;
    if ( Cppyy::TCppType_t klass = Cppyy::GetScope( realType ) ) {
       if ( manage_smart_ptr && Cppyy::IsSmartPtr( realType ) ) {
-         const std::vector< Cppyy::TCppMethod_t > methods = Cppyy::GetMethodsFromName( klass, "operator->" );
+         const std::vector< Cppyy::TCppMethod_t > methods = Cppyy::GetMethodsFromName( klass, "operator->", /*bases?*/ true);
          if ( ! methods.empty() ) {
             Cppyy::TCppType_t rawPtrType = Cppyy::GetScope(
                TClassEdit::ShortType( Cppyy::GetMethodResultType( methods[0] ).c_str(), 1 ) );
@@ -720,8 +722,9 @@ PyROOT::TExecutor* PyROOT::CreateExecutor( const std::string& fullType,
             result = new TCppObjectExecutor( klass );
       }
    } else if ( Cppyy::IsEnum( realType ) ) {
-   // enums don't resolve to unsigned ints, but that's what they are ...
-      h = gExecFactories.find( "UInt_t" + cpd );
+      // Get underlying type of enum
+      std::string et(TClassEdit::ResolveTypedef(Cppyy::ResolveEnum(realType).c_str()));
+      h = gExecFactories.find( et + cpd );
    } else {
    // handle (with warning) unknown types
       std::stringstream s;
@@ -786,6 +789,8 @@ namespace {
    PYROOT_EXECUTOR_FACTORY( BoolArray )
    PYROOT_EXECUTOR_FACTORY( ShortArray )
    PYROOT_EXECUTOR_FACTORY( UShortArray )
+   PYROOT_EXECUTOR_FACTORY( CharArray )
+   PYROOT_EXECUTOR_FACTORY( UCharArray )
    PYROOT_EXECUTOR_FACTORY( IntArray )
    PYROOT_EXECUTOR_FACTORY( UIntArray )
    PYROOT_EXECUTOR_FACTORY( LongArray )
@@ -853,6 +858,8 @@ namespace {
    // pointer/array factories
       NFp_t( "void*",              &CreateVoidArrayExecutor           ),
       NFp_t( "bool*",              &CreateBoolArrayExecutor           ),
+      NFp_t( "signed char*",       &CreateCharArrayExecutor           ),
+      NFp_t( "unsigned char*",     &CreateUCharArrayExecutor         ),
       NFp_t( "short*",             &CreateShortArrayExecutor          ),
       NFp_t( "unsigned short*",    &CreateUShortArrayExecutor         ),
       NFp_t( "int*",               &CreateIntArrayExecutor            ),
@@ -860,6 +867,8 @@ namespace {
       NFp_t( "UInt_t*", /* enum */ &CreateUIntArrayExecutor           ),
       NFp_t( "long*",              &CreateLongArrayExecutor           ),
       NFp_t( "unsigned long*",     &CreateULongArrayExecutor          ),
+      NFp_t( "Long64_t*",          &CreateLongArrayExecutor           ),
+      NFp_t( "ULong64_t*",         &CreateULongArrayExecutor          ),
       NFp_t( "float*",             &CreateFloatArrayExecutor          ),
       NFp_t( "double*",            &CreateDoubleArrayExecutor         ),
 

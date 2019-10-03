@@ -81,7 +81,6 @@ XrdProofdNetMgr::XrdProofdNetMgr(XrdProofdManager *mgr,
    fNumLocalWrks = XrdProofdAux::GetNumCPUs();
    fWorkerUsrCfg = 0;
    fRequestTO = 30;
-   fBonjourEnabled = false;
 
    // Configuration directives
    RegisterDirectives();
@@ -95,7 +94,6 @@ void XrdProofdNetMgr::RegisterDirectives()
    Register("adminreqto", new XrdProofdDirective("adminreqto", this, &DoDirectiveClass));
    Register("resource", new XrdProofdDirective("resource", this, &DoDirectiveClass));
    Register("worker", new XrdProofdDirective("worker", this, &DoDirectiveClass));
-   Register("bonjour", new XrdProofdDirective("bonjour", this, &DoDirectiveClass));
    Register("localwrks", new XrdProofdDirective("localwrks", (void *)&fNumLocalWrks, &DoDirectiveInt));
 }
 
@@ -181,7 +179,7 @@ int XrdProofdNetMgr::Config(bool rcf)
             // Use default
             CreateDefaultPROOFcfg();
          }
-      } else if (fResourceType == kRTNone && fWorkers.size() <= 1 && !fBonjourEnabled) {
+      } else if (fResourceType == kRTNone && fWorkers.size() <= 1) {
          // Nothing defined: use default
          CreateDefaultPROOFcfg();
       }
@@ -221,29 +219,10 @@ int XrdProofdNetMgr::DoDirective(XrdProofdDirective *d,
       return DoDirectiveAdminReqTO(val, cfg, rcf);
    } else if (d->fName == "worker") {
       return DoDirectiveWorker(val, cfg, rcf);
-   } else if (d->fName == "bonjour") {
-      return DoDirectiveBonjour(val, cfg, rcf);
    }
 
    TRACE(XERR, "unknown directive: " << d->fName);
 
-   return -1;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-int XrdProofdNetMgr::DoDirectiveBonjour(char *val, XrdOucStream *cfg, bool)
-{
-   XPDLOC(NMGR, "NetMgr::DoDirectiveBonjour");
-
-   // Process 'bonjour' directive
-   TRACE(DBG, "processing Bonjour directive");
-
-   if (!val || !cfg)
-      // undefined inputs
-      return -1;
-
-   TRACE(XERR, "Bonjour support is disabled");
    return -1;
 }
 
@@ -268,7 +247,7 @@ void XrdProofdNetMgr::BalanceNodesOrder()
    bool deleted;
 
    // Fill the information store with the first data (number of nodes).
-   for (iter = fNodes.begin(); iter != fNodes.end(); iter++) {
+   for (iter = fNodes.begin(); iter != fNodes.end(); ++iter) {
       // The next code is not the same as this:
       //info[*iter].available = count(fWorkers.begin(), fWorkers.end(), *iter);
       // The previous piece of STL code only checks the pointer of the value
@@ -277,7 +256,7 @@ void XrdProofdNetMgr::BalanceNodesOrder()
       // doing a 'manually' matching since statically configured nodes are
       // created in multiple ways.
       info[*iter].available = 0;
-      for (iter2 = fWorkers.begin(); iter2 != fWorkers.end(); iter2++) {
+      for (iter2 = fWorkers.begin(); iter2 != fWorkers.end(); ++iter2) {
          if ((*iter)->Matches(*iter2)) {
             info[*iter].available++;
          }
@@ -292,7 +271,7 @@ void XrdProofdNetMgr::BalanceNodesOrder()
 
    // Now, calculate the number of workers to add in each iteration of the
    // round robin, scaling to the smaller number.
-   for (iter = fNodes.begin(); iter != fNodes.end(); iter++) {
+   for (iter = fNodes.begin(); iter != fNodes.end(); ++iter) {
       if (info[*iter].available > 1) {
          info[*iter].per_iteration = (unsigned int)floor((double)info[*iter].available / (double)min);
       } else {
@@ -309,7 +288,7 @@ void XrdProofdNetMgr::BalanceNodesOrder()
    // Finally, do the round robin assignment of nodes.
    // Stop when every node has its workers processed.
    while (total_added < total) {
-      for (map<XrdProofWorker *, BalancerInfo>::iterator i = info.begin(); i != info.end(); i++) {
+      for (map<XrdProofWorker *, BalancerInfo>::iterator i = info.begin(); i != info.end(); ++i) {
          if (i->second.added < i->second.available) {
             // Be careful with the remainders (on prime number of nodes).
             unsigned int to_add = xrdmin(i->second.per_iteration,
@@ -353,7 +332,7 @@ void XrdProofdNetMgr::BalanceNodesOrder()
       }
       // Do not forget to increase the iterator.
       if (!deleted)
-         iter3++;
+         ++iter3;
    }
 
    // Then, substitute the current fWorkers list with the balanced one.
@@ -559,7 +538,7 @@ int XrdProofdNetMgr::BroadcastCtrlC(const char *usr)
          }
       }
       // Next worker
-      iw++;
+      ++iw;
    }
 
    // Done
@@ -617,7 +596,7 @@ int XrdProofdNetMgr::Broadcast(int type, const char *msg, const char *usr,
          }
       }
       // Next worker
-      iw++;
+      ++iw;
    }
 
    // Done
@@ -1364,7 +1343,7 @@ char *XrdProofdNetMgr::ReadLogPaths(const char *msg, int isess)
          }
       }
       // Next worker
-      iw++;
+      ++iw;
    }
 
    // Done
@@ -1407,7 +1386,7 @@ void XrdProofdNetMgr::CreateDefaultPROOFcfg()
 
    // Copy the list
    std::list<XrdProofWorker *>::iterator w = fDfltWorkers.begin();
-   for (; w != fDfltWorkers.end(); w++) {
+   for (; w != fDfltWorkers.end(); ++w) {
       fWorkers.push_back(*w);
    }
 
@@ -1465,7 +1444,7 @@ void XrdProofdNetMgr::Dump()
    XPDPRT("+ ");
 
    std::list<XrdProofWorker *>::iterator iw;
-   for (iw = fWorkers.begin(); iw != fWorkers.end(); iw++) {
+   for (iw = fWorkers.begin(); iw != fWorkers.end(); ++iw) {
       XPDPRT("+ wrk: " << (*iw)->fHost << ":" << (*iw)->fPort << " type:" << (*iw)->fType <<
              " active sessions:" << (*iw)->Active());
    }
@@ -1567,8 +1546,8 @@ int XrdProofdNetMgr::ReadPROOFcfg(bool reset)
       // Deactivate all current active workers
       std::list<XrdProofWorker *>::iterator w = fRegWorkers.begin();
       // Skip the master line
-      w++;
-      for (; w != fRegWorkers.end(); w++) {
+      ++w;
+      for (; w != fRegWorkers.end(); ++w) {
          (*w)->fActive = 0;
       }
    }
@@ -1615,7 +1594,7 @@ int XrdProofdNetMgr::ReadPROOFcfg(bool reset)
          // Check if we have already it
          std::list<XrdProofWorker *>::iterator w = fRegWorkers.begin();
          // Skip the master line
-         w++;
+         ++w;
          bool haveit = 0;
          while (w != fRegWorkers.end()) {
             if (!((*w)->fActive)) {
@@ -1626,7 +1605,7 @@ int XrdProofdNetMgr::ReadPROOFcfg(bool reset)
                }
             }
             // Go to next
-            w++;
+            ++w;
          }
          // If we do not have it, build a new worker object
          if (!haveit) {
@@ -1646,7 +1625,7 @@ int XrdProofdNetMgr::ReadPROOFcfg(bool reset)
          fWorkers.push_back(*w);
          nw++;
       }
-      w++;
+      ++w;
    }
 
    // Close files
@@ -1678,11 +1657,11 @@ int XrdProofdNetMgr::FindUniqueNodes()
    // Build the list of unique nodes (skip the master line);
    if (fWorkers.size() > 1) {
       std::list<XrdProofWorker *>::iterator w = fWorkers.begin();
-      w++;
-      for (; w != fWorkers.end(); w++) if ((*w)->fActive) {
+      ++w;
+      for (; w != fWorkers.end(); ++w) if ((*w)->fActive) {
             bool add = 1;
             std::list<XrdProofWorker *>::iterator n;
-            for (n = fNodes.begin() ; n != fNodes.end(); n++) {
+            for (n = fNodes.begin() ; n != fNodes.end(); ++n) {
                if ((*n)->Matches(*w)) {
                   add = 0;
                   break;

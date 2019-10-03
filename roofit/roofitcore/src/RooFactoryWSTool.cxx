@@ -37,17 +37,13 @@ instantiate objects.
 #include "RooMsgService.h"
 #include "RooWorkspace.h"
 #include "TInterpreter.h"
-#include "TClass.h"
-#include "TClassTable.h"
+#include "TEnum.h"
 #include "RooAbsPdf.h"
 #include "RooGaussian.h"
 #include <fstream>
-#include <vector>
-#include <string>
 #include "RooGlobalFunc.h"
 #include "RooDataSet.h"
 #include "RooDataHist.h"
-#include "RooCintUtils.h"
 #include "RooAddPdf.h"
 #include "RooProdPdf.h"
 #include "RooSimultaneous.h"
@@ -61,6 +57,7 @@ instantiate objects.
 #include "RooRealSumPdf.h"
 #include "RooConstVar.h"
 #include "RooDerivative.h"
+#include "RooStringVar.h"
 #include "TROOT.h"
 
 using namespace RooFit ;
@@ -120,27 +117,6 @@ static Int_t init()
 
 #ifndef _WIN32
 #include <strings.h>
-#else
-
-static char *strtok_r(char *s1, const char *s2, char **lasts)
-{
-  char *ret;
-  
-  if (s1 == NULL)
-    s1 = *lasts;
-  while(*s1 && strchr(s2, *s1))
-    ++s1;
-  if(*s1 == '\0')
-    return NULL;
-  ret = s1;
-  while(*s1 && !strchr(s2, *s1))
-    ++s1;
-  if(*s1)
-    *s1++ = '\0';
-  *lasts = s1;
-  return ret;
-}
-
 #endif
 
 
@@ -203,7 +179,7 @@ RooCategory* RooFactoryWSTool::createCategory(const char* name, const char* stat
     char *tmp = new char[tmpSize] ;
     strlcpy(tmp,stateNameList,tmpSize) ;
     char* save ;
-    char* tok = strtok_r(tmp,",",&save) ;
+    char* tok = R__STRTOK_R(tmp,",",&save) ;
     while(tok) {
       char* sep = strchr(tok,'=') ;
       if (sep) {
@@ -214,7 +190,7 @@ RooCategory* RooFactoryWSTool::createCategory(const char* name, const char* stat
       } else {
 	cat.defineType(tok) ;
       }
-      tok = strtok_r(0,",",&save) ;
+      tok = R__STRTOK_R(0,",",&save) ;
     }
     delete[] tmp ;
   }
@@ -227,7 +203,94 @@ RooCategory* RooFactoryWSTool::createCategory(const char* name, const char* stat
   return _ws->cat(name) ;
 }
 
+namespace {
+  static bool isEnum(const char* classname) {
+    // Returns true if given type is an enum
+    ClassInfo_t* cls = gInterpreter->ClassInfo_Factory(classname);
+    long property = gInterpreter->ClassInfo_Property(cls);
+    gInterpreter->ClassInfo_Delete(cls);
+    return (property&kIsEnum);
+  }
 
+
+  static bool isValidEnumValue(const char* enumName, const char* enumConstantName) {
+    // Returns true if given type is an enum
+
+    if (!enumName) return false;
+
+    auto theEnum = TEnum::GetEnum(enumName);
+    if (!enumName) return false;
+
+    // Attempt 1: Enum constant name as is
+    if (theEnum->GetConstant(enumConstantName)) return true;
+    // Attempt 2: Remove the scope preceding the enum constant name
+    auto tmp = strstr(enumConstantName, "::");
+    if (tmp) {
+      auto enumConstantNameNoScope = tmp+2;
+      if (theEnum->GetConstant(enumConstantNameNoScope)) return true;
+    }
+
+    return false;
+  }
+
+  static pair<list<string>,unsigned int> ctorArgs(const char* classname, UInt_t nMinArg) {
+    // Utility function for RooFactoryWSTool. Return arguments of 'first' non-default, non-copy constructor of any RooAbsArg
+    // derived class. Only constructors that start with two 'const char*' arguments (for name and title) are considered
+    // The returned object contains
+
+    Int_t nreq(0);
+    list<string> ret;
+
+    ClassInfo_t* cls = gInterpreter->ClassInfo_Factory(classname);
+    MethodInfo_t* func = gInterpreter->MethodInfo_Factory(cls);
+    while(gInterpreter->MethodInfo_Next(func)) {
+      ret.clear();
+      nreq=0;
+
+      // Find 'the' constructor
+
+      // Skip non-public methods
+      if (!(gInterpreter->MethodInfo_Property(func) & kIsPublic)) {
+        continue;
+      }
+
+      // Return type must be class name
+      if (string(classname) != gInterpreter->MethodInfo_TypeName(func)) {
+        continue;
+      }
+
+      // Skip default constructor
+      int nargs = gInterpreter->MethodInfo_NArg(func);
+      if (nargs==0 || nargs==gInterpreter->MethodInfo_NDefaultArg(func)) {
+        continue;
+      }
+
+      MethodArgInfo_t* arg = gInterpreter->MethodArgInfo_Factory(func);
+      while (gInterpreter->MethodArgInfo_Next(arg)) {
+        // Require that first two arguments are of type const char*
+        const char* argTypeName = gInterpreter->MethodArgInfo_TypeName(arg);
+        if (nreq<2 && ((string("char*") != argTypeName
+                && !(gInterpreter->MethodArgInfo_Property(arg) & kIsConstPointer))
+              && string("const char*") != argTypeName)) {
+          continue ;
+        }
+        ret.push_back(argTypeName) ;
+        if(!gInterpreter->MethodArgInfo_DefaultValue(arg)) nreq++;
+      }
+      gInterpreter->MethodArgInfo_Delete(arg);
+
+      // Check that the number of required arguments is at least nMinArg
+      if (ret.size()<nMinArg) {
+        continue;
+      }
+
+      break;
+    }
+    gInterpreter->MethodInfo_Delete(func);
+    gInterpreter->ClassInfo_Delete(cls);
+    return pair<list<string>,unsigned int>(ret,nreq);
+  }
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Low-level factory interface for creating a RooAbsPdf of a given class with a given list of input variables
@@ -238,55 +301,46 @@ RooCategory* RooFactoryWSTool::createCategory(const char* name, const char* stat
 RooAbsArg* RooFactoryWSTool::createArg(const char* className, const char* objName, const char* varList) 
 {
   // Find class in ROOT class table
-  TClass* tc = resolveClassName(className) ;
+  TClass* tc = resolveClassName(className);
   if (!tc) {
-    coutE(ObjectHandling) << "RooFactoryWSTool::createArg() ERROR class " << className << " not found in factory alias table, nor in ROOT class table" << endl ;
-    logError() ;
-    return 0 ;
+    coutE(ObjectHandling) << "RooFactoryWSTool::createArg() ERROR class " << className << " not found in factory alias table, nor in ROOT class table" << endl;
+    logError();
+    return 0;
   }
 
-  className = tc->GetName() ;
+  className = tc->GetName();
 
   // Check that class inherits from RooAbsPdf
   if (!tc->InheritsFrom(RooAbsArg::Class())) {
-    coutE(ObjectHandling) << "RooFactoryWSTool::createArg() ERROR class " << className << " does not inherit from RooAbsArg" << endl ;
-    logError() ;
-    return 0 ;
+    coutE(ObjectHandling) << "RooFactoryWSTool::createArg() ERROR class " << className << " does not inherit from RooAbsArg" << endl;
+    logError();
+    return 0;
   }
 
-
-  _args.clear() ;
-  char tmp[BUFFER_SIZE] ;
-  strlcpy(tmp,varList,BUFFER_SIZE) ;
-  char* p=tmp ;
-  char* tok=tmp ;
-  Int_t blevel(0) ;
-  Bool_t litmode(kFALSE) ;
-  while(*p) {
-
+  _args.clear();
+  string tmp(varList);
+  size_t blevel = 0, end_tok, start_tok = 0;
+  bool litmode = false;
+  for (end_tok = 0; end_tok < tmp.length(); end_tok++) {
     // Keep track of opening and closing brackets
-    if (*p=='{' || *p=='(' || *p=='[') blevel++ ;
-    if (*p=='}' || *p==')' || *p==']') blevel-- ;
+    if (tmp[end_tok]=='{' || tmp[end_tok]=='(' || tmp[end_tok]=='[') blevel++;
+    if (tmp[end_tok]=='}' || tmp[end_tok]==')' || tmp[end_tok]==']') blevel--;
 
     // Keep track of string literals
-    if (*p=='"' || *p=='\'') litmode = !litmode ;
-    
+    if (tmp[end_tok]=='"' || tmp[end_tok]=='\'') litmode = !litmode;
+
     // If we encounter a comma at zero bracket level
-    // finalize the current token as a completed argument
+    // push the current substring from start_tok to end_tok
     // and start the next token
-    if (!litmode && blevel==0 && ((*p)==',')) {
-      *p = 0 ;
-      _args.push_back(tok) ;
-      tok = p+1 ;
+    if (litmode == false && blevel == 0 && tmp[end_tok] == ',') {
+      _args.push_back(tmp.substr(start_tok, end_tok - start_tok));
+      start_tok = end_tok+1;
     }
-
-    p++ ;
   }
-  _args.push_back(tok) ;
-
+  _args.push_back(tmp.substr(start_tok, end_tok));
 
   // Try CINT interface
-  pair<list<string>,unsigned int> ca = RooCintUtils::ctorArgs(className,_args.size()+2) ;
+  pair<list<string>,unsigned int> ca = ctorArgs(className,_args.size()+2) ;
   if (ca.first.size()==0) {
     coutE(ObjectHandling) << "RooFactoryWSTool::createArg() ERROR no suitable constructor found for class " << className << endl ;
     logError() ;
@@ -317,8 +371,8 @@ RooAbsArg* RooFactoryWSTool::createArg(const char* className, const char* objNam
   
   try {
     Int_t i(0) ;
-    list<string>::iterator ti = ca.first.begin() ; ti++ ; ti++ ;
-    for (vector<string>::iterator ai = _args.begin() ; ai != _args.end() ; ai++,ti++,i++) {
+    list<string>::iterator ti = ca.first.begin() ; ++ti ; ++ti ;
+    for (vector<string>::iterator ai = _args.begin() ; ai != _args.end() ; ++ai,++ti,++i) {
       if ((*ti)=="RooAbsReal&" || (*ti)=="const RooAbsReal&") {
 	RooFactoryWSTool::as_FUNC(i) ;
 	cintExpr += Form(",RooFactoryWSTool::as_FUNC(%d)",i) ;
@@ -370,7 +424,7 @@ RooAbsArg* RooFactoryWSTool::createArg(const char* className, const char* objNam
       } else if ((*ti)=="Double_t") {
 	RooFactoryWSTool::as_DOUBLE(i) ;
 	cintExpr += Form(",RooFactoryWSTool::as_DOUBLE(%d)",i) ;	
-      } else if (RooCintUtils::isEnum(ti->c_str())) {	  	  
+      } else if (isEnum(ti->c_str())) {
 
 	string qualvalue ;
 	if (_args[i].find(Form("%s::",className)) != string::npos) {		    
@@ -378,7 +432,7 @@ RooAbsArg* RooFactoryWSTool::createArg(const char* className, const char* objNam
 	} else {	
 	  qualvalue =  Form("%s::%s",className,_args[i].c_str()) ;	    
 	}
-	if (RooCintUtils::isValidEnumValue(ti->c_str(),qualvalue.c_str())) {
+	if (isValidEnumValue(ti->c_str(),qualvalue.c_str())) {
 	  cintExpr += Form(",(%s)%s",ti->c_str(),qualvalue.c_str()) ;
 	} else {
 	  throw string(Form("Supplied argument %s does not represent a valid state of enum %s",_args[i].c_str(),ti->c_str())) ;
@@ -399,7 +453,7 @@ RooAbsArg* RooFactoryWSTool::createArg(const char* className, const char* objNam
 	}
 
 	// If btype if a typedef, substitute it by the true type name
-	btype = RooCintUtils::trueName(btype.c_str()) ;
+	btype = string(TEnum::GetEnum(btype.c_str())->GetName());
 
 	if (obj.InheritsFrom(btype.c_str())) {
 	  cintExpr += Form(",(%s&)RooFactoryWSTool::as_OBJ(%d)",ti->c_str(),i) ;
@@ -409,7 +463,7 @@ RooAbsArg* RooFactoryWSTool::createArg(const char* className, const char* objNam
       }
     }
     cintExpr += ") ;" ;
-  } catch (string err) {
+  } catch (const string &err) {
     coutE(ObjectHandling) << "RooFactoryWSTool::createArg() ERROR constructing " << className << "::" << objName << ": " << err << endl ;
     logError() ;
     return 0 ;
@@ -439,18 +493,6 @@ RooAbsArg* RooFactoryWSTool::createArg(const char* className, const char* objNam
   }
 }
 
-
-
-////////////////////////////////////////////////////////////////////////////////
-
-vector<string> RooFactoryWSTool::ctorArgs(const char* /*className*/) 
-{
-  return vector<string>() ;
-}
-
-
-
-
 ////////////////////////////////////////////////////////////////////////////////
 
 RooAddPdf* RooFactoryWSTool::add(const char *objName, const char* specList, Bool_t recursiveCoefs)
@@ -466,7 +508,7 @@ RooAddPdf* RooFactoryWSTool::add(const char *objName, const char* specList, Bool
     char buf[BUFFER_SIZE] ;
     strlcpy(buf,specList,BUFFER_SIZE) ;
     char* save ;
-    char* tok = strtok_r(buf,",",&save) ;
+    char* tok = R__STRTOK_R(buf,",",&save) ;
     while(tok) {
       char* star=strchr(tok,'*') ;
       if (star) {
@@ -476,11 +518,11 @@ RooAddPdf* RooFactoryWSTool::add(const char *objName, const char* specList, Bool
       } else {
 	pdfList2.add(asPDF(tok)) ;
       }
-      tok = strtok_r(0,",",&save) ;
+      tok = R__STRTOK_R(0,",",&save) ;
     }
     pdfList.add(pdfList2) ;
 
-  } catch (string err) {
+  } catch (const string &err) {
     coutE(ObjectHandling) << "RooFactoryWSTool::add(" << objName << ") ERROR creating RooAddPdf: " << err << endl ;    
     logError() ;
     return 0 ;
@@ -508,7 +550,7 @@ RooRealSumPdf* RooFactoryWSTool::amplAdd(const char *objName, const char* specLi
     char buf[BUFFER_SIZE] ;
     strlcpy(buf,specList,BUFFER_SIZE) ;
     char* save ;
-    char* tok = strtok_r(buf,",",&save) ;
+    char* tok = R__STRTOK_R(buf,",",&save) ;
     while(tok) {
       char* star=strchr(tok,'*') ;
       if (star) {
@@ -518,11 +560,11 @@ RooRealSumPdf* RooFactoryWSTool::amplAdd(const char *objName, const char* specLi
       } else {
 	amplList2.add(asFUNC(tok)) ;
       }
-      tok = strtok_r(0,",",&save) ;
+      tok = R__STRTOK_R(0,",",&save) ;
     }
     amplList.add(amplList2) ;
 
-  } catch (string err) {
+  } catch (const string &err) {
     coutE(ObjectHandling) << "RooFactoryWSTool::add(" << objName << ") ERROR creating RooRealSumPdf: " << err << endl ;    
     logError() ;
     return 0 ;
@@ -547,7 +589,7 @@ RooProdPdf* RooFactoryWSTool::prod(const char *objName, const char* pdfList)
   char buf[BUFFER_SIZE] ;
   strlcpy(buf,pdfList,BUFFER_SIZE) ;
   char* save ;
-  char* tok = strtok_r(buf,",",&save) ;
+  char* tok = R__STRTOK_R(buf,",",&save) ;
   while(tok) {
     char *sep = strchr(tok,'|') ;
     if (sep) {
@@ -564,7 +606,7 @@ RooProdPdf* RooFactoryWSTool::prod(const char *objName, const char* pdfList)
       
       try {
  	cmdList.Add(Conditional(asSET(tok),asSET(sep),!invCond).Clone()) ;
-      } catch (string err) {
+      } catch (const string &err) {
 	coutE(ObjectHandling) << "RooFactoryWSTool::prod(" << objName << ") ERROR creating RooProdPdf Conditional argument: " << err << endl ;
 	logError() ;
 	return 0 ;
@@ -577,14 +619,14 @@ RooProdPdf* RooFactoryWSTool::prod(const char *objName, const char* pdfList)
       }
       regPdfList += tok ;
     }
-    tok = strtok_r(0,",",&save) ;
+    tok = R__STRTOK_R(0,",",&save) ;
   }
   regPdfList += "}" ;
   
   RooProdPdf* pdf = 0 ;
   try {
     pdf = new RooProdPdf(objName,objName,asSET(regPdfList.c_str()),cmdList) ;
-  } catch (string err) {
+  } catch (const string &err) {
     coutE(ObjectHandling) << "RooFactoryWSTool::prod(" << objName << ") ERROR creating RooProdPdf input set of regular p.d.f.s: " << err << endl ;
     logError() ;
     pdf = 0 ;
@@ -612,7 +654,7 @@ RooSimultaneous* RooFactoryWSTool::simul(const char* objName, const char* indexC
   char buf[BUFFER_SIZE] ;
   strlcpy(buf,pdfMap,BUFFER_SIZE) ;
   char* save ;
-  char* tok = strtok_r(buf,",",&save) ;
+  char* tok = R__STRTOK_R(buf,",",&save) ;
   while(tok) {
     char* eq = strchr(tok,'=') ;
     if (!eq) {
@@ -625,12 +667,12 @@ RooSimultaneous* RooFactoryWSTool::simul(const char* objName, const char* indexC
 
       try {
 	theMap[tok] = &asPDF(eq+1) ;
-      } catch ( string err ) {
+      } catch (const string &err ) {
 	coutE(ObjectHandling) << "RooFactoryWSTool::simul(" << objName << ") ERROR creating RooSimultaneous: " << err << endl ;
 	logError() ;
       }
     }
-    tok = strtok_r(0,",",&save) ;
+    tok = R__STRTOK_R(0,",",&save) ;
   }
 
 
@@ -638,7 +680,7 @@ RooSimultaneous* RooFactoryWSTool::simul(const char* objName, const char* indexC
   RooSimultaneous* pdf(0) ;
   try {
     pdf = new RooSimultaneous(objName,objName,theMap,asCATLV(indexCat)) ;
-  } catch (string err) {
+  } catch (const string &err) {
     coutE(ObjectHandling) << "RooFactoryWSTool::simul(" << objName << ") ERROR creating RooSimultaneous::" << objName << " " << err << endl ;
     logError() ;
   }
@@ -664,7 +706,7 @@ RooAddition* RooFactoryWSTool::addfunc(const char *objName, const char* specList
     char buf[BUFFER_SIZE] ;
     strlcpy(buf,specList,BUFFER_SIZE) ;
     char* save ;
-    char* tok = strtok_r(buf,",",&save) ;
+    char* tok = R__STRTOK_R(buf,",",&save) ;
     while(tok) {
       char* star=strchr(tok,'*') ;
       if (star) {
@@ -674,10 +716,10 @@ RooAddition* RooFactoryWSTool::addfunc(const char *objName, const char* specList
       } else {
 	sumlist1.add(asFUNC(tok)) ;
       }
-      tok = strtok_r(0,",",&save) ;
+      tok = R__STRTOK_R(0,",",&save) ;
     }
 
-  } catch (string err) {
+  } catch (const string &err) {
     coutE(ObjectHandling) << "RooFactoryWSTool::addfunc(" << objName << ") ERROR creating RooAddition: " << err << endl ;
     logError() ;
     return 0 ;
@@ -855,7 +897,7 @@ RooAbsArg* RooFactoryWSTool::process(const char* expr)
   string out ;
   try {
     out = processExpression(buf) ;
-  } catch (string error) {
+  } catch (const string &error) {
     coutE(ObjectHandling) << "RooFactoryWSTool::processExpression() ERROR in parsing: " << error << endl ;
     logError() ;
   }
@@ -957,11 +999,11 @@ std::string RooFactoryWSTool::processCompositeExpression(const char* token)
 
   string ret ;
   list<char>::iterator ic = separator.begin() ;
-  for (list<string>::iterator ii = singleExpr.begin() ; ii!=singleExpr.end() ; ii++) {
+  for (list<string>::iterator ii = singleExpr.begin() ; ii!=singleExpr.end() ; ++ii) {
     ret += processSingleExpression(ii->c_str()) ;
     if (ic != separator.end()) {
       ret += *ic ;
-      ic++ ;
+      ++ic ;
     }
   }
 
@@ -1002,9 +1044,9 @@ std::string RooFactoryWSTool::processSingleExpression(const char* arg)
 
   // Process token into arguments
   char* save ;
-  char* tmpx = strtok_r(buf,"([",&save) ;
+  char* tmpx = R__STRTOK_R(buf,"([",&save) ;
   func = tmpx ? tmpx : "" ;
-  char* p = strtok_r(0,"",&save) ;
+  char* p = R__STRTOK_R(0,"",&save) ;
   
   // Return here if token is fundamental
   if (!p) {
@@ -1049,7 +1091,7 @@ std::string RooFactoryWSTool::processSingleExpression(const char* arg)
   
   // If there is a suffix left in the work buffer attach it to 
   // this argument
-  p = strtok_r(0,"",&save) ;
+  p = R__STRTOK_R(0,"",&save) ;
   if (p) tmp += p ;
   args.push_back(tmp) ;
 
@@ -1185,7 +1227,7 @@ string RooFactoryWSTool::processListExpression(const char* arg)
     if (!_autoNamePrefix.empty()) {
       _autoNamePrefix.pop() ;
     }
-    iter++ ;
+    ++iter ;
     i++ ;
   }
   ret += "}" ;
@@ -1329,7 +1371,7 @@ string RooFactoryWSTool::processCreateVar(string& func, vector<string>& args)
 
     // Create a RooAbsCategory
     string allStates ;
-    for (vector<string>::iterator ai = args.begin() ; ai!=args.end() ; ai++) {
+    for (vector<string>::iterator ai = args.begin() ; ai!=args.end() ; ++ai) {
       if (allStates.size()>0) {
 	allStates += "," ;
       }
@@ -1358,8 +1400,8 @@ string RooFactoryWSTool::processCreateArg(string& func, vector<string>& args)
 
   // Split function part in class name and instance name
   char* save ;
-  const char *className = strtok_r(buf,":",&save) ;
-  const char *instName = strtok_r(0,":",&save) ;
+  const char *className = R__STRTOK_R(buf,":",&save) ;
+  const char *instName = R__STRTOK_R(0,":",&save) ;
   if (!className) className = "";
   if (!instName) instName = "" ;
 
@@ -1376,12 +1418,12 @@ string RooFactoryWSTool::processCreateArg(string& func, vector<string>& args)
     _autoNamePrefix.pop() ;
     strlcat(pargs,tmp.c_str(),BUFFER_SIZE) ;
     pargv.push_back(tmp) ;
-    iter++ ;
+    ++iter ;
     iarg++ ;
   }
 
   // Look up if func is a special
-  for (map<string,IFace*>::iterator ii=hooks().begin() ; ii!=hooks().end() ; ii++) {
+  for (map<string,IFace*>::iterator ii=hooks().begin() ; ii!=hooks().end() ; ++ii) {
   }
   if (hooks().find(className) != hooks().end()) {
     IFace* iface = hooks()[className] ;
@@ -1409,7 +1451,7 @@ std::string RooFactoryWSTool::processMetaArg(std::string& func, std::vector<std:
     string tmp = processExpression(iter->c_str()) ;
     strlcat(pargs,tmp.c_str(),BUFFER_SIZE) ;
     pargv.push_back(tmp) ;
-    iter++ ;
+    ++iter ;
   }
 
   string ret = func+"("+pargs+")" ;  
@@ -1434,9 +1476,9 @@ vector<string> RooFactoryWSTool::splitFunctionArgs(const char* funcExpr)
 
   // Process token into arguments
   char* save ;
-  char* tmpx = strtok_r(buf,"(",&save) ;  
+  char* tmpx = R__STRTOK_R(buf,"(",&save) ;  
   func = tmpx ? tmpx : "" ;
-  char* p = strtok_r(0,"",&save) ;
+  char* p = R__STRTOK_R(0,"",&save) ;
   
   // Return here if token is fundamental
   if (!p) {
@@ -1480,7 +1522,7 @@ vector<string> RooFactoryWSTool::splitFunctionArgs(const char* funcExpr)
   
   // If there is a suffix left in the work buffer attach it to 
   // this argument
-  p = strtok_r(0,"",&save) ;
+  p = R__STRTOK_R(0,"",&save) ;
   if (p) tmp += p ;
   args.push_back(tmp) ;
 
@@ -1730,12 +1772,17 @@ RooArgSet RooFactoryWSTool::asSET(const char* arg)
   }
 
   char* save ;
-  char* tok = strtok_r(tmp,",{}",&save) ;
+  char* tok = R__STRTOK_R(tmp,",{}",&save) ;
+  int i(0);
   while(tok) {
 
     // If arg is a numeric string, make a RooConst() of it here
     if (tok[0]=='.' || tok[0]=='+' || tok[0] == '-' || isdigit(tok[0])) {
       s.add(RooConst(atof(tok))) ;
+    } else if (tok[0] == '\'') {
+       tok[strlen(tok) - 1] = 0;
+       RooStringVar *sv = new RooStringVar(Form("string_set_item%03d", i++), "string_set_item", tok + 1);
+       s.add(*sv);
     } else {
       RooAbsArg* aarg = ws().arg(tok) ;
       if (aarg) {
@@ -1744,7 +1791,7 @@ RooArgSet RooFactoryWSTool::asSET(const char* arg)
 	throw string(Form("RooAbsArg named %s not found",tok)) ;
       }
     }
-    tok = strtok_r(0,",{}",&save) ;
+    tok = R__STRTOK_R(0,",{}",&save) ;
   }
 
   return s ;
@@ -1762,12 +1809,16 @@ RooArgList RooFactoryWSTool::asLIST(const char* arg)
 
   RooArgList l ;
   char* save ;
-  char* tok = strtok_r(tmp,",{}",&save) ;
+  char* tok = R__STRTOK_R(tmp,",{}",&save) ;
   while(tok) {
 
     // If arg is a numeric string, make a RooConst() of it here
     if (tok[0]=='.' || tok[0]=='+' || tok[0] == '-' || isdigit(tok[0])) {
       l.add(RooConst(atof(tok))) ;
+    } else if (tok[0] == '\'') {
+       tok[strlen(tok) - 1] = 0;
+       RooStringVar *sv = new RooStringVar("listarg", "listarg", tok + 1);
+       l.add(*sv);
     } else {
       RooAbsArg* aarg = ws().arg(tok) ;
       if (aarg) {
@@ -1776,7 +1827,7 @@ RooArgList RooFactoryWSTool::asLIST(const char* arg)
 	throw string(Form("RooAbsArg named %s not found",tok)) ;
       }
     }
-    tok = strtok_r(0,",{}",&save) ;
+    tok = R__STRTOK_R(0,",{}",&save) ;
   }
   
   return l ;
@@ -1929,7 +1980,7 @@ std::string RooFactoryWSTool::SpecialsIFace::create(RooFactoryWSTool& ft, const 
     string tmp = ft.processExpression(iter->c_str()) ;
     strlcat(pargs,tmp.c_str(),BUFFER_SIZE) ;
     pargv.push_back(tmp) ;
-    iter++ ;
+    ++iter ;
   }
 
   // Handling of special operator pdf class names
@@ -2065,10 +2116,10 @@ std::string RooFactoryWSTool::SpecialsIFace::create(RooFactoryWSTool& ft, const 
     char buf[256] ;
     strlcpy(buf,pargv[1].c_str(),256) ;
     char* save ;
-    const char* intobs = strtok_r(buf,"|",&save) ;
+    const char* intobs = R__STRTOK_R(buf,"|",&save) ;
     if (!intobs) intobs="" ;
 
-    const char* range = strtok_r(0,"",&save) ;
+    const char* range = R__STRTOK_R(0,"",&save) ;
     if (!range) range="" ;
 
     RooAbsReal* integral = 0 ;

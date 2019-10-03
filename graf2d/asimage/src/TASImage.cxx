@@ -1116,16 +1116,10 @@ void TASImage::FromPad(TVirtualPad *pad, Int_t x, Int_t y, UInt_t w, UInt_t h)
       return;
    }
 
-   if (w == 0) {
-      w = TMath::Abs(pad->UtoPixel(1.));
-   }
-
-   if (h == 0) {
-      h = pad->VtoPixel(0.);
-   }
-   // synchronization
+   // X11 Synchronization
    gVirtualX->Update(1);
    if (!gThreadXAR) {
+      gSystem->Sleep(100);
       gSystem->ProcessEvents();
       gSystem->Sleep(10);
       gSystem->ProcessEvents();
@@ -1137,6 +1131,9 @@ void TASImage::FromPad(TVirtualPad *pad, Int_t x, Int_t y, UInt_t w, UInt_t h)
 
    Window_t wd = (Window_t)gVirtualX->GetCurrentWindow();
    if (!wd) return;
+
+   if (w == 0) w = TMath::Abs(pad->UtoPixel(1.));
+   if (h == 0) h = pad->VtoPixel(0.);
 
    static int x11 = -1;
    if (x11 < 0) x11 = gVirtualX->InheritsFrom("TGX11");
@@ -2903,7 +2900,8 @@ Double_t *TASImage::Vectorize(UInt_t max_colors, UInt_t dither, Int_t opaque_thr
    fPalette = *pal;
    fImage->alt.vector = vec;
    UnZoom();
-   if (res) delete res;
+   // ROOT-7647: res is allocated with `safemalloc` by colormap_asimage
+   if (res) safefree(res);
    return (Double_t*)fImage->alt.vector;
 }
 
@@ -5770,10 +5768,11 @@ void TASImage::DrawGlyph(void *bitmap, UInt_t color, Int_t bx, Int_t by)
    Bool_t noClip = kTRUE;
 
    if (gPad) {
-      clipx1 = gPad->XtoAbsPixel(gPad->GetX1());
-      clipx2 = gPad->XtoAbsPixel(gPad->GetX2());
-      clipy1 = gPad->YtoAbsPixel(gPad->GetY1());
-      clipy2 = gPad->YtoAbsPixel(gPad->GetY2());
+      Float_t is = gStyle->GetImageScaling();
+      clipx1 = gPad->XtoAbsPixel(gPad->GetX1())*is;
+      clipx2 = gPad->XtoAbsPixel(gPad->GetX2())*is;
+      clipy1 = gPad->YtoAbsPixel(gPad->GetY1())*is;
+      clipy2 = gPad->YtoAbsPixel(gPad->GetY2())*is;
       noClip = kFALSE;
    }
 
@@ -6642,9 +6641,10 @@ void TASImage::FromWindow(Drawable_t wid, Int_t x, Int_t y, UInt_t w, UInt_t h)
    x = x < 0 ? 0 : x;
    y = y < 0 ? 0 : y;
 
-   // synchronization
+   // X11 Synchronization
    gVirtualX->Update(1);
    if (!gThreadXAR) {
+      gSystem->Sleep(10);
       gSystem->ProcessEvents();
       gSystem->Sleep(10);
       gSystem->ProcessEvents();

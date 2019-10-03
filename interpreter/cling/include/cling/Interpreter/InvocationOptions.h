@@ -57,6 +57,21 @@ namespace cling {
     unsigned StdLib : 1;
     unsigned HasOutput : 1;
     unsigned Verbose : 1;
+    unsigned CxxModules : 1;
+    unsigned CUDA : 1;
+    /// \brief The output path of any C++ PCMs we're building on demand.
+    /// Equal to ModuleCachePath in the HeaderSearchOptions.
+    std::string CachePath;
+    // If not empty, the name of the module we're currently compiling.
+    std::string ModuleName;
+    /// \brief Custom path of the CUDA toolkit
+    std::string CUDAPath;
+    /// \brief Architecture level of the CUDA gpu. Necessary for the
+    /// NVIDIA fatbinary tool.
+    std::string CUDAGpuArch;
+    /// \brief Contains arguments, which will passed to the nvidia tool
+    /// fatbinary.
+    std::vector<std::string> CUDAFatbinaryArgs;
 
     ///\brief The remaining arguments to pass to clang.
     ///
@@ -70,6 +85,9 @@ namespace cling {
     /// \brief A line starting with this string is assumed to contain a
     ///        directive for the MetaProcessor. Defaults to "."
     std::string MetaString;
+
+    /// \brief A path of modulemaps to be overlayed.
+    std::string OverlayFile;
 
     std::vector<std::string> LibsToLoad;
     std::vector<std::string> LibSearchPath;

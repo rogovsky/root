@@ -80,11 +80,32 @@ or type
 Jupyter
 -------
 Cling comes with a [Jupyter](http://jupyter.org) kernel. After building cling,
-install Jupyter and run `jupyter kernelspec install cling`. It requires a fairly
-new Jupyter. Make sure cling is in your PATH when you start jupyter!
+install Jupyter and cling's kernel by following the README.md in
+[tools/Jupyter](tools/Jupyter). Make sure cling is in your PATH when you start jupyter!
 
-See also the [tools/Jupyter](tools/Jupyter) subdirectory for more information.
 
+Citing Cling
+------------
+```latex
+% Peer-Reviewed Publication
+%
+% 19th International Conference on Computing in High Energy and Nuclear Physics (CHEP)
+% 21-25 May, 2012, New York, USA
+%
+@inproceedings{Cling,
+  author = {Vassilev,V. and Canal,Ph. and Naumann,A. and Moneta,L. and Russo,P.},
+  title = {{Cling} -- The New Interactive Interpreter for {ROOT} 6}},
+  journal = {Journal of Physics: Conference Series},
+  year = 2012,
+  month = {dec},
+  volume = {396},
+  number = {5},
+  pages = {052071},
+  doi = {10.1088/1742-6596/396/5/052071},
+  url = {https://iopscience.iop.org/article/10.1088/1742-6596/396/5/052071/pdf},
+  publisher = {{IOP} Publishing}
+}
+```
 
 Developers' Corner
 ==================

@@ -39,8 +39,6 @@ instantiate objects.
 #include "RooGlobalFunc.h"
 #include "RooAbsPdf.h"
 #include <fstream>
-#include <vector>
-#include <string>
 
 using namespace std ;
 
@@ -107,10 +105,6 @@ Bool_t RooClassFactory::makeAndCompilePdf(const char* name, const char* expressi
     return ret ;
   }
 
-  if (gInterpreter->GetRootMapFiles()==0) {
-    gInterpreter->EnableAutoLoading() ;
-  }
-
   TInterpreter::EErrorCode ecode;
   gInterpreter->ProcessLineSynch(Form(".L %s.cxx+",name),&ecode) ;
   return (ecode!=TInterpreter::kNoError) ;
@@ -153,10 +147,6 @@ Bool_t RooClassFactory::makeAndCompileFunction(const char* name, const char* exp
   Bool_t ret = makeFunction(name,realArgNames.c_str(),catArgNames.c_str(),expression,intExpression?kTRUE:kFALSE,intExpression) ;
   if (ret) {
     return ret ;
-  }
-
-  if (gInterpreter->GetRootMapFiles()==0) {
-    gInterpreter->EnableAutoLoading() ;
   }
 
   TInterpreter::EErrorCode ecode;
@@ -217,10 +207,6 @@ RooAbsReal* RooClassFactory::makeFunctionInstance(const char* name, const char* 
 
 RooAbsReal* RooClassFactory::makeFunctionInstance(const char* className, const char* name, const char* expression, const RooArgList& vars, const char* intExpression)
 {
-  if (gInterpreter->GetRootMapFiles()==0) {
-    gInterpreter->EnableAutoLoading() ;
-  }
-
   // Use class factory to compile and link specialized function
   Bool_t error = makeAndCompileFunction(className,expression,vars,intExpression) ;
 
@@ -317,10 +303,6 @@ RooAbsPdf* RooClassFactory::makePdfInstance(const char* name, const char* expres
 RooAbsPdf* RooClassFactory::makePdfInstance(const char* className, const char* name, const char* expression,
 					    const RooArgList& vars, const char* intExpression)
 {
-  if (gInterpreter->GetRootMapFiles()==0) {
-    gInterpreter->EnableAutoLoading() ;
-  }
-
   // Use class factory to compile and link specialized function
   Bool_t error = makeAndCompilePdf(className,expression,vars,intExpression) ;
 
@@ -783,7 +765,7 @@ std::string RooClassFactory::ClassFacIFace::create(RooFactoryWSTool& ft, const c
 	  varList.add(ft.asARG(args[i].c_str())) ;
 	}
       }
-    } catch (string err) {
+    } catch (const string &err) {
       throw string(Form("RooClassFactory::ClassFacIFace::create() ERROR: %s",err.c_str())) ;
     }
 

@@ -9,6 +9,11 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
+// NOTE: This header is only used by selectors, to verify that the selector
+//       source matches the ROOT interface. It should not end up in the
+//       dictionary nor in the PCH, so it should not be added to the list
+//       of headers of the TreePlayer library.
+
 #ifndef ROOT_TBranchProxyTemplate
 #define ROOT_TBranchProxyTemplate
 
@@ -173,7 +178,7 @@ namespace Internal {
 
       TVirtualCollectionProxy* GetCollection() {
          if (fCollection==0) {
-            TClass *cl = TClass::GetClass(typeid(T));
+            TClass *cl = TClass::GetClass<T>();
             if (cl && cl->GetCollectionProxy()) {
                fCollection =  cl->GetCollectionProxy()->Generate();
             }

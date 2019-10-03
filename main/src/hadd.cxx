@@ -12,7 +12,7 @@
          (targetfile is overwritten if it exists)
 
   When the -f option is specified, one can also specify the compression
-  level of the target file. By default the compression level is 1, but
+  level of the target file. By default the compression level is 1 (kDefaultZLIB), but
   if "-f0" is specified, the target file will not be compressed.
   if "-f6" is specified, the compression level 6 will be used.
 
@@ -54,7 +54,7 @@
   For options that takes a size as argument, a decimal number of bytes is expected.
   If the number ends with a ``k'', ``m'', ``g'', etc., the number is multiplied
   by 1000 (1K), 1000000 (1MB), 1000000000 (1G), etc.
-  If this prefix is followed by i, the number is multipled by the traditional
+  If this prefix is followed by i, the number is multiplied by the traditional
   1024 (1KiB), 1048576 (1MiB), 1073741824 (1GiB), etc.
   The prefix can be optionally followed by B whose casing is ignored,
   eg. 1k, 1K, 1Kb and 1KB are the same.
@@ -69,8 +69,9 @@
             to support files with nested directories.
            Toby Burnett implemented the possibility to use indirect files.
  */
-
-#include "RConfig.h"
+#include "Compression.h"
+#include <ROOT/RConfig.hxx>
+#include "ROOT/TIOFeatures.hxx"
 #include <string>
 #include "TFile.h"
 #include "THashList.h"
@@ -83,64 +84,24 @@
 #include "ROOT/StringConv.hxx"
 #include <stdlib.h>
 #include <climits>
+#include <sstream>
+#include "haddCommandLineOptionsHelp.h"
 
 #include "TFileMerger.h"
+#ifndef R__WIN32
 #include "ROOT/TProcessExecutor.hxx"
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 
 int main( int argc, char **argv )
 {
    if ( argc < 3 || "-h" == std::string(argv[1]) || "--help" == std::string(argv[1]) ) {
-      std::cout << "Usage: " << argv[0] << " [-f[fk][0-9]] [-k] [-T] [-O] [-a] \n"
-      "            [-n maxopenedfiles] [-cachesize size] [-v [verbosity]] \n"
-      "            targetfile source1 [source2 source3 ...]\n" << std::endl;
-      std::cout << "This program will add histograms from a list of root files and write them" << std::endl;
-      std::cout << "   to a target root file. The target file is newly created and must not" << std::endl;
-      std::cout << "   exist, or if -f (\"force\") is given, must not be one of the source files." << std::endl;
-      std::cout << "   Supply at least two source files for this to make sense... ;-)" << std::endl;
-      std::cout << "If the option -a is used, hadd will append to the output." << std::endl;
-      std::cout << "If the option -k is used, hadd will not exit on corrupt or non-existant input\n"
-                   "   files but skip the offending files instead." << std::endl;
-      std::cout << "If the option -T is used, Trees are not merged" <<std::endl;
-      std::cout << "If the option -O is used, when merging TTree, the basket size is re-optimized" <<std::endl;
-      std::cout << "If the option -v is used, explicitly set the verbosity level;\n"\
-                   "   0 request no output, 99 is the default" <<std::endl;
-      std::cout << "If the option -j is used, the execution will be parallelized in multiple processes\n" << std::endl;
-      std::cout << "If the option -dbg is used, the execution will be parallelized in multiple processes in debug mode."
-                   " This will not delete the partial files stored in the working directory\n"
-                << std::endl;
-      std::cout << "If the option -d is used, the partial multiprocess execution will be carried out in the specified "
-                   "directory\n"
-                << std::endl;
-      std::cout << "If the option -n is used, hadd will open at most 'maxopenedfiles' at once, use 0\n"
-                   "   to request to use the system maximum." << std::endl;
-      std::cout << "If the option -cachesize is used, hadd will resize (or disable if 0) the\n"
-                   "   prefetching cache use to speed up I/O operations." << std::endl;
-      std::cout << "When -the -f option is specified, one can also specify the compression level of\n"
-                   "   the target file.  By default the compression level is 1." <<std::endl;
-      std::cout << "If \"-fk\" is specified, the target file contain the baskets with the same\n"
-                   "   compression as in the input files unless -O is specified.  The meta data will\n"
-                   "   be compressed using the compression level specified in the first input or the\n"
-                   "   compression setting specified follow fk (206 when using -fk206 for example)" <<std::endl;
-      std::cout << "If \"-ff\" is specified, the compression level use is the one specified in the\n"
-                   "   first input." <<std::endl;
-      std::cout << "If \"-f0\" is specified, the target file will not be compressed." <<std::endl;
-      std::cout << "If \"-f6\" is specified, the compression level 6 will be used.  \n"
-                   "   See TFile::SetCompressionSettings for the support range of value." <<std::endl;
-      std::cout << "If Target and source files have different compression settings a slower method\n"
-                   "   is used.\n"<<std::endl;
-      std::cout << "For options that takes a size as argument, a decimal number of bytes is expected.\n"
-                   "If the number ends with a ``k'', ``m'', ``g'', etc., the number is multiplied\n"
-                   "   by 1000 (1K), 1000000 (1MB), 1000000000 (1G), etc. \n"
-                   "If this prefix is followed by i, the number is multipled by the traditional\n"
-                   "   1024 (1KiB), 1048576 (1MiB), 1073741824 (1GiB), etc. \n"
-                   "The prefix can be optionally followed by B whose casing is ignored,\n"
-                   "   eg. 1k, 1K, 1Kb and 1KB are the same."<<std::endl;
-
-      return 1;
+         fprintf(stderr, kCommandLineOptionsHelp);
+         return 1;
    }
 
+   ROOT::TIOFeatures features;
    Bool_t append = kFALSE;
    Bool_t force = kFALSE;
    Bool_t skip_errors = kFALSE;
@@ -268,6 +229,21 @@ int main( int argc, char **argv )
             }
          }
          ++ffirst;
+      } else if (!strcmp(argv[a], "-experimental-io-features")) {
+         if (a+1 >= argc) {
+            std::cerr << "Error: no IO feature was specified after -experimental-io-features; ignoring\n";
+         } else {
+            std::stringstream ss;
+            ss.str(argv[++a]);
+            ++ffirst;
+            std::string item;
+            while (std::getline(ss, item, ',')) {
+               if (!features.Set(item)) {
+                  std::cerr << "Ignoring unknown feature request: " << item << std::endl;
+               }
+            }
+         }
+         ++ffirst;
       } else if ( strcmp(argv[a],"-n") == 0 ) {
          if (a+1 >= argc) {
             std::cerr << "Error: no maximum number of opened was provided after -n.\n";
@@ -289,22 +265,22 @@ int main( int argc, char **argv )
 //         if (a+1 >= argc) {
 //            std::cerr << "Error: no verbosity level was provided after -v.\n";
          } else {
-            Long_t request = -1;
+            Bool_t hasFollowupNumber = kTRUE;
             for (char *c = argv[a+1]; *c != '\0'; ++c) {
                if (!isdigit(*c)) {
                   // Verbosity level was not specified use the default:
-                  request = 99;
+                  hasFollowupNumber = kFALSE;
                   break;
                }
             }
-            if (request == 1) {
-               request = strtol(argv[a+1], 0, 10);
+            if (hasFollowupNumber) {
+               Long_t request = strtol(argv[a+1], 0, 10);
                if (request < kMaxLong && request >= 0) {
                   verbosity = (Int_t)request;
                   ++a;
                   ++ffirst;
-                  std::cerr << "Error: from " << argv[a+1] << " guess verbosity level : " << verbosity << "\n";
                } else {
+                  verbosity = 99;
                   std::cerr << "Error: could not parse the verbosity level passed after -v: " << argv[a+1] << ". We will use the default value (99).\n";
                }
             }
@@ -334,7 +310,7 @@ int main( int argc, char **argv )
             }
          }
          char ft[7];
-         for ( int alg = 0; !useFirstInputCompression && alg <= 2; ++alg ) {
+         for (int alg = 0; !useFirstInputCompression && alg <= 4; ++alg) {
             for( int j=0; j<=9; ++j ) {
                const int comp = (alg*100)+j;
                snprintf(ft,7,"-f%s%d",prefix,comp);
@@ -398,15 +374,15 @@ int main( int argc, char **argv )
          if (firstInput && !firstInput->IsZombie())
             newcomp = firstInput->GetCompressionSettings();
          else
-            newcomp = 1;
+            newcomp = ROOT::RCompressionSetting::EDefaults::kUseGeneralPurpose % 100;
          delete firstInput;
-      } else newcomp = 1; // default compression level.
+      } else newcomp = ROOT::RCompressionSetting::EDefaults::kUseGeneralPurpose % 100; // default compression level.
    }
    if (verbosity > 1) {
       if (keepCompressionAsIs && !reoptimize)
          std::cout << "hadd compression setting for meta data: " << newcomp << '\n';
       else
-         std::cout << "hadd compression setting for all ouput: " << newcomp << '\n';
+         std::cout << "hadd compression setting for all output: " << newcomp << '\n';
    }
    if (append) {
       if (!fileMerger.OutputFile(targetname, "UPDATE", newcomp)) {
@@ -452,6 +428,7 @@ int main( int argc, char **argv )
       }
       merger.SetNotrees(noTrees);
       merger.SetMergeOptions(cacheSize);
+      merger.SetIOFeatures(features);
       Bool_t status;
       if (append)
          status = merger.PartialMerge(TFileMerger::kIncremental | TFileMerger::kAll);
@@ -480,8 +457,8 @@ int main( int argc, char **argv )
                std::cerr << "hadd skipping file with error: " << argv[i] << std::endl;
             } else {
                std::cerr << "hadd exiting due to error in " << argv[i] << std::endl;
+               return kFALSE;
             }
-            return kFALSE;
          }
       }
       return mergeFiles(merger);
@@ -502,7 +479,7 @@ int main( int argc, char **argv )
    };
 
    auto reductionFunc = [&]() {
-      for (auto pf : partialFiles) {
+      for (const auto &pf : partialFiles) {
          fileMerger.AddFile(pf.c_str());
       }
       return mergeFiles(fileMerger);
@@ -510,6 +487,7 @@ int main( int argc, char **argv )
 
    Bool_t status;
 
+#ifndef R__WIN32
    if (multiproc) {
       ROOT::TProcessExecutor p(nProcesses);
       auto res = p.Map(parallelMerge, ROOT::TSeqI(ffirst, argc, step));
@@ -520,13 +498,16 @@ int main( int argc, char **argv )
          std::cout << "hadd failed at the parallel stage" << std::endl;
       }
       if (!debug) {
-         for (auto pf : partialFiles) {
+         for (const auto &pf : partialFiles) {
             gSystem->Unlink(pf.c_str());
          }
       }
    } else {
       status = sequentialMerge(fileMerger, ffirst, filesToProcess);
    }
+#else
+   status = sequentialMerge(fileMerger, ffirst, filesToProcess);
+#endif
 
    if (status) {
       if (verbosity == 1) {

@@ -9,6 +9,8 @@
 
 #include "DynamicLookup.h"
 
+#include "EnterUserCodeRAII.h"
+
 #include "cling/Interpreter/Interpreter.h"
 #include "cling/Interpreter/InterpreterCallbacks.h"
 #include "cling/Interpreter/DynamicExprInfo.h"
@@ -247,13 +249,12 @@ namespace cling {
     if (!getCompilationOpts().DynamicScoping)
       return Result(D, true);
 
-    // Find DynamicLookup specific builtins
-    if (!m_EvalDecl) {
-      Initialize();
-    }
-
     if (FunctionDecl* FD = dyn_cast<FunctionDecl>(D)) {
       if (FD->hasBody() && ShouldVisit(FD)) {
+	// Find DynamicLookup specific builtins
+	if (!m_EvalDecl)
+	  Initialize();
+
         // Set the decl context, which is needed by Evaluate.
         m_CurDeclContext = FD;
         ASTNodeInfo NewBody = Visit(D->getBody());
@@ -584,23 +585,19 @@ namespace cling {
   }
 
   ASTNodeInfo EvaluateTSynthesizer::VisitExpr(Expr* Node) {
+    bool NeedsEval = false;
     for (Stmt::child_iterator
            I = Node->child_begin(), E = Node->child_end(); I != E; ++I) {
       if (*I) {
         ASTNodeInfo NewNode = Visit(*I);
         assert(NewNode.hasSingleNode() &&
                "Cannot have more than one stmt at that point");
-        if (NewNode.isForReplacement()) {
-          if (Expr *E = NewNode.getAs<Expr>())
-            // Assume void if still not escaped
-            *I = SubstituteUnknownSymbol(m_Context->VoidTy, E);
-        }
-        else {
-          *I = NewNode.getAsSingleNode();
-        }
+        if (NewNode.isForReplacement())
+          NeedsEval = true;
+        *I = NewNode.getAsSingleNode();
       }
     }
-    return ASTNodeInfo(Node, 0);
+    return ASTNodeInfo(Node, NeedsEval);
   }
 
   ASTNodeInfo EvaluateTSynthesizer::VisitBinaryOperator(BinaryOperator* Node) {
@@ -952,6 +949,7 @@ namespace cling {
       std::string ctor("new ");
       ctor += type;
       ctor += ExprInfo->getExpr();
+      LockCompilationDuringUserCodeExecutionRAII LCDUCER(*Interp);
       Value res = Interp->Evaluate(ctor.c_str(), DC,
                                    ExprInfo->isValuePrinterRequested()
                                    );
@@ -961,6 +959,7 @@ namespace cling {
     LifetimeHandler::~LifetimeHandler() {
       ostrstream stream;
       stream << "delete (" << m_Type << "*) " << m_Memory << ";";
+      LockCompilationDuringUserCodeExecutionRAII LCDUCER(*m_Interpreter);
       m_Interpreter->execute(stream.str());
     }
   } // end namespace internal

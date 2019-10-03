@@ -14,12 +14,25 @@
 
 #include "RConversionRuleParser.h"
 
+#include <functional>
 #include <set>
 #include <string>
 #include <unordered_set>
 
 //#include <atomic>
 #include <stdlib.h>
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpragmas"
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#endif
+
+#include "clang/Basic/Module.h"
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 namespace llvm {
    class StringRef;
@@ -38,7 +51,6 @@ namespace clang {
    class DeclaratorDecl;
    class FieldDecl;
    class FunctionDecl;
-   class Module;
    class NamedDecl;
    class ParmVarDecl;
    class PresumedLoc;
@@ -76,7 +88,10 @@ namespace cling {
 #include "Varargs.h"
 
 namespace ROOT {
-   namespace TMetaUtils {
+namespace TMetaUtils {
+
+///\returns the resolved normalized absolute path possibly resolving symlinks.
+std::string GetRealPath(const std::string &path);
 
 // Forward Declarations --------------------------------------------------------
 class AnnotatedRecordDecl;
@@ -107,7 +122,6 @@ typedef void (*CallWriteStreamer_t)(const AnnotatedRecordDecl &cl,
 
 const int kInfo            =      0;
 const int kNote            =    500;
-const int kThrowOnWarning  =    999;
 const int kWarning         =   1000;
 const int kError           =   2000;
 const int kSysError        =   3000;
@@ -150,6 +164,7 @@ private:
    TNormalizedCtxt    *fNormalizedCtxt;
    ExistingTypeCheck_t fExistingTypeCheck;
    AutoParse_t         fAutoParse;
+   bool               *fInterpreterIsShuttingDownPtr;
    const int          *fPDebug; // debug flag, might change at runtime thus *
    bool WantDiags() const { return fPDebug && *fPDebug > 5; }
 
@@ -157,6 +172,7 @@ public:
    TClingLookupHelper(cling::Interpreter &interpreter, TNormalizedCtxt &normCtxt,
                       ExistingTypeCheck_t existingTypeCheck,
                       AutoParse_t autoParse,
+                      bool *shuttingDownPtr,
                       const int *pgDebug = 0);
    virtual ~TClingLookupHelper() { /* we're not owner */ }
 
@@ -164,7 +180,8 @@ public:
    virtual void GetPartiallyDesugaredName(std::string &nameLong);
    virtual bool IsAlreadyPartiallyDesugaredName(const std::string &nondef, const std::string &nameLong);
    virtual bool IsDeclaredScope(const std::string &base, bool &isInlined);
-   virtual bool GetPartiallyDesugaredNameWithScopeHandling(const std::string &tname, std::string &result);
+   virtual bool GetPartiallyDesugaredNameWithScopeHandling(const std::string &tname, std::string &result, bool dropstd = true);
+   virtual void ShuttingDownSignal();
 };
 
 //______________________________________________________________________________
@@ -275,7 +292,7 @@ public:
    }
 
    struct CompareByName {
-      bool operator() (const AnnotatedRecordDecl& right, const AnnotatedRecordDecl& left)
+      bool operator() (const AnnotatedRecordDecl& right, const AnnotatedRecordDecl& left) const
       {
          return left.fNormalizedName < right.fNormalizedName;
       }
@@ -389,7 +406,7 @@ bool hasOpaqueTypedef(const AnnotatedRecordDecl &cl, const cling::Interpreter &i
 bool HasResetAfterMerge(clang::CXXRecordDecl const*, const cling::Interpreter&);
 
 //______________________________________________________________________________
-bool NeedDestructor(clang::CXXRecordDecl const*);
+bool NeedDestructor(clang::CXXRecordDecl const*, const cling::Interpreter&);
 
 //______________________________________________________________________________
 bool NeedTemplateKeyword(clang::CXXRecordDecl const*);
@@ -447,6 +464,9 @@ void WritePointersSTL(const AnnotatedRecordDecl &cl, const cling::Interpreter &i
 int GetClassVersion(const clang::RecordDecl *cl, const cling::Interpreter &interp);
 
 //______________________________________________________________________________
+std::pair<bool, int> GetTrivialIntegralReturnValue(const clang::FunctionDecl *funcCV, const cling::Interpreter &interp);
+
+//______________________________________________________________________________
 int IsSTLContainer(const AnnotatedRecordDecl &annotated);
 
 //______________________________________________________________________________
@@ -454,6 +474,10 @@ ROOT::ESTLType IsSTLContainer(const clang::FieldDecl &m);
 
 //______________________________________________________________________________
 int IsSTLContainer(const clang::CXXBaseSpecifier &base);
+
+void foreachHeaderInModule(const clang::Module &module,
+                           const std::function<void(const clang::Module::Header &)> &closure,
+                           bool includeDirectlyUsedModules = true);
 
 //______________________________________________________________________________
 const char *ShortTypeName(const char *typeDesc);
@@ -530,12 +554,6 @@ llvm::StringRef GetFileName(const clang::Decl& decl,
 //______________________________________________________________________________
 // Return the dictionary file name for a module
 std::string GetModuleFileName(const char* moduleName);
-
-//______________________________________________________________________________
-// Declare a virtual module.map to clang. Returns Module on success.
-clang::Module* declareModuleMap(clang::CompilerInstance* CI,
-                                 const char* moduleFileName,
-                                 const char* headers[]);
 
 //______________________________________________________________________________
 // Return (in the argument 'output') a mangled version of the C++ symbol/type (pass as 'input')
@@ -694,12 +712,22 @@ void ReplaceAll(std::string& str, const std::string& from, const std::string& to
 // Functions for the printouts -------------------------------------------------
 
 //______________________________________________________________________________
-inline unsigned int &GetNumberOfWarningsAndErrors(){
-   static unsigned  int gNumberOfWarningsAndErrors = 0;
-   return gNumberOfWarningsAndErrors;
+inline unsigned int &GetNumberOfErrors()
+{
+   static unsigned int gNumberOfErrors = 0;
+   return gNumberOfErrors;
 }
 
 //______________________________________________________________________________
+// True if printing a warning should increase GetNumberOfErrors
+inline bool &GetWarningsAreErrors()
+{
+   static bool gWarningsAreErrors = false;
+   return gWarningsAreErrors;
+}
+
+//______________________________________________________________________________
+// Inclusive minimum error level a message needs to get handled
 inline int &GetErrorIgnoreLevel() {
    static int gErrorIgnoreLevel = ROOT::TMetaUtils::kError;
    return gErrorIgnoreLevel;
@@ -717,7 +745,7 @@ inline void LevelPrint(bool prefix, int level, const char *location, const char 
       type = "Info";
    if (level >= ROOT::TMetaUtils::kNote)
       type = "Note";
-   if (level >= ROOT::TMetaUtils::kThrowOnWarning)
+   if (level >= ROOT::TMetaUtils::kWarning)
       type = "Warning";
    if (level >= ROOT::TMetaUtils::kError)
       type = "Error";
@@ -737,11 +765,10 @@ inline void LevelPrint(bool prefix, int level, const char *location, const char 
 
    fflush(stderr);
 
-   if (GetErrorIgnoreLevel() == ROOT::TMetaUtils::kThrowOnWarning ||
-      GetErrorIgnoreLevel() > ROOT::TMetaUtils::kError){
-      ++GetNumberOfWarningsAndErrors();
-      }
-
+   // Keep track of the warnings/errors we printed.
+   if (level >= ROOT::TMetaUtils::kError || (level == ROOT::TMetaUtils::kWarning && GetWarningsAreErrors())) {
+      ++GetNumberOfErrors();
+   }
 }
 
 //______________________________________________________________________________

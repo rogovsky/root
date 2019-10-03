@@ -4,7 +4,7 @@
 /// Palette coloring for histogram is activated thanks to the options `PFC`
 /// (Palette Fill Color), `PLC` (Palette Line Color) and `AMC` (Palette Marker Color).
 /// When one of these options is given to `TH1::Draw` the histogram get its color
-/// from the current color palette defined by `gStyle->SetPalette(…)`. The color
+/// from the current color palette defined by `gStyle->SetPalette(...)`. The color
 /// is determined according to the number of objects having palette coloring in
 /// the current pad.
 ///
@@ -19,21 +19,21 @@
 
 void histpalettecolor()
 {
-   TCanvas *C = new TCanvas();
+   auto C = new TCanvas();
 
    gStyle->SetOptTitle(kFALSE);
    gStyle->SetOptStat(0);
 
-   TH1F *h1 = new TH1F ("h1","Histogram drawn with full circles",100,-4,4);
-   TH1F *h2 = new TH1F ("h2","Histogram drawn with full squares",100,-4,4);
-   TH1F *h3 = new TH1F ("h3","Histogram drawn with full triangles up",100,-4,4);
-   TH1F *h4 = new TH1F ("h4","Histogram drawn with full triangles down",100,-4,4);
-   TH1F *h5 = new TH1F ("h5","Histogram drawn with empty circles",100,-4,4);
+   auto h1 = new TH1F ("h1","Histogram drawn with full circles",100,-4,4);
+   auto h2 = new TH1F ("h2","Histogram drawn with full squares",100,-4,4);
+   auto h3 = new TH1F ("h3","Histogram drawn with full triangles up",100,-4,4);
+   auto h4 = new TH1F ("h4","Histogram drawn with full triangles down",100,-4,4);
+   auto h5 = new TH1F ("h5","Histogram drawn with empty circles",100,-4,4);
 
-   TRandom3 random;
+   TRandom3 rng;
    Double_t px,py;
    for (Int_t i = 0; i < 25000; i++) {
-      random.Rannor(px,py);
+      rng.Rannor(px,py);
       h1->Fill(px,10.);
       h2->Fill(px, 8.);
       h3->Fill(px, 6.);

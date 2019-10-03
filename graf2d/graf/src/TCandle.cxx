@@ -182,6 +182,16 @@ TCandle::~TCandle() {
    if (fIsRaw && fProj) delete fProj;
 }
 
+Bool_t TCandle::IsCandleScaled()
+{
+   return fScaledCandle;
+}
+
+Bool_t TCandle::IsViolinScaled()
+{
+   return fScaledViolin;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Static function to set fWhiskerRange, by setting whisker-range, one can force
 /// the whiskers to cover the fraction of the distribution.
@@ -267,11 +277,11 @@ int TCandle::ParseOption(char * opt) {
          fOption = (CandleOption)(fOption + fallbackCandle);
 
       if (preset != ' ' && direction != ' ')
-         strncpy(l,"        ",8);
+         memcpy(l,"        ",8);
       else if (preset != ' ' || direction != ' ')
-         strncpy(l,"        ",7);
+         memcpy(l,"       ",7);
       else
-         strncpy(l,"        ",6);
+         memcpy(l,"      ",6);
 
       Bool_t useIndivOption = false;
 
@@ -286,7 +296,7 @@ int TCandle::ParseOption(char * opt) {
             strlcpy(indivOption, brOpen, brClose-brOpen+2); //Now the string "(....)" including brackets is in this array
             sscanf(indivOption,"(%d)", (int*) &fOption);
             if (isHorizontal) {fOption = (CandleOption)(fOption + kHorizontal);}
-            strncpy(brOpen,"                ",brClose-brOpen+1); //Cleanup
+            memcpy(brOpen,"                ",brClose-brOpen+1); //Cleanup
 
             sprintf(fOptionStr,"CANDLE%c(%ld)",direction,(long)fOption);
          } else {
@@ -325,11 +335,11 @@ int TCandle::ParseOption(char * opt) {
          fOption = (CandleOption)(fOption + fallbackCandle);
 
       if (preset != ' ' && direction != ' ')
-         strncpy(l,"        ",8);
+         memcpy(l,"        ",8);
       else if (preset != ' ' || direction != ' ')
-         strncpy(l,"        ",7);
+         memcpy(l,"       ",7);
       else
-         strncpy(l,"        ",6);
+         memcpy(l,"      ",6);
 
       Bool_t useIndivOption = false;
 
@@ -344,7 +354,7 @@ int TCandle::ParseOption(char * opt) {
             strlcpy(indivOption, brOpen, brClose-brOpen +2); //Now the string "(....)" including brackets is in this array
             sscanf(indivOption,"(%d)", (int*) &fOption);
             if (isHorizontal) {fOption = (CandleOption)(fOption + kHorizontal);}
-            strncpy(brOpen,"                ",brClose-brOpen+1); //Cleanup
+            memcpy(brOpen,"                ",brClose-brOpen+1); //Cleanup
 
             sprintf(fOptionStr,"VIOLIN%c(%ld)",direction,(long)fOption);
 

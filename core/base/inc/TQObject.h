@@ -37,7 +37,6 @@
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-#include "TError.h"
 #include "TList.h"
 #include "TString.h"
 #include "TVirtualQConnection.h"
@@ -103,7 +102,8 @@ public:
       // Activate signal with variable argument list.
       // For internal use and for var arg EmitVA() in RQ_OBJECT.h.
 
-      if (fSignalsBlocked || fgAllSignalsBlocked) return;
+      if (fSignalsBlocked || AreAllSignalsBlocked())
+         return;
 
       TList classSigLists;
       CollectClassSignalLists(classSigLists, IsA());

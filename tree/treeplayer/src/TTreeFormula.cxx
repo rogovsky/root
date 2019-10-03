@@ -1411,10 +1411,8 @@ Int_t TTreeFormula::ParseWithLeaf(TLeaf* leaf, const char* subExpression, Bool_t
                      break;
                   case TMethodCall::kOther:
                      {
-                        TString return_type =
-                          gInterpreter->TypeName(method->GetMethod()->GetReturnTypeName());
                         leafinfo = new TFormLeafInfoMethod(cl,method);
-                        cl = (return_type == "void") ? 0 : TClass::GetClass(return_type.Data());
+                        cl = TFormLeafInfoMethod::ReturnTClass(method);
                      }
                      break;
                   default:
@@ -1640,6 +1638,10 @@ Int_t TTreeFormula::ParseWithLeaf(TLeaf* leaf, const char* subExpression, Bool_t
 
                TClass * inside_cl = cl->GetCollectionProxy()->GetValueClass();
 
+               if (!inside_cl) {
+                  Error("DefinedVariable","Could you not find the inner class for %s with coll type = %d",
+                        cl->GetName(),cl->GetCollectionProxy()->GetType());
+               }
                if (!inside_cl && cl->GetCollectionProxy()->GetType() > 0) {
                   Warning("DefinedVariable","No data member in content of %s in %s\n",
                            cl->GetName(),name.Data());
@@ -1649,6 +1651,7 @@ Int_t TTreeFormula::ParseWithLeaf(TLeaf* leaf, const char* subExpression, Bool_t
             }
 
             if (!cl) {
+               if (leaf) leaf->GetBranch()->Print();
                Warning("DefinedVariable","Missing class for %s!",name.Data());
             } else {
                element = ((TStreamerInfo*)cl->GetStreamerInfo())->GetStreamerElement(work,offset);
@@ -2100,9 +2103,7 @@ Int_t TTreeFormula::ParseWithLeaf(TLeaf* leaf, const char* subExpression, Bool_t
       if (method->IsValid()
           && method->ReturnType() == TMethodCall::kOther) {
 
-         TClass *rcl = 0;
-         TFunction *f = method->GetMethod();
-         if (f) rcl = TClass::GetClass(gInterpreter->TypeName(f->GetReturnTypeName()));
+         TClass *rcl = TFormLeafInfoMethod::ReturnTClass(method);
          if ((rcl == TString::Class() || rcl == stdStringClass) ) {
 
             TFormLeafInfo *last = 0;
@@ -2172,13 +2173,13 @@ Int_t TTreeFormula::FindLeafForExpression(const char* expression, TLeaf*& leaf, 
    Long64_t readentry = fTree->GetTree()->GetReadEntry();
    if (readentry < 0) readentry=0;
    const char *cname = expression;
-   char    first[kMaxLen];  first[0] = '\0';
-   char   second[kMaxLen]; second[0] = '\0';
-   char    right[kMaxLen];  right[0] = '\0';
-   char     work[kMaxLen];   work[0] = '\0';
-   char     left[kMaxLen];   left[0] = '\0';
-   char  scratch[kMaxLen];
-   char scratch2[kMaxLen];
+   char    first[kMaxLen];    first[0] = '\0';
+   char   second[kMaxLen*2]; second[0] = '\0';
+   char    right[kMaxLen*2];  right[0] = '\0';
+   char     work[kMaxLen];     work[0] = '\0';
+   char     left[kMaxLen];     left[0] = '\0';
+   char  scratch[kMaxLen*5];
+   char scratch2[kMaxLen*5];
    std::string currentname;
    Int_t previousdot = 0;
    char *current;
@@ -2308,9 +2309,9 @@ Int_t TTreeFormula::FindLeafForExpression(const char* expression, TLeaf*& leaf, 
             // return -1;
             //}
             // We need to recover the info not used.
-            strlcpy(right,work,kMaxLen);
-            strncat(right,"(",kMaxLen-1-strlen(right));
-            strncat(right,params,kMaxLen-1-strlen(right));
+            strlcpy(right,work,2*kMaxLen);
+            strncat(right,"(",2*kMaxLen-1-strlen(right));
+            strncat(right,params,2*kMaxLen-1-strlen(right));
             final = kTRUE;
 
             // Record in 'i' what we consumed
@@ -2466,8 +2467,8 @@ Int_t TTreeFormula::FindLeafForExpression(const char* expression, TLeaf*& leaf, 
                      final = kTRUE;
                      strlcpy(right,first,kMaxLen);
                      //We need to put the delimiter back!
-                     if (foundAtSign) strncat(right,"@",kMaxLen-1-strlen(right));
-                     if (cname[i]=='.') strncat(right,".",kMaxLen-1-strlen(right));
+                     if (foundAtSign) strncat(right,"@",2*kMaxLen-1-strlen(right));
+                     if (cname[i]=='.') strncat(right,".",2*kMaxLen-1-strlen(right));
 
                      // We reset work
                      current = &(work[0]);
@@ -2545,8 +2546,8 @@ Int_t TTreeFormula::FindLeafForExpression(const char* expression, TLeaf*& leaf, 
             }
             if (tmp_leaf) {
                // Something was found.
-               if (second[0]) strncat(second,".",kMaxLen-1-strlen(second));
-               strncat(second,work,kMaxLen-1-strlen(second));
+               if (second[0]) strncat(second,".",2*kMaxLen-1-strlen(second));
+               strncat(second,work,2*kMaxLen-1-strlen(second));
                leaf = tmp_leaf;
                useLeafCollectionObject = foundAtSign;
                foundAtSign = kFALSE;
@@ -2575,7 +2576,7 @@ Int_t TTreeFormula::FindLeafForExpression(const char* expression, TLeaf*& leaf, 
 
    // Copy the left over for later use.
    if (strlen(work)) {
-      strncat(right,work,kMaxLen-1-strlen(right));
+      strncat(right,work,2*kMaxLen-1-strlen(right));
    }
 
    if (i<nchname) {
@@ -2583,9 +2584,9 @@ Int_t TTreeFormula::FindLeafForExpression(const char* expression, TLeaf*& leaf, 
          // In some cases we remove a little to fast the period, we add
          // it back if we need.  It is assumed that 'right' and the rest of
          // the name was cut by a delimiter, so this should be safe.
-         strncat(right,".",kMaxLen-1-strlen(right));
+         strncat(right,".",2*kMaxLen-1-strlen(right));
       }
-      strncat(right,&cname[i],kMaxLen-1-strlen(right));
+      strncat(right,&cname[i],2*kMaxLen-1-strlen(right));
    }
 
    if (!final && branch) {
@@ -2597,7 +2598,7 @@ Int_t TTreeFormula::FindLeafForExpression(const char* expression, TLeaf*& leaf, 
    }
 
    if (leaf && leaf->InheritsFrom(TLeafObject::Class()) ) {
-      if (strlen(right)==0) strlcpy(right,work,kMaxLen);
+      if (strlen(right)==0) strlcpy(right,work,2*kMaxLen);
    }
 
    if (leaf==0 && left[0]!=0) {
@@ -2605,7 +2606,7 @@ Int_t TTreeFormula::FindLeafForExpression(const char* expression, TLeaf*& leaf, 
 
       // Check for an alias.
       const char *aliasValue = fTree->GetAlias(left);
-      if (aliasValue && strcspn(aliasValue,"[]+*/-%&!=<>|")==strlen(aliasValue)) {
+      if (aliasValue && strcspn(aliasValue,"()[]+*/-%&!=<>|")==strlen(aliasValue)) {
          // First check whether we are using this alias recursively (this would
          // lead to an infinite recursion).
          if (find(aliasUsed.begin(),
@@ -2843,7 +2844,7 @@ Int_t TTreeFormula::DefinedVariable(TString &name, Int_t &action)
          }
 
 
-         if (strcspn(aliasValue,"+*/-%&!=<>|")!=strlen(aliasValue)) {
+         if (strcspn(aliasValue,"()+*/-%&!=<>|")!=strlen(aliasValue)) {
             // If the alias contains an operator, we need to use a nested formula
             // (since DefinedVariable must only add one entry to the operation's list).
 
@@ -2966,14 +2967,12 @@ Int_t TTreeFormula::DefinedVariable(TString &name, Int_t &action)
    TCutG *gcut = (TCutG*)gROOT->GetListOfSpecials()->FindObject(name.Data());
    if (gcut) {
       if (gcut->GetObjectX()) {
-         if(!gcut->GetObjectX()->InheritsFrom(TTreeFormula::Class())) {
-            delete gcut->GetObjectX(); gcut->SetObjectX(0);
-         }
+         if(!gcut->GetObjectX()->InheritsFrom(TTreeFormula::Class()))
+            gcut->SetObjectX(nullptr);
       }
       if (gcut->GetObjectY()) {
-         if(!gcut->GetObjectY()->InheritsFrom(TTreeFormula::Class())) {
-            delete gcut->GetObjectY(); gcut->SetObjectY(0);
-         }
+         if(!gcut->GetObjectY()->InheritsFrom(TTreeFormula::Class()))
+            gcut->SetObjectY(nullptr);
       }
 
       Int_t code = fNcodes;
@@ -3978,6 +3977,10 @@ T TTreeFormula::EvalInstance(Int_t instance, const char *stringStackArg[])
             TCutG *gcut = (TCutG*)fExternalCuts.At(0);
             TTreeFormula *fx = (TTreeFormula *)gcut->GetObjectX();
             TTreeFormula *fy = (TTreeFormula *)gcut->GetObjectY();
+            if (fDidBooleanOptimization) {
+               fx->ResetLoading();
+               fy->ResetLoading();
+            }
             T xcut = fx->EvalInstance<T>(instance);
             T ycut = fy->EvalInstance<T>(instance);
             return gcut->IsInside(xcut,ycut);
@@ -3985,6 +3988,9 @@ T TTreeFormula::EvalInstance(Int_t instance, const char *stringStackArg[])
          case -1: {
             TCutG *gcut = (TCutG*)fExternalCuts.At(0);
             TTreeFormula *fx = (TTreeFormula *)gcut->GetObjectX();
+            if (fDidBooleanOptimization) {
+               fx->ResetLoading();
+            }
             return fx->EvalInstance<T>(instance);
          }
          default: return 0;
@@ -4239,6 +4245,10 @@ T TTreeFormula::EvalInstance(Int_t instance, const char *stringStackArg[])
                   TCutG *gcut = (TCutG*)fExternalCuts.At(code);
                   TTreeFormula *fx = (TTreeFormula *)gcut->GetObjectX();
                   TTreeFormula *fy = (TTreeFormula *)gcut->GetObjectY();
+                  if (fDidBooleanOptimization) {
+                     fx->ResetLoading();
+                     fy->ResetLoading();
+                  }
                   T xcut = fx->EvalInstance<T>(instance);
                   T ycut = fy->EvalInstance<T>(instance);
                   tab[pos++] = gcut->IsInside(xcut,ycut);
@@ -4247,6 +4257,9 @@ T TTreeFormula::EvalInstance(Int_t instance, const char *stringStackArg[])
                case -1: {
                   TCutG *gcut = (TCutG*)fExternalCuts.At(code);
                   TTreeFormula *fx = (TTreeFormula *)gcut->GetObjectX();
+                  if (fDidBooleanOptimization) {
+                     fx->ResetLoading();
+                  }
                   tab[pos++] = fx->EvalInstance<T>(instance);
                   continue;
                }
@@ -4944,6 +4957,16 @@ void TTreeFormula::ResetLoading()
          f->ResetLoading();
       }
    }
+   for (int i=0; i<fExternalCuts.GetSize(); i++) {
+      auto c = dynamic_cast<TCutG*>(fExternalCuts.At(i));
+      if (c) {
+         ((TTreeFormula *)(c->GetObjectX()))->ResetLoading();
+         ((TTreeFormula *)(c->GetObjectY()))->ResetLoading();
+      }
+   }
+   fRealInstanceCache.fInstanceCache = 0;
+   fRealInstanceCache.fLocalIndexCache = 0;
+   fRealInstanceCache.fVirtAccumCache = 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

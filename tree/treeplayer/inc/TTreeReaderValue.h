@@ -12,10 +12,9 @@
 #ifndef ROOT_TTreeReaderValue
 #define ROOT_TTreeReaderValue
 
-
 ////////////////////////////////////////////////////////////////////////////
 //                                                                        //
-// TTreeReaderValue                                                    //
+// TTreeReaderValue                                                       //
 //                                                                        //
 // A simple interface for reading data from trees or chains.              //
 //                                                                        //
@@ -35,6 +34,10 @@ class TTreeReader;
 
 namespace ROOT {
 namespace Internal {
+
+/** \class TTreeReaderValueBase
+Base class of TTreeReaderValue.
+*/
 
    class TTreeReaderValueBase {
    public:
@@ -65,7 +68,13 @@ namespace Internal {
          kReadError // problem reading data
       };
 
-      EReadStatus ProxyRead();
+      EReadStatus ProxyRead() { return (this->*fProxyReadFunc)(); }
+
+      EReadStatus ProxyReadDefaultImpl();
+
+      typedef Bool_t (ROOT::Detail::TBranchProxy::*BranchProxyRead_t)();
+      template <BranchProxyRead_t Func>
+      ROOT::Internal::TTreeReaderValueBase::EReadStatus ProxyReadTemplate();
 
       Bool_t IsValid() const { return fProxy && 0 == (int)fSetupStatus && 0 == (int)fReadStatus; }
       ESetupStatus GetSetupStatus() const { return fSetupStatus; }
@@ -88,9 +97,11 @@ namespace Internal {
       void RegisterWithTreeReader();
       void NotifyNewTree(TTree* newTree);
 
+      TBranch* SearchBranchWithCompositeName(TLeaf *&myleaf, TDictionary *&branchActualType, std::string &err);
       virtual void CreateProxy();
-      const char* GetBranchDataType(TBranch* branch,
-                                    TDictionary* &dict) const;
+      static const char* GetBranchDataType(TBranch* branch,
+                                           TDictionary* &dict,
+                                           TDictionary const *curDict);
 
       virtual const char* GetDerivedTypeName() const = 0;
 
@@ -112,6 +123,8 @@ namespace Internal {
       Detail::TBranchProxy* fProxy = nullptr; // proxy for this branch, owned by TTreeReader
       TLeaf*       fLeaf = nullptr;
       std::vector<Long64_t> fStaticClassOffsets;
+      typedef EReadStatus (TTreeReaderValueBase::*Read_t)();
+      Read_t fProxyReadFunc = &TTreeReaderValueBase::ProxyReadDefaultImpl;      ///<! Pointer to the Read implementation to use.
 
       // FIXME: re-introduce once we have ClassDefInline!
       //ClassDef(TTreeReaderValueBase, 0);//Base class for accessors to data via TTreeReader
@@ -124,7 +137,9 @@ namespace Internal {
 
 
 template <typename T>
-class TTreeReaderValue: public ROOT::Internal::TTreeReaderValueBase {
+class R__CLING_PTRCHECK(off) TTreeReaderValue final: public ROOT::Internal::TTreeReaderValueBase {
+// R__CLING_PTRCHECK is disabled because pointer / types are checked by CreateProxy().
+
 public:
    using NonConstT_t = typename std::remove_const<T>::type;
    TTreeReaderValue() = delete;
@@ -132,14 +147,24 @@ public:
       TTreeReaderValueBase(&tr, branchname,
                            TDictionary::GetDictionary(typeid(NonConstT_t))) {}
 
+   /// Return a pointer to the value of the current entry.
+   /// Return a nullptr and print an error if no entry has been loaded yet.
+   /// The returned address is guaranteed to stay constant while a given TTree is being read from a given file,
+   /// unless the branch addresses are manipulated directly (e.g. through TTree::SetBranchAddress()).
+   /// The address might also change when the underlying TTree/TFile is switched, e.g. when a TChain switches files.
    T* Get() {
       if (!fProxy){
-         Error("Get()", "Value reader not properly initialized, did you remember to call TTreeReader.Set(Next)Entry()?");
-         return 0;
+         Error("TTreeReaderValue::Get()", "Value reader not properly initialized, did you remember to call TTreeReader.Set(Next)Entry()?");
+         return nullptr;
       }
       void *address = GetAddress(); // Needed to figure out if it's a pointer
       return fProxy->IsaPointer() ? *(T**)address : (T*)address; }
+   /// Return a pointer to the value of the current entry.
+   /// Equivalent to Get().
    T* operator->() { return Get(); }
+   /// Return a reference to the value of the current entry.
+   /// Equivalent to dereferencing the pointer returned by Get(). Behavior is undefined if no entry has been loaded yet.
+   /// Most likely a crash will occur.
    T& operator*() { return *Get(); }
 
 protected:

@@ -1,6 +1,19 @@
+# Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.
+# All rights reserved.
+#
+# For the licensing terms see $ROOTSYS/LICENSE.
+# For the list of contributors see $ROOTSYS/README/CREDITS.
+
 #---------------------------------------------------------------------------------------------------
 #  CheckCompiler.cmake
 #---------------------------------------------------------------------------------------------------
+
+if(NOT GENERATOR_IS_MULTI_CONFIG AND NOT CMAKE_BUILD_TYPE)
+  if(NOT CMAKE_C_FLAGS AND NOT CMAKE_CXX_FLAGS AND NOT CMAKE_Fortran_FLAGS)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING
+      "Specifies the build type on single-configuration generators" FORCE)
+  endif()
+endif()
 
 include(CheckLanguage)
 #---Enable FORTRAN (unfortunatelly is not not possible in all cases)-------------------------------
@@ -9,21 +22,26 @@ if(fortran)
   if(DEFINED CMAKE_Fortran_COMPILER AND CMAKE_Fortran_COMPILER MATCHES "^$")
     set(CMAKE_Fortran_COMPILER CMAKE_Fortran_COMPILER-NOTFOUND)
   endif()
-  check_language(Fortran)
   if(CMAKE_Fortran_COMPILER)
+    # CMAKE_Fortran_COMPILER has already been defined somewhere else, so
+    # just check whether it contains a valid compiler
     enable_language(Fortran)
+  else()
+    # CMAKE_Fortran_COMPILER has not been defined, so first check whether
+    # there is a Fortran compiler at all
+    check_language(Fortran)
+    if(CMAKE_Fortran_COMPILER)
+      # Fortran compiler found, however as 'check_language' was executed
+      # in a separate process, the result might not be compatible with
+      # the C++ compiler, so reset the variable, ...
+      unset(CMAKE_Fortran_COMPILER CACHE)
+      # ..., and enable Fortran again, this time prefering compilers
+      # compatible to the C++ compiler
+      enable_language(Fortran)
+    endif()
   endif()
 else()
   set(CMAKE_Fortran_COMPILER CMAKE_Fortran_COMPILER-NOTFOUND)
-endif()
-
-#----Get the compiler file name (to ensure re-location)---------------------------------------------
-get_filename_component(_compiler_name ${CMAKE_CXX_COMPILER} NAME)
-get_filename_component(_compiler_path ${CMAKE_CXX_COMPILER} PATH)
-if("$ENV{PATH}" MATCHES ${_compiler_path})
-  set(CXX ${_compiler_name})
-else()
-  set(CXX ${CMAKE_CXX_COMPILER})
 endif()
 
 #----Test if clang setup works----------------------------------------------------------------------
@@ -33,10 +51,20 @@ if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
   string(REGEX REPLACE "^.*[ ]version[ ][0-9]+\\.([0-9]+).*" "\\1" CLANG_MINOR "${_clang_version_info}")
   message(STATUS "Found Clang. Major version ${CLANG_MAJOR}, minor version ${CLANG_MINOR}")
   set(COMPILER_VERSION clang${CLANG_MAJOR}${CLANG_MINOR})
-  if(ccache)
-    # https://bugzilla.samba.org/show_bug.cgi?id=8118 and color.
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Qunused-arguments -fcolor-diagnostics")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Qunused-arguments -fcolor-diagnostics")
+  if(CMAKE_GENERATOR STREQUAL "Ninja")
+    # LLVM/Clang are automatically checking if we are in interactive terminal mode.
+    # We use color output only for Ninja, because Ninja by default is buffering the output,
+    # so Clang disables colors as it is sure whether the output goes to a file or to a terminal.
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcolor-diagnostics")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fcolor-diagnostics")
+  endif()
+  if(ccache AND CCACHE_VERSION VERSION_LESS "3.2.0")
+    # https://bugzilla.samba.org/show_bug.cgi?id=8118
+    # Call to 'ccache clang' is triggering next warning (valid for ccache 3.1.x, fixed in 3.2):
+    # "clang: warning: argument unused during compilation: '-c"
+    # Adding -Qunused-arguments provides a workaround for the bug.
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Qunused-arguments")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Qunused-arguments")
   endif()
 else()
   set(CLANG_MAJOR 0)
@@ -45,10 +73,9 @@ endif()
 
 #---Obtain the major and minor version of the GNU compiler-------------------------------------------
 if (CMAKE_COMPILER_IS_GNUCXX)
-  exec_program(${CMAKE_C_COMPILER} ARGS "-dumpversion" OUTPUT_VARIABLE _gcc_version_info)
-  string(REGEX REPLACE "^([0-9]+).*$"                   "\\1" GCC_MAJOR ${_gcc_version_info})
-  string(REGEX REPLACE "^[0-9]+\\.([0-9]+).*$"          "\\1" GCC_MINOR ${_gcc_version_info})
-  string(REGEX REPLACE "^[0-9]+\\.[0-9]+\\.([0-9]+).*$" "\\1" GCC_PATCH ${_gcc_version_info})
+  string(REGEX REPLACE "^([0-9]+).*$"                   "\\1" GCC_MAJOR ${CMAKE_CXX_COMPILER_VERSION})
+  string(REGEX REPLACE "^[0-9]+\\.([0-9]+).*$"          "\\1" GCC_MINOR ${CMAKE_CXX_COMPILER_VERSION})
+  string(REGEX REPLACE "^[0-9]+\\.[0-9]+\\.([0-9]+).*$" "\\1" GCC_PATCH ${CMAKE_CXX_COMPILER_VERSION})
 
   if(GCC_PATCH MATCHES "\\.+")
     set(GCC_PATCH "")
@@ -66,62 +93,38 @@ else()
   set(GCC_MINOR 0)
 endif()
 
-#---Set a default build type for single-configuration CMake generators if no build type is set------
-if(WIN32)
-  set(CMAKE_CONFIGURATION_TYPES Release MinSizeRel Debug RelWithDebInfo)
-else()
-  set(CMAKE_CONFIGURATION_TYPES Release MinSizeRel Debug RelWithDebInfo Optimized)
-endif()
-if(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Choose the type of build, options are: Release, MinSizeRel, Debug, RelWithDebInfo, Optimized." FORCE)
-endif()
-string(TOUPPER "${CMAKE_BUILD_TYPE}" uppercase_CMAKE_BUILD_TYPE)
-string(TOUPPER "${CMAKE_CONFIGURATION_TYPES}" uppercase_CMAKE_CONFIGURATION_TYPES)
-if(NOT "${uppercase_CMAKE_CONFIGURATION_TYPES}" MATCHES "${uppercase_CMAKE_BUILD_TYPE}")
-  message(FATAL_ERROR "CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} needs to be one of known build types: ${CMAKE_CONFIGURATION_TYPES}")
-endif()
-
 include(CheckCXXCompilerFlag)
 include(CheckCCompilerFlag)
 
-#---Check for cxx11 option------------------------------------------------------------
-if(cxx11 AND cxx14)
-  message(STATUS "c++11 mode requested but superseded by request for c++14 mode")
-  set(cxx11 OFF CACHE BOOL "" FORCE)
-endif()
-if((cxx11 OR cxx14) AND cxx17)
-  message(STATUS "c++11 or c++14 mode requested but superseded by request for c++17 mode")
-  set(cxx11 OFF CACHE BOOL "" FORCE)
-  set(cxx14 OFF CACHE BOOL "" FORCE)
-endif()
-if(cxx11)
-  CHECK_CXX_COMPILER_FLAG("-std=c++11" HAS_CXX11)
-  if(NOT HAS_CXX11)
-    message(STATUS "Current compiler does not suppport -std=c++11 option. Switching OFF cxx11 option")
-    set(cxx11 OFF CACHE BOOL "" FORCE)
+#---C++ standard----------------------------------------------------------------------
+
+set(CMAKE_CXX_STANDARD 11 CACHE STRING "")
+set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
+set(CMAKE_CXX_EXTENSIONS FALSE CACHE BOOL "")
+
+if(cxx11 OR cxx14 OR cxx17)
+  message(DEPRECATION "Options cxx11/14/17 are deprecated. Please use CMAKE_CXX_STANDARD instead.")
+
+  # for backward compatibility
+  if(cxx17)
+    set(CMAKE_CXX_STANDARD 17 CACHE STRING "" FORCE)
+  elseif(cxx14)
+    set(CMAKE_CXX_STANDARD 14 CACHE STRING "" FORCE)
+  elseif(cxx11)
+    set(CMAKE_CXX_STANDARD 11 CACHE STRING "" FORCE)
   endif()
+
+  unset(cxx17 CACHE)
+  unset(cxx14 CACHE)
+  unset(cxx11 CACHE)
 endif()
-if(cxx14)
-  CHECK_CXX_COMPILER_FLAG("-std=c++14" HAS_CXX14)
-  if(NOT HAS_CXX14)
-    message(STATUS "Current compiler does not suppport -std=c++14 option. Switching OFF cxx14 option")
-    set(cxx14 OFF CACHE BOOL "" FORCE)
-  endif()
+
+if(NOT CMAKE_CXX_STANDARD MATCHES "11|14|17")
+  message(FATAL_ERROR "Unsupported C++ standard: ${CMAKE_CXX_STANDARD}")
 endif()
-if(cxx17)
-  CHECK_CXX_COMPILER_FLAG("-std=c++1z" HAS_CXX17)
-  if(NOT HAS_CXX17)
-    message(STATUS "Current compiler does not suppport -std=c++17 option. Switching OFF cxx17 option")
-    set(cxx17 OFF CACHE BOOL "" FORCE)
-  endif()
-endif()
-if(root7)
-  if(cxx11)
-    message(STATUS "ROOT7 interfaces require >= cxx14 which is disabled. Switching OFF root7 option")
-    set(root7 OFF CACHE BOOL "" FORCE)
-  endif()
-    set(http ON CACHE BOOL "" FORCE)
-endif()
+
+# needed by roottest, to be removed once roottest is fixed
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${CMAKE_CXX${CMAKE_CXX_STANDARD}_STANDARD_COMPILE_OPTION}")
 
 #---Check for libcxx option------------------------------------------------------------
 if(libcxx)
@@ -165,18 +168,6 @@ endif()
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${CMAKE_THREAD_FLAG}")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${CMAKE_THREAD_FLAG}")
 
-if(cxx11)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-endif()
-
-if(cxx14)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14")
-endif()
-
-if(cxx17)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z")
-endif()
-
 if(libcxx)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
 endif()
@@ -189,7 +180,7 @@ if(gcctoolchain)
 endif()
 
 if(gnuinstall)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DR__HAVE_CONFIG")
+  set(R__HAVE_CONFIG 1)
 endif()
 
 #---Check if we use the new libstdc++ CXX11 ABI-----------------------------------------------------
@@ -207,5 +198,6 @@ int main() {}
 #---Print the final compiler flags--------------------------------------------------------------------
 message(STATUS "ROOT Platform: ${ROOT_PLATFORM}")
 message(STATUS "ROOT Architecture: ${ROOT_ARCHITECTURE}")
-message(STATUS "Build Type: ${CMAKE_BUILD_TYPE}")
-message(STATUS "Compiler Flags: ${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${uppercase_CMAKE_BUILD_TYPE}}")
+string(TOUPPER "${CMAKE_BUILD_TYPE}" uppercase_CMAKE_BUILD_TYPE)
+message(STATUS "Build Type: ${CMAKE_BUILD_TYPE} (flags = '${CMAKE_CXX_FLAGS_${uppercase_CMAKE_BUILD_TYPE}}')")
+message(STATUS "Compiler Flags: ${CMAKE_CXX_FLAGS_${uppercase_CMAKE_BUILD_TYPE}} ${CMAKE_CXX_FLAGS}")

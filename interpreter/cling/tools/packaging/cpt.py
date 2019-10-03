@@ -90,6 +90,13 @@ def exec_subprocess_check_output(cmd, cwd):
     finally:
         return out
 
+def travis_fold_start(tag):
+    if os.environ.get('TRAVIS_BUILD_DIR', None):
+       print('travis_fold:start:cpt-%s:' % (tag))
+
+def travis_fold_end(tag):
+   if os.environ.get('TRAVIS_BUILD_DIR', None):
+      print('travis_fold:end:cpt-%s:' % (tag))
 
 def box_draw_header():
     msg = 'cling (' + platform.machine() + ')' + formatdate(time.time(), tzinfo())
@@ -461,6 +468,7 @@ class Build(object):
                                  LLVM_OBJ_ROOT)
 
 def compile(arg, build_libcpp):
+    travis_fold_start("compile")
     global prefix, EXTRA_CMAKE_FLAGS
     prefix = arg
     PYTHON = sys.executable
@@ -485,7 +493,7 @@ def compile(arg, build_libcpp):
             EXTRA_CMAKE_FLAGS = ' -DLLVM_HOST_TRIPLE="%s" ' % triple.rstrip() + EXTRA_CMAKE_FLAGS
 
     build = Build()
-    cmake_config_flags = (srcdir + ' -DCMAKE_BUILD_TYPE={0} -DCMAKE_INSTALL_PREFIX={1} '
+    cmake_config_flags = (srcdir + ' -DLLVM_BUILD_TOOLS=Off -DCMAKE_BUILD_TYPE={0} -DCMAKE_INSTALL_PREFIX={1} '
                           .format(build.buildType, TMP_PREFIX) + ' -DLLVM_TARGETS_TO_BUILD=host ' +
                           EXTRA_CMAKE_FLAGS)
 
@@ -553,8 +561,10 @@ def compile(arg, build_libcpp):
                                   + ' -v ".I"', shell=True)
         except Exception as e:
             print(e)
+    travis_fold_end("compile")
 
 def install_prefix():
+    travis_fold_start("install")
     global prefix
     set_vars()
 
@@ -579,6 +589,7 @@ def install_prefix():
                         os.makedirs(os.path.join(prefix, os.path.dirname(f)))
                     shutil.copy(os.path.join(TMP_PREFIX, f), os.path.join(prefix, f))
                     break
+    travis_fold_end("install")
 
 
 def runSingleTest(test, Idx = 2, Recurse = True):
@@ -676,6 +687,16 @@ def cleanup():
             shutil.rmtree(os.path.join(workdir, 'Install'))
     gInCleanup = False
 
+def check_version_string_ge(vstring, min_vstring):
+    version_fields = [int(x) for x in vstring.split('.')]
+    min_versions = [int(x) for x in min_vstring.split('.')]
+    for i in range(0,len(min_versions)):
+        if version_fields[i] < min_versions[i]:
+            return False
+        elif version_fields[i] > min_versions[i]:
+            return True
+    return True
+
 
 ###############################################################################
 #            Debian specific functions (ported from debianize.sh)             #
@@ -686,17 +707,22 @@ def check_ubuntu(pkg):
         SIGNING_USER = exec_subprocess_check_output('gpg --fingerprint | grep uid | sed s/"uid *"//g', '/').strip()
         if SIGNING_USER == '':
             print(pkg.ljust(20) + '[INSTALLED - NOT SETUP]'.ljust(30))
+            return True
         else:
             print(pkg.ljust(20) + '[OK]'.ljust(30))
+            return True
     elif pkg == "python":
         if float(platform.python_version()[:3]) < 2.7:
             print(pkg.ljust(20) + '[OUTDATED VERSION (<2.7)]'.ljust(30))
+            return False
         else:
             print(pkg.ljust(20) + '[OK]'.ljust(30))
+            return True
     elif pkg == "cmake":
         CMAKE = os.environ.get('CMAKE', 'cmake')
-        if exec_subprocess_check_output('{cmake} --version'.format(cmake=CMAKE), '/').strip().split('\n')[0].split()[-1] < '3.4.3':
+        if not check_version_string_ge(exec_subprocess_check_output('{cmake} --version'.format(cmake=CMAKE), '/').strip().split('\n')[0].split()[-1], '3.4.3'):
             print(pkg.ljust(20) + '[OUTDATED VERSION (<3.4.3)]'.ljust(30))
+            return False
         else:
             print(pkg.ljust(20) + '[OK]'.ljust(30))
     elif pkg == "SSL":
@@ -705,28 +731,37 @@ def check_ubuntu(pkg):
             import socket
             if hasattr(socket, 'ssl'):
                 print(pkg.ljust(20) + '[SUPPORTED]'.ljust(30))
+                return True
             else:
                 print(pkg.ljust(20) + '[NOT SUPPORTED]'.ljust(30))
+                return False
         else:
             # Python 3.x
             print(pkg.ljust(20) + '[SUPPORTED]'.ljust(30))
+            return True
 
     elif exec_subprocess_check_output("dpkg-query -W -f='${Status}' %s 2>/dev/null | grep -c 'ok installed'" % (pkg),
                                       '/').strip() == '0':
         print(pkg.ljust(20) + '[NOT INSTALLED]'.ljust(30))
+        return False
     else:
         if pkg == "gcc":
             if float(exec_subprocess_check_output('gcc -dumpversion', '/')[:3].strip()) <= 4.7:
                 print(pkg.ljust(20) + '[UNSUPPORTED VERSION (<4.7)]'.ljust(30))
+                return False
             else:
                 print(pkg.ljust(20) + '[OK]'.ljust(30))
+                return True
         elif pkg == "g++":
             if float(exec_subprocess_check_output('g++ -dumpversion', '/')[:3].strip()) <= 4.7:
                 print(pkg.ljust(20) + '[UNSUPPORTED VERSION (<4.7)]'.ljust(30))
+                return False
             else:
                 print(pkg.ljust(20) + '[OK]'.ljust(30))
+                return True
         else:
             print(pkg.ljust(20) + '[OK]'.ljust(30))
+            return True
 
 
 def tarball_deb():
@@ -969,14 +1004,18 @@ def check_redhat(pkg):
     if pkg == "python":
         if platform.python_version()[0] == '3':
             print(pkg.ljust(20) + '[UNSUPPORTED VERSION (Python 3)]'.ljust(30))
+            return False
         elif float(platform.python_version()[:3]) < 2.7:
             print(pkg.ljust(20) + '[OUTDATED VERSION (<2.7)]'.ljust(30))
+            return False
         else:
             print(pkg.ljust(20) + '[OK]'.ljust(30))
+            return True
     elif pkg == "cmake":
         CMAKE = os.environ.get('CMAKE', 'cmake')
-        if exec_subprocess_check_output('{cmake} --version'.format(cmake=CMAKE), '/').strip().split('\n')[0].split()[-1] < '3.4.3':
+        if not check_version_string_ge(exec_subprocess_check_output('{cmake} --version'.format(cmake=CMAKE), '/').strip().split('\n')[0].split()[-1], '3.4.3'):
             print(pkg.ljust(20) + '[OUTDATED VERSION (<3.4.3)]'.ljust(30))
+            return False
         else:
             print(pkg.ljust(20) + '[OK]'.ljust(30))
     elif pkg == "SSL":
@@ -985,28 +1024,37 @@ def check_redhat(pkg):
             import socket
             if hasattr(socket, 'ssl'):
                 print(pkg.ljust(20) + '[SUPPORTED]'.ljust(30))
+                return True
             else:
                 print(pkg.ljust(20) + '[NOT SUPPORTED]'.ljust(30))
+                return False
         else:
             # Python 3.x
             print(pkg.ljust(20) + '[SUPPORTED]'.ljust(30))
+            return True
 
     elif exec_subprocess_check_output("rpm -qa | grep -w %s" % (pkg), '/').strip() == '':
         print(pkg.ljust(20) + '[NOT INSTALLED]'.ljust(30))
+        return False
     else:
         if pkg == "gcc-c++":
             if float(exec_subprocess_check_output('g++ -dumpversion', '/')[:3].strip()) <= 4.7:
                 print(pkg.ljust(20) + '[UNSUPPORTED VERSION (<4.7)]'.ljust(30))
+                return False
             else:
                 print(pkg.ljust(20) + '[OK]'.ljust(30))
+                return True
         elif pkg == "gcc":
             if float(exec_subprocess_check_output('gcc -dumpversion', '/')[:3].strip()) <= 4.7:
                 print(pkg.ljust(20) + '[UNSUPPORTED VERSION (<4.7)]'.ljust(30))
+                return False
             else:
                 print(pkg.ljust(20) + '[OK]'.ljust(30))
+                return True
 
         else:
             print(pkg.ljust(20) + '[OK]'.ljust(30))
+            return True
 
 
 def rpm_build():
@@ -1471,14 +1519,18 @@ def check_mac(pkg):
     if pkg == "python":
         if platform.python_version()[0] == '3':
             print(pkg.ljust(20) + '[UNSUPPORTED VERSION (Python 3)]'.ljust(30))
+            return False
         elif float(platform.python_version()[:3]) < 2.7:
             print(pkg.ljust(20) + '[OUTDATED VERSION (<2.7)]'.ljust(30))
+            return False
         else:
             print(pkg.ljust(20) + '[OK]'.ljust(30))
+            return True
     elif pkg == "cmake":
         CMAKE = os.environ.get('CMAKE', 'cmake')
-        if exec_subprocess_check_output('{cmake} --version'.format(cmake=CMAKE), '/').strip().split('\n')[0].split()[-1] < '3.4.3':
+        if not check_version_string_ge(exec_subprocess_check_output('{cmake} --version'.format(cmake=CMAKE), '/').strip().split('\n')[0].split()[-1].split('-')[0], '3.4.3'):
             print(pkg.ljust(20) + '[OUTDATED VERSION (<3.4.3)]'.ljust(30))
+            return False
         else:
             print(pkg.ljust(20) + '[OK]'.ljust(30))
     elif pkg == "SSL":
@@ -1487,27 +1539,36 @@ def check_mac(pkg):
             import socket
             if hasattr(socket, 'ssl'):
                 print(pkg.ljust(20) + '[SUPPORTED]'.ljust(30))
+                return True
             else:
                 print(pkg.ljust(20) + '[NOT SUPPORTED]'.ljust(30))
+                return False
         else:
             # Python 3.x
             print(pkg.ljust(20) + '[SUPPORTED]'.ljust(30))
+            return True
 
     elif exec_subprocess_check_output("type -p %s" % (pkg), '/').strip() == '':
         print(pkg.ljust(20) + '[NOT INSTALLED]'.ljust(30))
+        return False
     else:
         if pkg == "clang++":
             if float(exec_subprocess_check_output('clang++ -dumpversion', '/')[:3].strip()) <= 4.1:
                 print(pkg.ljust(20) + '[UNSUPPORTED VERSION (<4.1)]'.ljust(30))
+                return False
             else:
                 print(pkg.ljust(20) + '[OK]'.ljust(30))
+                return True
         elif pkg == "clang":
             if float(exec_subprocess_check_output('clang -dumpversion', '/')[:3].strip()) <= 4.1:
                 print(pkg.ljust(20) + '[UNSUPPORTED VERSION (<4.1)]'.ljust(30))
+                return False
             else:
                 print(pkg.ljust(20) + '[OK]'.ljust(30))
+                return True
         else:
             print(pkg.ljust(20) + '[OK]'.ljust(30))
+            return True
 
 
 def make_dmg():
@@ -1682,9 +1743,19 @@ parser.add_argument('--stdlib', help=('C++ Library to use, stdlibc++ or libc++.'
                     default='')
 parser.add_argument('--compiler', help='The compiler being used to make cling (for heuristics only)',
                     default='')
-
+parser.add_argument('-y', help='Non-interactive mode (yes to all)', action='store_true')
 
 args = vars(parser.parse_args())
+
+###############################################################################
+#                           Customized input                                  #
+###############################################################################
+
+def custom_input(prompt, always_yes=False):
+    if always_yes:
+        return 'y'
+    else:
+        return input(prompt)
 
 ###############################################################################
 #                           Platform initialization                           #
@@ -1807,45 +1878,42 @@ if not os.path.isdir(TMP_PREFIX):
 if args['check_requirements']:
     box_draw('Check availability of required softwares')
     if DIST == 'Ubuntu':
-        check_ubuntu('git')
-        check_ubuntu('cmake')
-        check_ubuntu('gcc')
-        check_ubuntu('g++')
-        check_ubuntu('debhelper')
-        check_ubuntu('devscripts')
-        check_ubuntu('gnupg')
-        check_ubuntu('python')
-        check_ubuntu('SSL')
+        install_line = ""
+        prerequisite = ['git', 'cmake', 'gcc', 'g++', 'debhelper', 'devscripts', 'gnupg', 'python', 'SSL']
+        for pkg in prerequisite:
+            if check_ubuntu(pkg) is False:
+                install_line += pkg + ' '
         yes = {'yes', 'y', 'ye', ''}
         no = {'no', 'n'}
-
-        choice = input('''
-CPT will now attempt to update/install the requisite packages automatically.
-Do you want to continue? [yes/no]: ''').lower()
-        while True:
-            if choice in yes:
-                # Need to communicate values to the shell. Do not use exec_subprocess_call()
-                subprocess.Popen(['sudo apt-get update'],
-                                 shell=True,
-                                 stdin=subprocess.PIPE,
-                                 stdout=None,
-                                 stderr=subprocess.STDOUT).communicate('yes'.encode('utf-8'))
-                subprocess.Popen(['sudo apt-get install git cmake gcc g++ debhelper devscripts gnupg python'],
-                                 shell=True,
-                                 stdin=subprocess.PIPE,
-                                 stdout=None,
-                                 stderr=subprocess.STDOUT).communicate('yes'.encode('utf-8'))
-                break
-            elif choice in no:
-                print('''
-Install/update the required packages by:
-  sudo apt-get update
-  sudo apt-get install git cmake gcc g++ debhelper devscripts gnupg python
-''')
-                break
-            else:
-                choice = input("Please respond with 'yes' or 'no': ")
-                continue
+        
+        if install_line != '':
+            choice = custom_input('''
+    CPT will now attempt to update/install the requisite packages automatically.
+    Do you want to continue? [yes/no]: ''', args['y']).lower()
+            while True:
+                if choice in yes:
+                    # Need to communicate values to the shell. Do not use exec_subprocess_call()
+                    subprocess.Popen(['sudo apt-get update'],
+                                    shell=True,
+                                    stdin=subprocess.PIPE,
+                                    stdout=None,
+                                    stderr=subprocess.STDOUT).communicate('yes'.encode('utf-8'))
+                    subprocess.Popen(['sudo apt-get install ' + install_line],
+                                    shell=True,
+                                    stdin=subprocess.PIPE,
+                                    stdout=None,
+                                    stderr=subprocess.STDOUT).communicate('yes'.encode('utf-8'))
+                    break
+                elif choice in no:
+                    print('''
+    Install/update the required packages by:
+    sudo apt-get update
+    sudo apt-get install git cmake gcc g++ debhelper devscripts gnupg python
+    ''')
+                    break
+                else:
+                    choice = custom_input("Please respond with 'yes' or 'no': ", args['y'])
+                    continue
 
     elif OS == 'Windows':
         check_win('git')
@@ -1858,77 +1926,77 @@ Refer to the documentation of CPT for information on setting up your Windows env
 [tools/packaging/README.md]
 ''')
     elif DIST == 'Fedora' or DIST == 'Scientific Linux CERN SLC':
-        check_redhat('git')
-        check_redhat('cmake')
-        check_redhat('gcc')
-        check_redhat('gcc-c++')
-        check_redhat('rpm-build')
-        check_redhat('python')
-        check_redhat('SSL')
+        install_line = ''
+        prerequisite = ['git', 'cmake', 'gcc', 'gcc-c++', 'rpm-build', 'python', 'SSL']
+        for pkg in prerequisite:
+            if check_redhat(pkg) is False:
+                install_line += pkg + ' '
         yes = {'yes', 'y', 'ye', ''}
         no = {'no', 'n'}
 
-        choice = input('''
-CPT will now attempt to update/install the requisite packages automatically.
-Do you want to continue? [yes/no]: ''').lower()
-        while True:
-            if choice in yes:
-                # Need to communicate values to the shell. Do not use exec_subprocess_call()
-                subprocess.Popen(['sudo yum install git cmake gcc gcc-c++ rpm-build python'],
-                                 shell=True,
-                                 stdin=subprocess.PIPE,
-                                 stdout=None,
-                                 stderr=subprocess.STDOUT).communicate('yes'.encode('utf-8'))
-                break
-            elif choice in no:
-                print('''
-Install/update the required packages by:
-  sudo yum install git cmake gcc gcc-c++ rpm-build python
-''')
-                break
-            else:
-                choice = input("Please respond with 'yes' or 'no': ")
-                continue
+        if install_line != '':
+            choice = custom_input('''
+    CPT will now attempt to update/install the requisite packages automatically.
+    Do you want to continue? [yes/no]: ''', args['y']).lower()
+            while True:
+                if choice in yes:
+                    # Need to communicate values to the shell. Do not use exec_subprocess_call()
+                    subprocess.Popen(['sudo yum install ' + install_line],
+                                    shell=True,
+                                    stdin=subprocess.PIPE,
+                                    stdout=None,
+                                    stderr=subprocess.STDOUT).communicate('yes'.encode('utf-8'))
+                    break
+                elif choice in no:
+                    print('''
+    Install/update the required packages by:
+    sudo yum install git cmake gcc gcc-c++ rpm-build python
+    ''')
+                    break
+                else:
+                    choice = custom_input("Please respond with 'yes' or 'no': ", args['y'])
+                    continue
 
     if DIST == 'MacOSX':
-        check_mac('git')
-        check_mac('cmake')
-        check_mac('clang')
-        check_mac('clang++')
-        check_mac('python')
-        check_mac('SSL')
+        prerequisite = ['git', 'cmake', 'clang', 'clang++', 'python', 'SSL']
+        install_line = ''
+        for pkg in prerequisite:
+            if check_mac(pkg) is False:
+                install_line += pkg + ' '
         yes = {'yes', 'y', 'ye', ''}
         no = {'no', 'n'}
 
-        choice = input('''
-CPT will now attempt to update/install the requisite packages automatically. Make sure you have MacPorts installed.
-Do you want to continue? [yes/no]: ''').lower()
-        while True:
-            if choice in yes:
-                # Need to communicate values to the shell. Do not use exec_subprocess_call()
-                subprocess.Popen(['sudo port -v selfupdate'],
-                                 shell=True,
-                                 stdin=subprocess.PIPE,
-                                 stdout=None,
-                                 stderr=subprocess.STDOUT).communicate('yes'.encode('utf-8'))
-                subprocess.Popen(['sudo port install git clang++ python'],
-                                 shell=True,
-                                 stdin=subprocess.PIPE,
-                                 stdout=None,
-                                 stderr=subprocess.STDOUT).communicate('yes'.encode('utf-8'))
-                break
-            elif choice in no:
-                print('''
-Install/update the required packages by:
-  sudo port -v selfupdate
-  sudo port install git clang++ python
-''')
-                break
-            else:
-                choice = input("Please respond with 'yes' or 'no': ")
-                continue
+        if install_line != '':
+            choice = custom_input('''
+    CPT will now attempt to update/install the requisite packages automatically. Make sure you have MacPorts installed.
+    Do you want to continue? [yes/no]: ''', args['y']).lower()
+            while True:
+                if choice in yes:
+                    # Need to communicate values to the shell. Do not use exec_subprocess_call()
+                    subprocess.Popen(['sudo port -v selfupdate'],
+                                    shell=True,
+                                    stdin=subprocess.PIPE,
+                                    stdout=None,
+                                    stderr=subprocess.STDOUT).communicate('yes'.encode('utf-8'))
+                    subprocess.Popen(['sudo port install ' + install_line],
+                                    shell=True,
+                                    stdin=subprocess.PIPE,
+                                    stdout=None,
+                                    stderr=subprocess.STDOUT).communicate('yes'.encode('utf-8'))
+                    break
+                elif choice in no:
+                    print('''
+    Install/update the required packages by:
+    sudo port -v selfupdate
+    sudo port install git clang++ python
+    ''')
+                    break
+                else:
+                    choice = custom_input("Please respond with 'yes' or 'no': ", args['y'])
+                    continue
 
 if args['current_dev']:
+    travis_fold_start("git-clone")
     llvm_revision = urlopen(
         "https://raw.githubusercontent.com/root-project/cling/master/LastKnownGoodLLVMSVNRevision.txt").readline().strip().decode(
         'utf-8')
@@ -1958,6 +2026,7 @@ if args['current_dev']:
         print('\n')
     else:
         fetch_cling(CLING_BRANCH if CLING_BRANCH else 'master')
+    travis_fold_end("git-clone")
 
     set_version()
     if args['current_dev'] == 'tar':
@@ -2011,11 +2080,20 @@ if args['current_dev']:
             test_cling()
         make_dmg()
         cleanup()
+
     elif args['current_dev'].startswith('branch'):
         compile(os.path.join(workdir, 'cling-' + VERSION.replace('-' + REVISION[:7], '')), libcpp)
         #install_prefix()
         if not args['no_test']:
             test_cling()
+        cleanup()
+
+    elif args['current_dev'] == 'pkg':
+        compile(os.path.join(workdir, 'cling-' + DIST + '-' + REV + '-' + platform.machine().lower() + '-' + VERSION), libcpp)
+        install_prefix()
+        if not args['no_test']:
+            test_cling()
+        tarball()
         cleanup()
 
 if args['last_stable']:
@@ -2095,6 +2173,15 @@ if args['last_stable']:
         if not args['no_test']:
             test_cling()
         make_dmg()
+        cleanup()
+
+    elif args['last_stable'] == 'pkg':
+        set_version()
+        compile(os.path.join(workdir, 'cling-' + DIST + '-' + REV + '-' + platform.machine().lower() + '-' + VERSION), libcpp)
+        install_prefix()
+        if not args['no_test']:
+            test_cling()
+        tarball()
         cleanup()
 
 if args['tarball_tag']:

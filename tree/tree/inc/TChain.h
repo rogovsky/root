@@ -22,6 +22,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "TTree.h"
+#include <iosfwd>
 
 class TFile;
 class TBrowser;
@@ -55,7 +56,7 @@ protected:
 
 public:
    // TChain constants
-   enum {
+   enum EStatusBits {
       kGlobalWeight   = BIT(15),
       kAutoDelete     = BIT(16),
       kProofUptodate  = BIT(17),
@@ -135,6 +136,7 @@ public:
    virtual void      ResetAfterMerge(TFileMergeInfo *);
    virtual void      ResetBranchAddress(TBranch *);
    virtual void      ResetBranchAddresses();
+   virtual void      SavePrimitive (std::ostream &out, Option_t *option="");
    virtual Long64_t  Scan(const char *varexp="", const char *selection="", Option_t *option="", Long64_t nentries=kMaxEntries, Long64_t firstentry=0); // *MENU*
    virtual void      SetAutoDelete(Bool_t autodel=kTRUE);
    virtual Int_t     SetBranchAddress(const char *bname,void *add, TBranch **ptr = 0);
@@ -158,6 +160,7 @@ public:
    virtual void      SetEntryListFile(const char *filename="", Option_t *opt="");
    virtual void      SetEventList(TEventList *evlist);
    virtual void      SetMakeClass(Int_t make) { TTree::SetMakeClass(make); if (fTree) fTree->SetMakeClass(make);}
+   virtual void      SetName(const char *name);
    virtual void      SetPacketSize(Int_t size = 100);
    virtual void      SetProof(Bool_t on = kTRUE, Bool_t refresh = kFALSE, Bool_t gettreeheader = kFALSE);
    virtual void      SetWeight(Double_t w=1, Option_t *option="");

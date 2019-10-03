@@ -1,3 +1,9 @@
+# Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.
+# All rights reserved.
+#
+# For the licensing terms see $ROOTSYS/LICENSE.
+# For the list of contributors see $ROOTSYS/README/CREDITS.
+
 # CMakeLists.txt for the ROOT tutorials programs.
 # Author: Pere Mato, 25/10/2010
 cmake_minimum_required(VERSION 2.6 FATAL_ERROR)
@@ -7,15 +13,20 @@ find_package(ROOT REQUIRED)
 
 if(DEFINED ROOT_SOURCE_DIR)  # Testing using the binary tree
   set(ROOT_root_CMD root.exe)
-  set(ROOT_environ PATH=${CMAKE_BINARY_DIR}/bin:$ENV{PATH}
-                   ${ld_library_path}=${CMAKE_BINARY_DIR}/lib:$ENV{${ld_library_path}}
-                   ROOTSYS=${CMAKE_BINARY_DIR}
-                   PYTHONPATH=${CMAKE_BINARY_DIR}/lib:$ENV{PYTHONPATH})
+  if(NOT MSVC)  # Ignore environment on Windows
+    set(ROOT_environ PATH=${CMAKE_BINARY_DIR}/bin:$ENV{PATH}
+                     ${ld_library_path}=${CMAKE_BINARY_DIR}/lib:$ENV{${ld_library_path}}
+                     ROOTSYS=${CMAKE_BINARY_DIR}
+                     PYTHONPATH=${CMAKE_BINARY_DIR}/lib:$ENV{PYTHONPATH})
+  else()
+    set(ROOT_environ ROOTSYS=${CMAKE_BINARY_DIR}
+                     PYTHONPATH=${CMAKE_BINARY_DIR}/bin;$ENV{PYTHONPATH})
+  endif()
 else()                       # testing using an installation
   include(${ROOT_USE_FILE})
   if(DEFINED ROOT_CONFIG_EXECUTABLE) #---If ROOT was built with the classic configure/make---
     set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/modules)
-    include(RootNewMacros)
+    include(RootMacros)
     set(ROOT_root_CMD root.exe)
   endif()
   enable_testing()
@@ -32,6 +43,7 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/CTestCustom.cmake ${CMAKE_CURRENT_BIN
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/rootlogon.C "{
   // Needed by ACLiC to use the current dicrectory for scratch area
   gSystem->SetBuildDir(\".\", kTRUE);
+  gROOT->SetWebDisplay(\"batch\");
 }")
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/rootalias.C "")
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/rootlogoff.C "{}")
@@ -56,12 +68,31 @@ if(NOT ROOT_minuit2_FOUND)
                    fit/minuit2FitBench.C fit/minuit2GausFit.C
                    fit/minuit2GausFit.C fit/NumericalMinimization.C
                    fit/combinedFit.C fit/TestBinomial.C
-                   fit/fitNormSum.C)
+                   fit/fitNormSum.C fit/vectorizedFit.C
+                   tutorials/roostats/rs_bernsteinCorrection.C)
+endif()
+
+if (NOT dataframe)
+    # RDataFrame
+    list(APPEND dataframe_veto dataframe/*.C)
+    # RDataFrame tutorial in graphs
+    list(APPEND dataframe_veto graphs/timeSeriesFromCSV_TDF.C)
+    # TMVA tutorials dependent on RDataFrame
+    list(APPEND dataframe_veto tmva/tmva*.C)
+endif()
+
+if(NOT ROOT_mlp_FOUND)
+   set(mlp_veto legacy/mlp/*.C)
+endif()
+
+if(NOT ROOT_spectrum_FOUND)
+   set(spectrum_veto spectrum/*.C)
 endif()
 
 if(NOT ROOT_roofit_FOUND)
   set(roofit_veto  fit/RoofitDemo.C
-                   roofit/*.C roostats/*.C histfactory/*.C)
+                   roofit/*.C roostats/*.C histfactory/*.C
+                   roofit/*.py)
 endif()
 
 if(NOT ROOT_unuran_FOUND)
@@ -75,9 +106,21 @@ if(NOT ROOT_xml_FOUND)
                 unfold/*.C)        # unfold requires xml
 endif()
 
+
+if(NOT XROOTD_FOUND)
+  set(xrootd_veto dataframe/df101_h1Analysis.C
+                  dataframe/df102_NanoAODDimuonAnalysis.C
+                  dataframe/df103_NanoAODHiggsAnalysis.C)
+endif()
+
 # variables identifying the package must have the package name  in lower case (it corresponds to the CMake option name)
 if(NOT ROOT_r_FOUND)
   set(r_veto  r/*.C)
+endif()
+
+# FIXME: Temporary workaround for runtime_cxxmodule
+if (FIXME_TEMPORARILY_EXCLUDED_FOR_RUNTIME_CXXMODULES)
+  set(runtime_cxxmodules_veto r/Function.C)
 endif()
 
 if(WIN32)
@@ -128,6 +171,11 @@ endif()
 
 if(NOT ROOT_imt_FOUND)
   set(imt_veto multicore/imt*.C multicore/mt*.C)
+else()
+  if(MSVC)
+    #---Multiproc is not supported on Windows
+    set(imt_veto ${imt_veto} multicore/mp*.C multicore/mtbb201_parallelHistoFill.C)
+  endif()
 endif()
 
 if(ROOT_CLASSIC_BUILD)
@@ -137,7 +185,7 @@ endif()
 #---These ones requires a display to run-----------------------------
 set(gui_veto fit/fitpanel_playback.C
              cocoa/*.C
-             geom/building.C geom/cheongwadae.C geom/geom*.C geom/lego.C geom/robot.C geom/south_gate.C geom/station*.C geom/tank.C
+             geom/building.C geom/cheongwadae.C geom/geom*.C geom/lego.C geom/robot.C geom/south_gate.C geom/station*.C geom/tank.C geom/webdemo.C
              gl/glViewerExercise.C gl/glViewerLOD.C gl/gviz3d.C gl/nucleus.C gl/viewer3DLocal.C gl/viewer3DMaster.C
              gui/*.C
              hist/exec1.C
@@ -149,35 +197,71 @@ set(gui_veto fit/fitpanel_playback.C
              graphics/graph_edit_playback.C
              roostats/ModelInspector.C
              tree/tvdemo.C
-             eve/*.C)
+             eve/*.C
+             webgui/panel/server.cxx webgui/webwindow/server.cxx)
 
 if (NOT ROOT_tmva_FOUND)
-  set(tmva_veto tmva/*.C tmva/*.py tmva/keras/*.C tmva/keras/*.py)
+  list(APPEND tmva_veto tmva/*.C tmva/*.py tmva/envelope/*.C tmva/keras/*.C tmva/keras/*.py)
 else()
   #---These do not need to run for TMVA
-  set(tmva_veto tmva/createData.C)
+  list(APPEND tmva_veto tmva/createData.C)
+endif()
+
+if (NOT ROOT_pythia6_FOUND)
+  set(pythia_veto pythia/pythiaExample.C)
+endif()
+if (NOT ROOT_pythia8_FOUND)
+  set(pythia_veto ${pythia_veto} pythia/pythia8.C)
+else()
+  if("$ENV{PYTHIA8}" STREQUAL "")
+    get_filename_component(pythia8dir "${PYTHIA8_INCLUDE_DIR}" DIRECTORY)
+    list(APPEND ROOT_environ PYTHIA8=${pythia8dir})
+  endif()
+  if("$ENV{PYTHIA8DATA}" STREQUAL "" AND PYTHIA8_DATA)
+    list(APPEND ROOT_environ PYTHIA8DATA=${PYTHIA8_DATA})
+  endif()
+endif()
+
+if(root7)
+  set(root7_veto dataframe/df013_InspectAnalysis.C
+                 v7/browser.cxx
+                 v7/fitpanel.cxx
+                 v7/fitpanel6.cxx
+      )
+endif()
+
+if(NOT root7)
+  set(root7_veto v7/ntuple/ntpl001_staff.C
+                 v7/ntuple/ntpl002_vector.C
+                 v7/ntuple/ntpl003_lhcbOpenData.C
+                 v7/ntuple/ntpl004_dimuon.C)
+elseif(NOT dataframe)
+  set(root7_veto v7/ntuple/ntpl004_dimuon.C)
+endif()
+
+if( CMAKE_SIZEOF_VOID_P EQUAL 4 )
+  set(bits32_veto dataframe/*.C graphs/timeSeriesFrom*.C v7/ntuple/ntpl004_dimuon.C)
 endif()
 
 #---These ones are disabled !!! ------------------------------------
 set(extra_veto
-  htmlex.C
-  rootalias.C          # Helper macro
+  legacy/benchmarks.C
+  legacy/htmlex.C
+  legacy/rootalias.C          # Helper macro
   rootlogon.C          # Helper macro
   rootlogoff.C         # Helper macro
-  rootmarks.C          # Instrumentation. Not a standalone tutorial
-  memstat/memstatExample.C   # Instrumentation. Not a standalone tutorial
+  legacy/rootmarks.C          # Instrumentation. Not a standalone tutorial
+  legacy/memstat/memstatExample.C   # Instrumentation. Not a standalone tutorial
   multicore/mp_H1_lambdas.C # not a tutorial; used by mp104_processH1.C et al.
   html/*.C
   net/*.C
   proof/*.C
-  pythia/*.C
   sql/*.C
   tree/hsimpleProxy.C # A driver uses this macro which cannot be executed directly
   tree/tree0.C
   tree/tree2a.C
   tree/tree4.C
   roostats/rs401d_FeldmanCousins.C  # Takes too much time
-  roofit/rf104_classfactory.C
   histfactory/ModifyInterpolation.C
   tree/copytree2.C
   tree/copytree3.C
@@ -185,6 +269,7 @@ set(extra_veto
   tree/h1analysis*.C # these are not a tutorial but classes used in run_h1analysis.C
   tree/h1chain.C
   http/*.C
+  eve7/*.C
   r/rootlogon.C)
 
 set(all_veto hsimple.C
@@ -202,13 +287,25 @@ set(all_veto hsimple.C
              ${opengl_veto}
              ${gviz_veto}
              ${r_veto}
+             ${runtime_cxxmodules_veto}
              ${histfactory_veto}
              ${tbb_veto}
              ${imt_veto}
              ${classic_veto}
+             ${pythia_veto}
+             ${root7_veto}
+             ${bits32_veto}
+             ${xrootd_veto}
+             ${mlp_veto}
+             ${spectrum_veto}
+             ${dataframe_veto}
              )
 
 file(GLOB_RECURSE tutorials RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} *.C)
+if(root7 AND webgui)
+  file(GLOB_RECURSE tutorials_v7 RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} v7/*.cxx)
+  list(APPEND tutorials ${tutorials_v7})
+endif()
 file(GLOB tutorials_veto RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} ${all_veto})
 
 list(LENGTH tutorials total)
@@ -228,7 +325,6 @@ set(returncode_1 fit/fit2a.C fit/graph2dfit.C
                  graphs/timeonaxis2.C
                  graphs/timeonaxis3.C
                  graphs/exclusiongraph.C
-                 graphs/multipalette.C
                  graphs/graphstruct.C
                  hist/ContourList.C
                  hist/hstack.C
@@ -319,7 +415,7 @@ foreach(t ${tutorials})
 
   ROOT_ADD_TEST(tutorial-${tname}
                 COMMAND ${ROOT_root_CMD} -b -l -q ${CMAKE_CURRENT_SOURCE_DIR}/${t}${${tname}-aclic}
-                PASSRC ${rc} FAILREGEX "Error in" ": error:" "segmentation violation" "FROM HESSE     STATUS=FAILED"
+                PASSRC ${rc} FAILREGEX "Error in <" ": error:" "segmentation violation" "FROM HESSE     STATUS=FAILED"
                 LABELS tutorial
                 DEPENDS tutorial-hsimple ${${tname}-depends}
                 ENVIRONMENT ${ROOT_environ}
@@ -339,20 +435,33 @@ if(ROOT_python_FOUND)
              pyroot/na49geomfile.py # ????
              pyroot/na49visible.py  # ????
              pyroot/parse_CSV_file_with_TTree_ReadStream.py # not a tutorial
-             pyroot/qtexample.py    # requires GUI/Qt
              pyroot/numberEntry.py  # requires GUI
              histfactory/example.py # not a tutorial
              histfactory/makeQuickModel.py # not a tutorial
              eve/lineset.py         # requires GUI
+             sql/sqlcreatedb.py     # same as the C++ case
+             sql/sqlfilldb.py       # same as the C++ case
+             sql/sqlselect.py       # same as the C++ case
              )
   if(NOT ROOT_mathmore_FOUND)
     list(APPEND pyveto math/Legendre.py)
+    list(APPEND pyveto math/Bessel.py)
+    list(APPEND pyveto math/tStudent.py)
   endif()
-  
+
+ if(NOT XROOTD_FOUND)
+   list(APPEND pyveto
+       dataframe/df102_NanoAODDimuonAnalysis.py
+       dataframe/df103_NanoAODHiggsAnalysis.py)
+ endif()
+
   list(REMOVE_ITEM pytutorials ${pyveto})
-  if(ROOT_CLASSIC_BUILD)
-    set(classic_veto_py dataframe/tdf*.py)
-    list(REMOVE_ITEM pytutorials ${classic_veto_py})
+
+  if(NOT dataframe)
+    set(dataframe_veto_py dataframe/*.py)
+    file(GLOB dataframe_veto_py RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} dataframe/*.py tmva/tmva*.py)
+    list(REMOVE_ITEM pytutorials ${dataframe_veto_py})
+    list(REMOVE_ITEM pytutorials pyroot/pyroot002_TTreeAsMatrix.py)
   endif()
 
   #---Python tutorials dependencies--------------------------------------
@@ -365,6 +474,11 @@ if(ROOT_python_FOUND)
                                 tutorial-pyroot-ntuple1-py)
   set(pyroot-fit1-depends tutorial-pyroot-fillrandom-py)
   set(pyroot-na49view-depends tutorial-pyroot-geometry-py)
+  set(roofit-rf104_classfactory-depends tutorial-roofit-rf104_classfactory) #Race condition
+
+  #---Tutorials expected to fail in PyROOT experimental
+  set(pyexp_fail tutorial-vecops-vo004_SortAndSelect-py
+                 tutorial-vecops-vo005_Combinations-py)
 
   foreach(t ${pytutorials})
     list(FIND returncode_1 ${t} index)
@@ -377,11 +491,21 @@ if(ROOT_python_FOUND)
     string(REPLACE ".py" "" tname ${t})
     string(REPLACE "/" "-" tname ${tname})
 
-    ROOT_ADD_TEST(tutorial-${tname}-py
+    set(tutorial_name tutorial-${tname}-py)
+
+    list(FIND pyexp_fail ${tutorial_name} index)
+    if(index EQUAL -1)
+      set(py_will_fail "")
+    else()
+      set(py_will_fail ${PYTESTS_WILLFAIL})
+    endif()
+
+    ROOT_ADD_TEST(${tutorial_name}
                 COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/${t} -b
                 PASSRC ${rc} FAILREGEX "Error in" ": error:" "segmentation violation"
                 LABELS tutorial
                 DEPENDS ${${tname}-depends}
-                ENVIRONMENT ${ROOT_environ})
+                ENVIRONMENT ${ROOT_environ}
+                ${py_will_fail})
   endforeach()
 endif()

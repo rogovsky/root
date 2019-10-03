@@ -1,6 +1,17 @@
 // @(#)root/metautils:$Id$
-// Author: Victor Perev   04/10/2003
-//         Philippe Canal 05/2004
+/// \file TClassEdit.cxx
+/// \ingroup Base
+/// \author Victor Perev
+/// \author Philippe Canal
+/// \date 04/10/2003
+
+/*************************************************************************
+ * Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.               *
+ * All rights reserved.                                                  *
+ *                                                                       *
+ * For the licensing terms see $ROOTSYS/LICENSE.                         *
+ * For the list of contributors see $ROOTSYS/README/CREDITS.             *
+ *************************************************************************/
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,15 +19,28 @@
 #include <string.h>
 #include "TClassEdit.h"
 #include <ctype.h>
+#include <cctype>
 #include "Rstrstream.h"
 #include <set>
+#include <stack>
 // for shared_ptr
 #include <memory>
-#include "RStringView.h"
+#include "ROOT/RStringView.hxx"
 #include <algorithm>
 
 namespace {
    static TClassEdit::TInterpreterLookupHelper *gInterpreterHelper = 0;
+
+   template <typename T>
+   struct ShuttingDownSignaler : public T {
+      using T::T;
+
+      ~ShuttingDownSignaler()
+      {
+         if (gInterpreterHelper)
+            gInterpreterHelper->ShuttingDownSignal();
+      }
+   };
 }
 
 namespace std {} using namespace std;
@@ -42,7 +66,7 @@ static size_t StdLen(const std::string_view name)
                std::string scoperesult;
                // We assume that we are called in already serialized code.
                // Note: should we also cache the negative answers?
-               static std::set<std::string> gInlined;
+               static ShuttingDownSignaler<std::set<std::string>> gInlined;
 
                if (gInlined.find(scope) != gInlined.end()) {
                   len = i;
@@ -112,6 +136,18 @@ TClassEdit::EComplexType TClassEdit::GetComplexType(const char* clName)
       }
    }
    return EComplexType::kNone;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+TClassEdit::TInterpreterLookupHelper::~TInterpreterLookupHelper()
+{
+   // Already too late to call this->ShuttingDownSignal
+   // the virtual table has already lost (on some platform) the
+   // address of the derived function that we would need to call.
+   // But at least forget about this instance!
+
+   if (this == gInterpreterHelper)
+      gInterpreterHelper = nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -397,8 +433,9 @@ void TClassEdit::TSplitType::ShortType(std::string &answ, int mode)
          // this also will add the default template parameter if any needs to
          // be added.
          string typeresult;
-         if (gInterpreterHelper->ExistingTypeCheck(fElements[i], typeresult)
-             || gInterpreterHelper->GetPartiallyDesugaredNameWithScopeHandling(fElements[i], typeresult)) {
+         if (gInterpreterHelper &&
+             (gInterpreterHelper->ExistingTypeCheck(fElements[i], typeresult)
+              || gInterpreterHelper->GetPartiallyDesugaredNameWithScopeHandling(fElements[i], typeresult))) {
             if (!typeresult.empty()) fElements[i] = typeresult;
          }
       }
@@ -462,12 +499,19 @@ void TClassEdit::TSplitType::ShortType(std::string &answ, int mode)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Check if the type is a template
+bool TClassEdit::TSplitType::IsTemplate()
+{
+   return !fElements[0].empty();
+}
+
+////////////////////////////////////////////////////////////////////////////////
 /// Converts STL container name to number. vector -> 1, etc..
 /// If len is greater than 0, only look at that many characters in the string.
 
 ROOT::ESTLType TClassEdit::STLKind(std::string_view type)
 {
-   unsigned char offset = 0;
+   size_t offset = 0;
    if (type.compare(0,6,"const ")==0) { offset += 6; }
    offset += StdLen(type.substr(offset));
 
@@ -731,7 +775,7 @@ static bool IsDefElement(const char *elementName, const char* defaultElementName
       TClassEdit::GetNormalizedName(keypart,std::string_view(c.c_str()+pos,end-pos));
 
       std::string norm_key;
-      TClassEdit::GetNormalizedName(norm_key,k.c_str());
+      TClassEdit::GetNormalizedName(norm_key,k);
 
       if (keypart != norm_key) {
          return false;
@@ -953,6 +997,7 @@ int TClassEdit::GetSplit(const char *type, vector<string>& output, int &nestedLo
       unsigned int const_offset = (0==strncmp("const ",full.c_str(),6)) ? 6 : 0;
       bool isString = false;
       bool isStdString = false;
+      size_t std_offset = const_offset;
       static const char* basic_string_std = "std::basic_string<char";
       static const unsigned int basic_string_std_len = strlen(basic_string_std);
 
@@ -960,14 +1005,22 @@ int TClassEdit::GetSplit(const char *type, vector<string>& output, int &nestedLo
           && full.size() > basic_string_std_len) {
          isString = true;
          isStdString = true;
+         std_offset += 5;
       } else if (full.compare(const_offset,basic_string_std_len-5,basic_string_std+5) == 0
                  && full.size() > (basic_string_std_len-5)) {
          // no std.
          isString = true;
+      } else if (full.find("basic_string") != std::string::npos) {
+         size_t len = StdLen(full.c_str() + const_offset);
+         if (len && len != 5 && full.compare(const_offset + len, basic_string_std_len-5, basic_string_std+5) == 0) {
+            isString = true;
+            isStdString = true;
+            std_offset += len;
+         }
       }
       if (isString) {
-         size_t offset = isStdString ? basic_string_std_len : basic_string_std_len - 5;
-         offset += const_offset;
+         size_t offset = basic_string_std_len - 5;
+         offset += std_offset; // std_offset includs both the size of std prefix and const prefix.
          if ( full[offset] == '>' ) {
             // done.
          } else if (full[offset] == ',') {
@@ -1280,7 +1333,7 @@ ROOT::ESTLType TClassEdit::IsSTLCont(std::string_view type)
       return ROOT::kNotSTL;
    }
 
-   return STLKind({type.data(),pos});
+   return STLKind(type.substr(0,pos));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1363,7 +1416,7 @@ static void ResolveTypedefProcessType(const char *tname,
                     : string(tname, start_of_type, end_of_type == 0 ? cursor - start_of_type : end_of_type - start_of_type));  // we need to try to avoid this copy
    string typeresult;
    if (gInterpreterHelper->ExistingTypeCheck(type, typeresult)
-       || gInterpreterHelper->GetPartiallyDesugaredNameWithScopeHandling(type, typeresult)) {
+       || gInterpreterHelper->GetPartiallyDesugaredNameWithScopeHandling(type, typeresult, false)) {
       // it is a known type
       if (!typeresult.empty()) {
          // and it is a typedef, we need to replace it in the output.
@@ -1433,11 +1486,6 @@ static void ResolveTypedefImpl(const char *tname,
 
    }
 
-   // When either of those two is true, we should probably go to modified
-   // mode. (Otherwise we rely on somebody else to strip the std::)
-   if (len > 5 && strncmp(tname+cursor,"std::",5) == 0) {
-      cursor += 5;
-   }
    if (len > 2 && strncmp(tname+cursor,"::",2) == 0) {
       cursor += 2;
       len -= 2;
@@ -1483,14 +1531,11 @@ static void ResolveTypedefImpl(const char *tname,
                      result += "::";
                   }
                } else if (modified) {
-                  result += std::string(tname+prevScope,cursor+1-prevScope);
+                  result += std::string(tname+prevScope,cursor+2-prevScope);
                }
             } else if (!gInterpreterHelper->IsDeclaredScope(scope,isInlined)) {
-               // the nesting namespace is not declared
-               if (modified) result += (tname+prevScope);
-               // Unfortunately, this is too harsh .. what about:
-               //    unknown::wrapper<Int_t>
-               return;
+               // the nesting namespace is not declared, just ignore it and move on
+               if (modified) result += std::string(tname+prevScope,cursor+2-prevScope);
             } else if (isInlined) {
                // humm ... just skip it.
                if (!modified) {
@@ -1501,7 +1546,7 @@ static void ResolveTypedefImpl(const char *tname,
                   result += string(tname,start_of_type,prevScope - start_of_type);
                }
             } else if (modified) {
-               result += std::string(tname+prevScope,cursor+1-prevScope);
+               result += std::string(tname+prevScope,cursor+2-prevScope);
             }
             // Consume the 1st semi colon, the 2nd will be consume by the for loop.
             ++cursor;
@@ -1652,7 +1697,10 @@ string TClassEdit::ResolveTypedef(const char *tname, bool /* resolveAll */)
    //    vector<MyObjTypedef> return vector<MyObj>
    //
 
-   if ( tname==0 || tname[0]==0 || !gInterpreterHelper) return "";
+   if (tname == 0 || tname[0] == 0)
+      return "";
+   if (!gInterpreterHelper)
+      return tname;
 
    std::string result;
 
@@ -1808,7 +1856,7 @@ string TClassEdit::InsertStd(const char *tname)
       "vector",
       "wstring"
    };
-   static set<string> sSetSTLtypes;
+   static ShuttingDownSignaler<set<string>> sSetSTLtypes;
 
    if (tname==0 || tname[0]==0) return "";
 
@@ -1897,7 +1945,7 @@ public:
       auto argsEnd = v.end();
       auto argsBeginPlusOne = ++v.begin();
       auto argPos = std::find_if(argsBeginPlusOne, argsEnd,
-                              [](std::string& arg){return arg.front() == ':';});
+           [](std::string& arg){return (!arg.empty() && arg.front() == ':');});
       if (argPos != argsEnd) {
          const int lenght = clName.size();
          int wedgeBalance = 0;
@@ -1953,6 +2001,9 @@ public:
       // Perhaps we could treat atomics as well like this?
       if (!fMother && TClassEdit::IsUniquePtr(fName+"<")) {
          name = fArgumentNodes.front()->ToString();
+         // ROOT-9933: we remove const if present.
+         TClassEdit::TSplitType tst(name.c_str());
+         tst.ShortType(name, 1);
          fHasChanged = true;
          return name;
       }
@@ -1989,6 +2040,7 @@ std::string TClassEdit::GetNameForIO(const std::string& templateInstanceName,
    // Decompose template name into pieces and remount it applying the necessary
    // transformations necessary for the ROOT IO subsystem, namely:
    // - Transform std::unique_ptr<T> into T (for selections) (also nested)
+   // - Transform std::unique_ptr<const T> into T (for selections) (also nested)
    // - Transform std::COLL<std::unique_ptr<T>> into std::COLL<T*> (also nested)
    // Name normalisation is respected (e.g. spaces).
    // The implementation uses an internal class defined in the cxx file.
@@ -2038,4 +2090,192 @@ char* TClassEdit::DemangleTypeIdName(const std::type_info& ti, int& errorCode)
 {
    const char* mangled_name = ti.name();
    return DemangleName(mangled_name, errorCode);
+}
+/*
+/// Result of splitting a function declaration into
+/// fReturnType fScopeName::fFunctionName<fFunctionTemplateArguments>(fFunctionParameters)
+struct FunctionSplitInfo {
+   /// Return type of the function, might be empty if the function declaration string did not provide it.
+   std::string fReturnType;
+
+   /// Name of the scope qualification of the function, possibly empty
+   std::string fScopeName;
+
+   /// Name of the function
+   std::string fFunctionName;
+
+   /// Template arguments of the function template specialization, if any; will contain one element "" for
+   /// `function<>()`
+   std::vector<std::string> fFunctionTemplateArguments;
+
+   /// Function parameters.
+   std::vector<std::string> fFunctionParameters;
+};
+*/
+
+namespace {
+   /// Find the first occurrence of any of needle's characters in haystack that
+   /// is not nested in a <>, () or [] pair.
+   std::size_t FindNonNestedNeedles(std::string_view haystack, string_view needles)
+   {
+      std::stack<char> expected;
+      for (std::size_t pos = 0, end = haystack.length(); pos < end; ++pos) {
+         char c = haystack[pos];
+         if (expected.empty()) {
+            if (needles.find(c) != std::string_view::npos)
+               return pos;
+         } else {
+            if (c == expected.top()) {
+               expected.pop();
+               continue;
+            }
+         }
+         switch (c) {
+            case '<': expected.emplace('>'); break;
+            case '(': expected.emplace(')'); break;
+            case '[': expected.emplace(']'); break;
+         }
+      }
+      return std::string_view::npos;
+   }
+
+   /// Find the first occurrence of `::` that is not nested in a <>, () or [] pair.
+   std::size_t FindNonNestedDoubleColons(std::string_view haystack)
+   {
+      std::size_t lenHaystack = haystack.length();
+      std::size_t prevAfterColumn = 0;
+      while (true) {
+         std::size_t posColumn = FindNonNestedNeedles(haystack.substr(prevAfterColumn), ":");
+         if (posColumn == std::string_view::npos)
+            return std::string_view::npos;
+         prevAfterColumn += posColumn;
+         // prevAfterColumn must have "::", i.e. two characters:
+         if (prevAfterColumn + 1 >= lenHaystack)
+            return std::string_view::npos;
+
+         ++prevAfterColumn; // done with first (or only) ':'
+         if (haystack[prevAfterColumn] == ':')
+            return prevAfterColumn - 1;
+         ++prevAfterColumn; // That was not a ':'.
+      }
+
+      return std::string_view::npos;
+   }
+
+   std::string_view StripSurroundingSpace(std::string_view str)
+   {
+      while (!str.empty() && std::isspace(str[0]))
+         str.remove_prefix(1);
+      while (!str.empty() && std::isspace(str.back()))
+         str.remove_suffix(1);
+      return str;
+   }
+
+   std::string ToString(std::string_view sv)
+   {
+      // ROOT's string_view backport doesn't add the new std::string contructor and assignment;
+      // convert to std::string instead and assign that.
+      return std::string(sv.data(), sv.length());
+   }
+} // unnamed namespace
+
+/// Split a function declaration into its different parts.
+bool TClassEdit::SplitFunction(std::string_view decl, TClassEdit::FunctionSplitInfo &result)
+{
+   // General structure:
+   // `...` last-space `...` (`...`)
+   // The first `...` is the return type.
+   // The second `...` is the (possibly scoped) function name.
+   // The third `...` are the parameters.
+   // The function name can be of the form `...`<`...`>
+   std::size_t posArgs = FindNonNestedNeedles(decl, "(");
+   std::string_view declNoArgs = decl.substr(0, posArgs);
+
+   std::size_t prevAfterWhiteSpace = 0;
+   static const char whitespace[] = " \t\n";
+   while (declNoArgs.length() > prevAfterWhiteSpace) {
+      std::size_t posWS = FindNonNestedNeedles(declNoArgs.substr(prevAfterWhiteSpace), whitespace);
+      if (posWS == std::string_view::npos)
+         break;
+      prevAfterWhiteSpace += posWS + 1;
+      while (declNoArgs.length() > prevAfterWhiteSpace
+             && strchr(whitespace, declNoArgs[prevAfterWhiteSpace]))
+         ++prevAfterWhiteSpace;
+   }
+
+   /// Include any '&*' in the return type:
+   std::size_t endReturn = prevAfterWhiteSpace;
+   while (declNoArgs.length() > endReturn
+          && strchr("&* \t \n", declNoArgs[endReturn]))
+          ++endReturn;
+
+   result.fReturnType = ToString(StripSurroundingSpace(declNoArgs.substr(0, endReturn)));
+
+   /// scope::anotherscope::functionName<tmplt>:
+   std::string_view scopeFunctionTmplt = declNoArgs.substr(endReturn);
+   std::size_t prevAtScope = FindNonNestedDoubleColons(scopeFunctionTmplt);
+   while (prevAtScope != std::string_view::npos
+          && scopeFunctionTmplt.length() > prevAtScope + 2) {
+      std::size_t posScope = FindNonNestedDoubleColons(scopeFunctionTmplt.substr(prevAtScope + 2));
+      if (posScope == std::string_view::npos)
+         break;
+      prevAtScope += posScope + 2;
+   }
+
+   std::size_t afterScope = prevAtScope + 2;
+   if (prevAtScope == std::string_view::npos) {
+      afterScope = 0;
+      prevAtScope = 0;
+   }
+
+   result.fScopeName = ToString(StripSurroundingSpace(scopeFunctionTmplt.substr(0, prevAtScope)));
+   std::string_view funcNameTmplArgs = scopeFunctionTmplt.substr(afterScope);
+
+   result.fFunctionTemplateArguments.clear();
+   std::size_t posTmpltOpen = FindNonNestedNeedles(funcNameTmplArgs, "<");
+   if (posTmpltOpen != std::string_view::npos) {
+      result.fFunctionName = ToString(StripSurroundingSpace(funcNameTmplArgs.substr(0, posTmpltOpen)));
+
+      // Parse template parameters:
+      std::string_view tmpltArgs = funcNameTmplArgs.substr(posTmpltOpen + 1);
+      std::size_t posTmpltClose = FindNonNestedNeedles(tmpltArgs, ">");
+      if (posTmpltClose != std::string_view::npos) {
+         tmpltArgs = tmpltArgs.substr(0, posTmpltClose);
+         std::size_t prevAfterArg = 0;
+         while (tmpltArgs.length() > prevAfterArg) {
+            std::size_t posComma = FindNonNestedNeedles(tmpltArgs.substr(prevAfterArg), ",");
+            if (posComma == std::string_view::npos) {
+               break;
+            }
+            result.fFunctionTemplateArguments.emplace_back(ToString(StripSurroundingSpace(tmpltArgs.substr(prevAfterArg, posComma))));
+            prevAfterArg += posComma + 1;
+         }
+         // Add the trailing arg.
+         result.fFunctionTemplateArguments.emplace_back(ToString(StripSurroundingSpace(tmpltArgs.substr(prevAfterArg))));
+      }
+   } else {
+      result.fFunctionName = ToString(StripSurroundingSpace(funcNameTmplArgs));
+   }
+
+   result.fFunctionParameters.clear();
+   if (posArgs != std::string_view::npos) {
+      /// (params)
+      std::string_view params = decl.substr(posArgs + 1);
+      std::size_t posEndArgs = FindNonNestedNeedles(params, ")");
+      if (posEndArgs != std::string_view::npos) {
+         params = params.substr(0, posEndArgs);
+         std::size_t prevAfterArg = 0;
+         while (params.length() > prevAfterArg) {
+            std::size_t posComma = FindNonNestedNeedles(params.substr(prevAfterArg), ",");
+            if (posComma == std::string_view::npos) {
+               result.fFunctionParameters.emplace_back(ToString(StripSurroundingSpace(params.substr(prevAfterArg))));
+               break;
+            }
+            result.fFunctionParameters.emplace_back(ToString(StripSurroundingSpace(params.substr(prevAfterArg, posComma))));
+            prevAfterArg += posComma + 1; // skip ','
+         }
+      }
+   }
+
+   return true;
 }

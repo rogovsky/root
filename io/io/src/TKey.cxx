@@ -253,7 +253,7 @@ TKey::TKey(const TObject *obj, const char *name, Int_t bufsize, TDirectory* moth
    fObjlen    = lbuf - fKeylen;
 
    Int_t cxlevel = GetFile() ? GetFile()->GetCompressionLevel() : 0;
-   Int_t cxAlgorithm = GetFile() ? GetFile()->GetCompressionAlgorithm() : 0;
+   ROOT::RCompressionSetting::EAlgorithm::EValues cxAlgorithm = static_cast<ROOT::RCompressionSetting::EAlgorithm::EValues>(GetFile() ? GetFile()->GetCompressionAlgorithm() : 0);
    if (cxlevel > 0 && fObjlen > 256) {
       Int_t nbuffers = 1 + (fObjlen - 1)/kMAXZIPBUF;
       Int_t buflen = TMath::Max(512,fKeylen + fObjlen + 9*nbuffers + 28); //add 28 bytes in case object is placed in a deleted gap
@@ -344,7 +344,7 @@ TKey::TKey(const void *obj, const TClass *cl, const char *name, Int_t bufsize, T
    fObjlen    = lbuf - fKeylen;
 
    Int_t cxlevel = GetFile() ? GetFile()->GetCompressionLevel() : 0;
-   Int_t cxAlgorithm = GetFile() ? GetFile()->GetCompressionAlgorithm() : 0;
+   ROOT::RCompressionSetting::EAlgorithm::EValues cxAlgorithm = static_cast<ROOT::RCompressionSetting::EAlgorithm::EValues>(GetFile() ? GetFile()->GetCompressionAlgorithm() : 0);
    if (cxlevel > 0 && fObjlen > 256) {
       Int_t nbuffers = 1 + (fObjlen - 1)/kMAXZIPBUF;
       Int_t buflen = TMath::Max(512,fKeylen + fObjlen + 9*nbuffers + 28); //add 28 bytes in case object is placed in a deleted gap
@@ -413,6 +413,9 @@ void TKey::Build(TDirectory* motherDir, const char* classname, Long64_t filepos)
    if (filepos > TFile::kStartBigFile) fVersion += 1000;
 
    if (fTitle.Length() > kTitleMax) fTitle.Resize(kTitleMax);
+
+   if (GetFile() && GetFile()->TestBit(TFile::kReproducible))
+      SetBit(TKey::kReproducible);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -477,6 +480,10 @@ void TKey::Create(Int_t nbytes, TFile* externFile)
             nsize,GetName(),GetTitle());
       return;
    }
+
+   if (f->TestBit(TFile::kReproducible))
+      SetBit(TKey::kReproducible);
+
    fDatime.Set();
    fSeekKey  = bestfree->GetFirst();
 //*-*----------------- Case Add at the end of the file
@@ -592,7 +599,10 @@ void TKey::FillBuffer(char *&buffer)
    tobuf(buffer, version);
 
    tobuf(buffer, fObjlen);
-   fDatime.FillBuffer(buffer);
+   if (TestBit(TKey::kReproducible))
+      TDatime((UInt_t) 1).FillBuffer(buffer);
+   else
+      fDatime.FillBuffer(buffer);
    tobuf(buffer, fKeylen);
    tobuf(buffer, fCycle);
    if (fVersion > 1000) {
@@ -619,14 +629,6 @@ void TKey::FillBuffer(char *&buffer)
    }
    fName.FillBuffer(buffer);
    fTitle.FillBuffer(buffer);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// This Hash function should redefine the default from TNamed.
-
-ULong_t TKey::Hash() const
-{
-   return TNamed::Hash();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1405,7 +1407,10 @@ void TKey::Streamer(TBuffer &b)
       b << version;
       b << fObjlen;
       if (fDatime.Get() == 0) fDatime.Set();
-      fDatime.Streamer(b);
+      if (TestBit(TKey::kReproducible))
+         TDatime((UInt_t) 1).Streamer(b);
+      else
+         fDatime.Streamer(b);
       b << fKeylen;
       b << fCycle;
       if (fVersion > 1000) {

@@ -19,11 +19,12 @@
 #define TMVA_DNN_DATALOADER
 
 #include "TMatrix.h"
-#include <vector>
-#include <iostream>
-#include <algorithm>
-
 #include "TMVA/Event.h"
+
+#include <algorithm>
+#include <iostream>
+#include <random>
+#include <vector>
 
 namespace TMVA {
 
@@ -35,7 +36,8 @@ namespace DNN  {
 // Input Data Types
 //______________________________________________________________________________
 using MatrixInput_t = std::tuple<const TMatrixT<Double_t> &, const TMatrixT<Double_t> &, const TMatrixT<Double_t> &>;
-using TMVAInput_t = std::tuple<std::vector<Event *>, DataSetInfo &>;
+using TMVAInput_t =
+    std::tuple<const std::vector<Event *> &, const DataSetInfo &>;
 
 using IndexIterator_t = typename std::vector<size_t>::iterator;
 
@@ -132,7 +134,7 @@ private:
    using Matrix_t        = typename AArchitecture::Matrix_t;
    using BatchIterator_t = TBatchIterator<Data_t, AArchitecture>;
 
-   const Data_t  & fData;
+   const Data_t &fData;
 
    size_t fNSamples;
    size_t fBatchSize;
@@ -266,7 +268,7 @@ TBatch<AArchitecture> TDataLoader<Data_t, AArchitecture>::GetBatch()
 template<typename Data_t, typename AArchitecture>
 void TDataLoader<Data_t, AArchitecture>::Shuffle()
 {
-   std::random_shuffle(fSampleIndices.begin(), fSampleIndices.end());
+   std::shuffle(fSampleIndices.begin(), fSampleIndices.end(), std::default_random_engine{});
 }
 
 } // namespace DNN

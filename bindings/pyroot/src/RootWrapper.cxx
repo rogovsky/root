@@ -30,6 +30,8 @@
 #include "TInterpreter.h"
 #include "TGlobal.h"
 #include "DllImport.h"
+#include "TFunctionTemplate.h"
+#include "TCollection.h"
 
 // Standard
 #include <map>
@@ -119,11 +121,11 @@ namespace {
       Py_DECREF( property );
    }
 
-   void AddPropertyToClass( PyObject* pyclass,
-         Cppyy::TCppScope_t scope, const std::string& name, void* address )
+   void AddConstantPropertyToClass( PyObject* pyclass,
+         Cppyy::TCppScope_t scope, const std::string& name, void* address, TEnum* en )
    {
       PyROOT::PropertyProxy* property =
-         PyROOT::PropertyProxy_NewConstant( scope, name, address );
+         PyROOT::PropertyProxy_NewConstant( scope, name, address, en );
       AddPropertyToClass1( pyclass, property, kTRUE );
       Py_DECREF( property );
    }
@@ -170,51 +172,6 @@ namespace {
          }
       }
    } initSTLTypes_;
-
-   Bool_t LoadDictionaryForSTLType( const std::string& tname, void* /* klass */ )
-   {
-   // if name is of a known STL class, tell CINT to load the dll(s), always reset klass
-
-      std::string sub = tname.substr( 0, tname.find( "<" ) );
-      if ( gSTLTypes.find( sub ) != gSTLTypes.end() ) {
-
-      // strip std:: part as needed to form proper file name
-         if ( sub.substr( 0, 5 ) == "std::" )
-            sub = sub.substr( 5, std::string::npos );
-
-      // tell CINT to go for it
-         gROOT->ProcessLine( (std::string( "#include <" ) + sub + ">").c_str() );
-
-      // prevent second attempt to load by erasing name
-         gSTLTypes.erase( gSTLTypes.find( sub ) );
-         gSTLTypes.erase( gSTLTypes.find( "std::" + sub ) );
-
-         return kTRUE;
-
-      } else if ( gSTLExceptions.find( sub ) != gSTLExceptions.end() ) {
-      // removal is required or the dictionary can't be updated properly
-         // TODO: WORK HERE if ( klass != 0 )
-         //            TClass::RemoveClass( (TClass*)klass );
-
-      // load stdexcept, which contains all std exceptions
-         gROOT->ProcessLine( "#include <stdexcept>" );
-         gSTLExceptions.clear();   // completely done with std exceptions
-
-      // <stdexcept> will load <exception> for the std::exception base class
-         std::set< std::string >::iterator excpos = gSTLTypes.find( "exception" );
-         if ( excpos != gSTLTypes.end() ) {
-            gSTLTypes.erase( excpos );
-            gSTLTypes.erase( gSTLTypes.find( "std::exception" ) );
-         }
-
-         return kTRUE;
-      }
-
-   // this point is only reached if this is not an STL class, notify that no
-   // changes were made
-      return kFALSE;
-   }
-
 } // unnamed namespace
 
 
@@ -251,6 +208,21 @@ static int BuildScopeProxyDict( Cppyy::TCppScope_t scope, PyObject* pyclass ) {
 // bypass custom __getattr__ for efficiency
    getattrofunc oldgetattro = Py_TYPE(pyclass)->tp_getattro;
    Py_TYPE(pyclass)->tp_getattro = PyType_Type.tp_getattro;
+
+   // Add function templates that have not been instantiated to the class dictionary
+   auto cppClass = TClass::GetClass(Cppyy::GetFinalName(scope).c_str());
+   for (auto templ : ROOT::Detail::TRangeStaticCast<TFunctionTemplate>(cppClass->GetListOfFunctionTemplates())) {
+      if (templ->Property() & kIsPublic) { // Discard private templates
+         auto templName = templ->GetName();
+         auto attr = PyObject_GetAttrString(pyclass, templName);
+         if (!TemplateProxy_Check(attr)) {
+            auto templProxy = TemplateProxy_New(templName, pyclass);
+            PyObject_SetAttrString(pyclass, templName, (PyObject*)templProxy);
+            Py_DECREF(templProxy);
+         }
+         Py_XDECREF(attr);
+      }
+   }
 
 // functions in namespaces are properly found through lazy lookup, so do not
 // create them until needed (the same is not true for data members)
@@ -390,9 +362,11 @@ static int BuildScopeProxyDict( Cppyy::TCppScope_t scope, PyObject* pyclass ) {
    TEnum* e = 0;
    while ( (e = (TEnum*)ienum.Next()) ) {
       const TSeqCollection* seq = e->GetConstants();
+      auto isScoped = e->Property() & kIsScopedEnum;
+      if (isScoped) continue; // scoped enum: do not add constants as properties of the enum's scope
       for ( Int_t i = 0; i < seq->GetSize(); i++ ) {
          TEnumConstant* ec = (TEnumConstant*)seq->At( i );
-         AddPropertyToClass( pyclass, scope, ec->GetName(), ec->GetAddress() );
+         AddConstantPropertyToClass( pyclass, scope, ec->GetName(), ec->GetAddress(), e );
       }
    }
 
@@ -569,7 +543,10 @@ PyObject* PyROOT::CreateScopeProxy( const std::string& scope_name, PyObject* par
    std::string scName = "";
    if ( parent ) {
       PyObject* pyparent = PyObject_GetAttr( parent, PyStrings::gCppName );
-      if ( ! pyparent ) pyparent = PyObject_GetAttr( parent, PyStrings::gName );
+      if ( ! pyparent ) {
+         PyErr_Clear();
+         pyparent = PyObject_GetAttr( parent, PyStrings::gName );
+      }
       if ( ! pyparent ) {
          PyErr_Format( PyExc_SystemError, "given scope has no name for %s", name.c_str() );
          return 0;
@@ -588,15 +565,6 @@ PyObject* PyROOT::CreateScopeProxy( const std::string& scope_name, PyObject* par
 // retrieve ROOT class (this verifies name, and is therefore done first)
    const std::string& lookup = parent ? (scName+"::"+name) : name;
    Cppyy::TCppScope_t klass = Cppyy::GetScope( lookup );
-
-   if ( ! (Bool_t)klass || Cppyy::GetNumMethods( klass ) == 0 ) {
-   // special action for STL classes to enforce loading dict lib
-   // TODO: LoadDictionaryForSTLType should not be necessary with Cling
-      if ( LoadDictionaryForSTLType( name, (void*)klass /* TODO: VERY WRONG */ ) ) {
-      // lookup again, we (may) now have a full dictionary
-         klass = Cppyy::GetScope( lookup );
-      }
-   }
 
    if ( ! (Bool_t)klass && gInterpreter->CheckClassTemplate( lookup.c_str() ) ) {
    // a "naked" templated class is requested: return callable proxy for instantiations
@@ -821,6 +789,11 @@ PyObject* PyROOT::GetCppGlobal( const std::string& name )
       for ( auto method : methods )
          overloads.push_back( new TFunctionHolder( Cppyy::gGlobalScope, method ) );
       return (PyObject*)MethodProxy_New( name, overloads );
+   }
+
+   // Try function templates
+   if (Cppyy::ExistsMethodTemplate(Cppyy::gGlobalScope, name)) {
+      return (PyObject*)TemplateProxy_New(name, CreateScopeProxy(""));
    }
 
 // allow lookup into std as if global (historic)

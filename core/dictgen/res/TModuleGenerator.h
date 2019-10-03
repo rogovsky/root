@@ -44,7 +44,8 @@ namespace ROOT {
 
       TModuleGenerator(clang::CompilerInstance *CI,
                        bool inlineHeader,
-                       const std::string &shLibFileName);
+                       const std::string &shLibFileName,
+                       bool isInPCH);
       ~TModuleGenerator();
 
       // FIXME: remove once PCH is gone.
@@ -82,6 +83,7 @@ namespace ROOT {
       const std::vector<std::string> &GetHeaders() const {
          return fHeaders;
       }
+
       const std::vector<std::string> &GetIncludePaths() const {
          return fCompI;
       }
@@ -89,14 +91,25 @@ namespace ROOT {
       std::ostream &WritePPDefines(std::ostream &out) const;
       std::ostream &WritePPUndefines(std::ostream &out) const;
 
-      void WriteRegistrationSource(std::ostream &out,
-                                   const std::string &fwdDeclnArgsToKeepString,
-                                   const std::string &headersClassesMapString,
-                                   const std::string &fwdDeclsString) const;
+      void WriteRegistrationSource(std::ostream &out, const std::string &fwdDeclnArgsToKeepString,
+                                   const std::string &headersClassesMapString, const std::string &fwdDeclsString,
+                                   const std::string &extraIncludes, bool hasCxxModule) const;
       void WriteContentHeader(std::ostream &out) const;
       void WriteUmbrellaHeader(std::ostream &out) const;
 
    private:
+      void WriteRegistrationSourceImpl(std::ostream& out,
+                                       const std::string &dictName,
+                                       const std::string &demangledDictName,
+                                       const std::vector<std::string> &headerArray,
+                                       const std::vector<std::string> &includePathArray,
+                                       const std::string &fwdDeclStringRAW,
+                                       const std::string &fwdDeclnArgsToKeepString,
+                                       const std::string &payloadCodeWrapped,
+                                       const std::string &headersClassesMapString,
+                                       const std::string &extraIncludes,
+                                       bool hasCxxModule) const;
+
       void ConvertToCppString(std::string &text) const;
 
       std::ostream &WritePPIncludes(std::ostream &out) const;
@@ -138,6 +151,7 @@ namespace ROOT {
 
       clang::CompilerInstance *fCI;
       bool fIsPCH;
+      bool fIsInPCH; // whether the headers of this module are part of the PCH.
       bool fInlineInputHeaders;
 
       std::string fDictionaryName; // Name of the dictionary, e.g. "Base"

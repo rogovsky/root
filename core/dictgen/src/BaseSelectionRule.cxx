@@ -229,8 +229,10 @@ BaseSelectionRule::EMatchType BaseSelectionRule::Match(const clang::NamedDecl *d
       if (name_value == name) {
          const_cast<BaseSelectionRule*>(this)->SetMatchFound(true);
          return kName;
-      } else if ( fCXXRecordDecl != (void*)-1 ) {
-         // Try a real match!
+      } else if (fCXXRecordDecl == nullptr ||
+            (fCXXRecordDecl != (void*)-1 && isTypedefNametoRecordDecl && !decl->hasOwningModule())){
+         // Possibly take the most expensive path if the fCXXRecordDecl is not
+         // set or we already took the expensive path and found nothing (-1).
          const clang::CXXRecordDecl *target
             = fHasFromTypedefAttribute ? nullptr : ROOT::TMetaUtils::ScopeSearch(name_value.c_str(), *fInterp,
                                                    true /*diagnose*/, 0);
@@ -318,7 +320,7 @@ BaseSelectionRule::EMatchType BaseSelectionRule::Match(const clang::NamedDecl *d
                D &&
                //ROOT::TMetaUtils::IsStdDropDefaultClass(*D)) {
                0 != TClassEdit::IsSTLCont(name)) {
-            TClassEdit::GetNormalizedName(auxName, name.c_str());
+            TClassEdit::GetNormalizedName(auxName, name);
             if (name.size() != auxName.size()) {
                auxName = TClassEdit::InsertStd(auxName.c_str());
                patternMatched = CheckPattern(auxName, pattern_value, fSubPatterns, isLinkdef);

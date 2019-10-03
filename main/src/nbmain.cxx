@@ -41,7 +41,9 @@
 using namespace std;
 
 #ifdef WIN32
+#include <process.h>
 static string pathsep("\\");
+#define execlp _execlp
 #else
 static string pathsep("/");
 #endif
@@ -138,6 +140,7 @@ static bool CreateJupyterConfig(string dest, string rootbin, string rootlib)
       out << "os.environ['PATH']            = '%s:%s/bin' % (rootbin,rootbin) + ':' + os.getenv('PATH', '')" << endl;
       out << "os.environ['LD_LIBRARY_PATH'] = '%s' % rootlib + ':' + os.getenv('LD_LIBRARY_PATH', '')" << endl;
 #endif
+      out << "c.NotebookApp.ip = '*'" << endl;
       out.close();
       return true;
    }
@@ -173,9 +176,9 @@ static bool CreateStamp(string dest)
 
 int main()
 {
-   string rootbin(TROOT::GetBinDir());
-   string rootlib(TROOT::GetLibDir());
-   string rootetc(TROOT::GetEtcDir());
+   string rootbin(TROOT::GetBinDir().Data());
+   string rootlib(TROOT::GetLibDir().Data());
+   string rootetc(TROOT::GetEtcDir().Data());
 
    // If needed, install ROOT notebook files in the user's home directory
 #ifdef WIN32

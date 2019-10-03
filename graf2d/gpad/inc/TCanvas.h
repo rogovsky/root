@@ -172,12 +172,14 @@ public:
                      {wtopx=GetWindowTopX(); wtopy=fWindowTopY; ww=fWindowWidth; wh=fWindowHeight;}
    virtual void      HandleInput(EEventType button, Int_t x, Int_t y);
    Bool_t            HasMenuBar() const { return TestBit(kMenuBar); }
+   virtual void      HighlightConnect(const char *slot);
    void              Iconify() { if (fCanvasImp) fCanvasImp->Iconify(); }
    Bool_t            IsBatch() const { return fBatch; }
    Bool_t            IsDrawn() { return fDrawn; }
    Bool_t            IsFolder() const;
    Bool_t            IsGrayscale();
    Bool_t            IsRetained() const { return fRetained; }
+   Bool_t            IsWeb() const { return fCanvasImp ? fCanvasImp->IsWeb() : kFALSE; }
    virtual void      ls(Option_t *option="") const;
    void              MoveOpaque(Int_t set=1);
    Bool_t            OpaqueMoving() const { return TestBit(kMoveOpaque); }
@@ -186,6 +188,7 @@ public:
    virtual TPad     *Pick(Int_t px, Int_t py, TObjLink *&pickobj) { return TPad::Pick(px, py, pickobj); }
    virtual TPad     *Pick(Int_t px, Int_t py, TObject *prevSelObj);
    virtual void      Picked(TPad *selpad, TObject *selected, Int_t event);             // *SIGNAL*
+   virtual void      Highlighted(TVirtualPad *pad, TObject *obj, Int_t x, Int_t y);    // *SIGNAL*
    virtual void      ProcessedEvent(Int_t event, Int_t x, Int_t y, TObject *selected); // *SIGNAL*
    virtual void      Selected(TVirtualPad *pad, TObject *obj, Int_t event);            // *SIGNAL*
    virtual void      Cleared(TVirtualPad *pad);                                        // *SIGNAL*
@@ -198,10 +201,17 @@ public:
    void              SavePrimitive(std::ostream &out, Option_t *option = "");
    virtual void      SetCursor(ECursor cursor);
    virtual void      SetDoubleBuffer(Int_t mode=1);
+   virtual void      SetName(const char *name="");
    virtual void      SetFixedAspectRatio(Bool_t fixed = kTRUE);  // *TOGGLE*
    void              SetGrayscale(Bool_t set = kTRUE); // *TOGGLE* *GETTER=IsGrayscale
    void              SetWindowPosition(Int_t x, Int_t y) { if (fCanvasImp) fCanvasImp->SetWindowPosition(x, y); }
-   void              SetWindowSize(UInt_t ww, UInt_t wh) { if (fCanvasImp) fCanvasImp->SetWindowSize(ww, wh); }
+   void SetWindowSize(UInt_t ww, UInt_t wh)
+   {
+      if (fBatch)
+         SetCanvasSize((ww + fCw) / 2, (wh + fCh) / 2);
+      else if (fCanvasImp)
+         fCanvasImp->SetWindowSize(ww, wh);
+   }
    void              SetCanvasImp(TCanvasImp *i) { fCanvasImp = i; }
    void              SetCanvasSize(UInt_t ww, UInt_t wh); // *MENU*
    void              SetHighLightColor(Color_t col) { fHighLightColor = col; }

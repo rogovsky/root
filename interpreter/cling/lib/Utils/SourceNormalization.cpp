@@ -111,9 +111,11 @@ public:
   ///\brief Make sure a token is closed/balanced properly
   ///
   bool CheckBalance(Token& Tok) {
-    const tok::TokenKind In = Tok.getKind(), Out = tok::TokenKind(In + 1);
-    assert((In == tok::l_paren || In == tok::l_brace || In == tok::l_square) &&
-           "Invalid balnce token");
+    const tok::TokenKind In = Tok.getKind();
+    const tok::TokenKind Out
+      = In == tok::less ? tok::greater : tok::TokenKind(In + 1);
+    assert((In == tok::l_paren || In == tok::l_brace || In == tok::l_square
+            || In == tok::less) && "Invalid balance token");
     bool atEOF = false;
     int  unBalanced = 1;
     while (unBalanced && !atEOF) {
@@ -153,6 +155,7 @@ public:
       // CLASS::type func()
       // CLASS::NESTED::type Var();
       llvm::StringRef Ident;
+
       do {
         if (!LexClean(Tok))
           return kNONE;
@@ -162,6 +165,13 @@ public:
           Ident = Identifier(Tok);
           if (!LexClean(Tok))
             return kNONE;
+          if (Tok.is(tok::less)) {
+            // A template: Ident <
+            if (!CheckBalance(Tok))
+              return kNONE;
+            if (!LexClean(Tok))
+              return kNONE;
+          }
         }
       } while (Tok.is(tok::coloncolon));
 
@@ -365,11 +375,31 @@ size_t cling::utils::getWrapPoint(std::string& source,
       return std::string::npos;
     }
 
-    const tok::TokenKind kind = Tok.getKind();
     // Prior behavior was to return getFileOffset, which was only used as an
     // in a test against std::string::npos. By returning 0 we preserve prior
     // behavior to pass the test against std::string::npos and wrap everything
     const size_t offset = 0;
+
+    // Check, if a function with c++ attributes should be defined.
+    while (Tok.getKind() == tok::l_square) {
+      Lex.Lex(Tok);
+      // Check, if attribute starts with '[['
+      if (Tok.getKind() != tok::l_square) {
+        return offset;
+      }
+      // Check, if the second '[' is closing.
+      if (!Lex.CheckBalance(Tok)) {
+        return offset;
+      }
+      Lex.Lex(Tok);
+      // Check, if the first '[' is closing.
+      if (Tok.getKind() != tok::r_square) {
+        return offset;
+      }
+      Lex.Lex(Tok);
+    }
+
+    const tok::TokenKind kind = Tok.getKind();
 
     if (kind == tok::raw_identifier && !Tok.needsCleaning()) {
       StringRef keyword(Tok.getRawIdentifier());

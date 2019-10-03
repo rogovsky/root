@@ -34,6 +34,7 @@
 #include "TMVA/Ranking.h"
 #include "TMVA/Tools.h"
 #include "TMVA/Types.h"
+#include "TMVA/Timer.h"
 #include "TMVA/VariableTransformBase.h"
 #include "TMVA/Results.h"
 
@@ -47,6 +48,18 @@
 #include <fstream>
 
 using namespace TMVA;
+
+namespace TMVA {
+namespace Internal {
+class PyGILRAII {
+   PyGILState_STATE m_GILState;
+
+public:
+   PyGILRAII() : m_GILState(PyGILState_Ensure()) {}
+   ~PyGILRAII() { PyGILState_Release(m_GILState); }
+};
+} // namespace Internal
+} // namespace TMVA
 
 REGISTER_METHOD(PyAdaBoost)
 
@@ -175,6 +188,7 @@ void MethodPyAdaBoost::ProcessOptions()
 //_______________________________________________________________________
 void MethodPyAdaBoost::Init()
 {
+   TMVA::Internal::PyGILRAII raii;
    _import_array(); //require to use numpy arrays
 
    // Check options and load them to local python namespace
@@ -253,7 +267,7 @@ void MethodPyAdaBoost::TestClassification()
 }
 
 //_______________________________________________________________________
-std::vector<Double_t> MethodPyAdaBoost::GetMvaValues(Long64_t firstEvt, Long64_t lastEvt, Bool_t)
+std::vector<Double_t> MethodPyAdaBoost::GetMvaValues(Long64_t firstEvt, Long64_t lastEvt, Bool_t logProgress)
 {
    // Load model if not already done
    if (fClassifier == 0) ReadModelFromFile();
@@ -263,6 +277,15 @@ std::vector<Double_t> MethodPyAdaBoost::GetMvaValues(Long64_t firstEvt, Long64_t
    if (firstEvt > lastEvt || lastEvt > nEvents) lastEvt = nEvents;
    if (firstEvt < 0) firstEvt = 0;
    nEvents = lastEvt-firstEvt;
+
+   // use timer
+   Timer timer( nEvents, GetName(), kTRUE );
+
+   if (logProgress)
+      Log() << kHEADER << Form("[%s] : ",DataInfo().GetName())
+            << "Evaluation of " << GetMethodName() << " on "
+            << (Data()->GetCurrentType() == Types::kTraining ? "training" : "testing")
+            << " sample (" << nEvents << " events)" << Endl;
 
    // Get data
    npy_intp dims[2];
@@ -292,6 +315,12 @@ std::vector<Double_t> MethodPyAdaBoost::GetMvaValues(Long64_t firstEvt, Long64_t
    Py_DECREF(pEvent);
    Py_DECREF(result);
 
+   if (logProgress) {
+      Log() << kINFO 
+            << "Elapsed time for evaluation of " << nEvents <<  " events: "
+            << timer.GetElapsedTime() << "       " << Endl;
+   }
+   
    return mvaValues;
 }
 

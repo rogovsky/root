@@ -7,10 +7,10 @@
 ///
 /// \author Andrei Gheata
 
-void rootgeom()
+void rootgeom(bool vis = true)
 {
    // gStyle->SetCanvasPreferGL(true);
-   gSystem->Load("libGeom");
+
    TGeoManager *geom = new TGeoManager("simple1", "Simple geometry");
 
    //--- define some materials
@@ -137,6 +137,6 @@ void rootgeom()
    //#Viewer3D.DefaultDrawOption:   ogl
 
    geom->SetVisLevel(4);
-   top->Draw("ogle");
+   if (vis) top->Draw("ogle");
 }
 

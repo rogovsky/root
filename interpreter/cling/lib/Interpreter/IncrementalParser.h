@@ -27,11 +27,13 @@ namespace llvm {
 }
 
 namespace clang {
+  class ASTConsumer;
   class CodeGenerator;
   class CompilerInstance;
   class DiagnosticConsumer;
   class Decl;
   class FileID;
+  class ModuleFileExtension;
   class Parser;
 }
 
@@ -43,6 +45,7 @@ namespace cling {
   class Transaction;
   class TransactionPool;
   class ASTTransformer;
+  class IncrementalCUDADeviceCompiler;
 
   ///\brief Responsible for the incremental parsing and compilation of input.
   ///
@@ -80,11 +83,11 @@ namespace cling {
     std::deque<Transaction*> m_Transactions;
 
     ///\brief Number of created modules.
-    unsigned m_ModuleNo;
+    unsigned m_ModuleNo = 0;
 
     ///\brief Code generator
     ///
-    std::unique_ptr<clang::CodeGenerator> m_CodeGen;
+    clang::CodeGenerator* m_CodeGen = nullptr;
 
     ///\brief Pool of reusable block-allocated transactions.
     ///
@@ -94,6 +97,13 @@ namespace cling {
     ///
     std::unique_ptr<clang::DiagnosticConsumer> m_DiagConsumer;
 
+    ///\brief Cling's worker class implementing the compilation of CUDA device code
+    ///
+    std::unique_ptr<IncrementalCUDADeviceCompiler> m_CUDACompiler;
+
+    using ModuleFileExtensions =
+        std::vector<std::shared_ptr<clang::ModuleFileExtension>>;
+
   public:
     enum EParseResult {
       kSuccess,
@@ -102,7 +112,8 @@ namespace cling {
     };
     typedef llvm::PointerIntPair<Transaction*, 2, EParseResult>
       ParseResultTransaction;
-    IncrementalParser(Interpreter* interp, const char* llvmdir);
+    IncrementalParser(Interpreter* interp, const char* llvmdir,
+                      const ModuleFileExtensions& moduleExtensions);
     ~IncrementalParser();
 
     ///\brief Whether the IncrementalParser is valid.
@@ -115,8 +126,8 @@ namespace cling {
                     bool isChildInterpreter);
     clang::CompilerInstance* getCI() const { return m_CI.get(); }
     clang::Parser* getParser() const { return m_Parser.get(); }
-    clang::CodeGenerator* getCodeGenerator() const { return m_CodeGen.get(); }
-    bool hasCodeGenerator() const { return m_CodeGen.get(); }
+    clang::CodeGenerator* getCodeGenerator() const { return m_CodeGen; }
+    bool hasCodeGenerator() const { return m_CodeGen; }
     clang::SourceLocation getLastMemoryBufferEndLoc() const;
 
     /// \{
@@ -175,6 +186,11 @@ namespace cling {
         return 0;
       return m_Transactions.back();
     }
+
+    ///\brief Returns the most recent transaction with an input line wrapper,
+    /// which could well be the current one.
+    ///
+    const Transaction* getLastWrapperTransaction() const;
 
     ///\brief Returns the currently active transaction.
     ///

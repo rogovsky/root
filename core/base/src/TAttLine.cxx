@@ -47,8 +47,9 @@ The following table shows the first 50 default colors.
 
 Begin_Macro
 {
-   TCanvas *c = new TCanvas("c","Line colors",0,0,500,200);
+   TCanvas *c = new TCanvas("c","Fill Area colors",0,0,500,200);
    c->DrawColorTable();
+   return c;
 }
 End_Macro
 
@@ -62,9 +63,9 @@ itself remains fully opaque.
 histo->SetLineColorAlpha(kBlue, 0.35);
 ~~~
 
-The transparency is available on all platforms when the `flagOpenGL.CanvasPreferGL` is set to `1`
+The transparency is available on all platforms when the flag `OpenGL.CanvasPreferGL` is set to `1`
 in `$ROOTSYS/etc/system.rootrc`, or on Mac with the Cocoa backend. On the file output
-it is visible with PDF, PNG, Gif, JPEG, SVG ... but not PostScript.
+it is visible with PDF, PNG, Gif, JPEG, SVG, TeX ... but not PostScript.
 
 
 ## <a name="L2"></a> Line Width
@@ -107,6 +108,7 @@ Begin_Macro
    for (float s=0.1; s<1.0 ; s+=0.092) {
       TLine *lh = new TLine(0.15,s,.85,s);
       lh->SetLineStyle(i);
+      lh->SetLineWidth(3);
       t.DrawText(0.1,s,Form("%d",i++));
       lh->Draw();
    }

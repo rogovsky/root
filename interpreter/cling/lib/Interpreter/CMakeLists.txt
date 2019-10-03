@@ -6,25 +6,35 @@
 # LICENSE.TXT for details.
 #------------------------------------------------------------------------------
 
-set(LIBS
-  clangDriver
-  clangFrontend
-  clangParse
-  clangSema
+set(CLING_DEPEND_LIBS
+  clangAnalysis
   clangAST
-  clangLex
-  clangSerialization
-  clangCodeGen
   clangBasic
+  clangCodeGen
+  clangDriver
+  clangEdit
+  clangFrontend
+  clangLex
+  clangParse
+  clangRewrite
+  clangRewriteFrontend
+  clangSema
+  clangSerialization
+  CACHE STRING "Dependency Clang libraries for Cling"
+)
 
+set(LIBS
   clingUtils
 )
 
-set( LLVM_LINK_COMPONENTS
+set(LLVM_LINK_COMPONENTS
   analysis
   core
+  coroutines
+  coverage
   executionengine
   ipo
+  lto
   mc
   object
   option
@@ -34,8 +44,21 @@ set( LLVM_LINK_COMPONENTS
   support
   target
   transformutils
+  binaryformat
   ${LLVM_TARGETS_TO_BUILD}
 )
+
+# clingInterpreter depends on Options.inc to be tablegen-ed
+# (target ClangDriverOptions) from in-tree builds.
+set(CLING_DEPENDS)
+if(TARGET ClangDriverOptions)
+  set(CLING_DEPENDS ClangDriverOptions)
+endif()
+# clangSema will make sure all of the dependencies of clingInterpreter are met.
+if(TARGET clangSema)
+  set(CLING_DEPENDS "${CLING_DEPENDS};clangSema")
+endif()
+
 
 add_cling_library(clingInterpreter OBJECT
   AutoSynthesizer.cpp
@@ -49,6 +72,7 @@ add_cling_library(clingInterpreter OBJECT
   ClingPragmas.cpp
   DeclCollector.cpp
   DeclExtractor.cpp
+  DefinitionShadower.cpp
   DeclUnloader.cpp
   DynamicLibraryManager.cpp
   DynamicLookup.cpp
@@ -56,6 +80,7 @@ add_cling_library(clingInterpreter OBJECT
   Exception.cpp
   ExternalInterpreterSource.cpp
   ForwardDeclPrinter.cpp
+  IncrementalCUDADeviceCompiler.cpp
   IncrementalExecutor.cpp
   IncrementalJIT.cpp
   IncrementalParser.cpp
@@ -73,14 +98,13 @@ add_cling_library(clingInterpreter OBJECT
   ValuePrinterSynthesizer.cpp
 
   DEPENDS
-  ClangDriverOptions
+  ${CLING_DEPENDS}
 
   LINK_LIBS
+  ${CLING_DEPEND_LIBS}
   ${LIBS}
-)
+  )
 
-#add_dependencies(clangDriver ClangAttrList ClangDiagnosticDriver
-#                 ClangDriverOptions ClangCC1Options ClangCC1AsOptions)
 
 if (UNIX)
   set_source_files_properties(Exception.cpp COMPILE_FLAGS "-fexceptions -frtti")
@@ -129,13 +153,13 @@ if (UNIX)
           elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             execute_process(
               COMMAND echo ${_cling_cxx_path}
-              COMMAND grep "/${_name}\" -cc1"
+              COMMAND grep "/${_name}.*\" -cc1"
               OUTPUT_VARIABLE _cling_clng_path)
 
             if(NOT _cling_clng_path)
               execute_process(
                 COMMAND echo ${_cling_cxx_path}
-                COMMAND grep "/clang\" -cc1"
+                COMMAND grep "/clang.*\" -cc1"
                 OUTPUT_VARIABLE _cling_clng_path)
             endif()
 
@@ -229,8 +253,7 @@ if (UNIX)
 
     execute_process(
       COMMAND echo ${CLING_CXX_HEADERS}
-      COMMAND awk "/^#include </,/^End of search/{if (!/^#include </ && !/^End of search/){ print }}"
-      COMMAND grep -E "(c|g)\\+\\+"
+      COMMAND sed -n -e /^.include/,\$\{ -e /^\\\ \\\/.*++/p -e \}
       OUTPUT_VARIABLE CLING_CXX_HEADERS)
 
     stripNewLine("${CLING_CXX_HEADERS}" CLING_CXX_HEADERS)
@@ -262,38 +285,34 @@ if (UNIX)
   # we need to know where is ROOT/cling STL.
   set_property(GLOBAL PROPERTY ROOT_CLING_CXX_HEADERS_LOCATION "${CLING_CXX_HEADERS}")
 
-  if (CLING_CXX_PATH)
-    MESSAGE(STATUS "And if not found, will invoke: '${CLING_CXX_PATH}' for them.")
-    if (CLING_CXX_RLTV)
-      MESSAGE(STATUS "And then fallback to: '${CLING_CXX_RLTV}'")
-      # FIXME: We should use file(GENERATE) cmake command.
-      file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/cling-compiledata.h.in
-        "
-        #define CLING_CXX_INCL \"${CLING_CXX_HEADERS}\"
-        #define CLING_CXX_PATH \"${CLING_CXX_PATH} ${CMAKE_CXX_FLAGS_NO_I} ${CMAKE_CXX_FLAGS_${uppercase_CMAKE_BUILD_TYPE}}\"
-        #define CLING_CXX_RLTV \"${CLING_CXX_RLTV} ${CMAKE_CXX_FLAGS_NO_I} ${CMAKE_CXX_FLAGS_${uppercase_CMAKE_BUILD_TYPE}}\"
-        #define CLING_INCLUDE_PATHS \"${CLING_INCLUDE_PATHS}\"
-      ")
-    else()
-      file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/cling-compiledata.h.in
-        "
-        #define CLING_CXX_INCL \"${CLING_CXX_HEADERS}\"
-        #define CLING_CXX_PATH \"${CLING_CXX_PATH} ${CMAKE_CXX_FLAGS_NO_I} ${CMAKE_CXX_FLAGS_${uppercase_CMAKE_BUILD_TYPE}}\"
-        #define CLING_INCLUDE_PATHS \"${CLING_INCLUDE_PATHS}\"
-      ")
-    endif()
-  else()
-    MESSAGE(STATUS "And if not found, will invoke: '${CLING_CXX_RLTV}' for them.")
-    file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/cling-compiledata.h.in
+  # FIXME: We should use file(GENERATE) cmake command.
+  file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/cling-compiledata.h.in
+    "
+    #define CLING_CXX_INCL \"${CLING_CXX_HEADERS}\"
+    #define CLING_INCLUDE_PATHS \"${CLING_INCLUDE_PATHS}\"
+  ")
+  if (CMAKE_OSX_SYSROOT)
+    file(APPEND ${CMAKE_CURRENT_BINARY_DIR}/cling-compiledata.h.in
       "
-      #define CLING_CXX_INCL \"${CLING_CXX_HEADERS}\"
-      #define CLING_CXX_RLTV \"${CLING_CXX_RLTV} ${CMAKE_CXX_FLAGS_NO_I} ${CMAKE_CXX_FLAGS_${uppercase_CMAKE_BUILD_TYPE}}\"
-      #define CLING_INCLUDE_PATHS \"${CLING_INCLUDE_PATHS}\"
+      #define CLING_OSX_SYSROOT \"${CMAKE_OSX_SYSROOT}\"
     ")
   endif()
-
+  if (CLING_CXX_PATH)
+    MESSAGE(STATUS "And if not found, will invoke: '${CLING_CXX_PATH}' for them.")
+    file(APPEND ${CMAKE_CURRENT_BINARY_DIR}/cling-compiledata.h.in
+      "
+      #define CLING_CXX_PATH \"${CLING_CXX_PATH} ${CMAKE_CXX_FLAGS_NO_I} ${CMAKE_CXX_FLAGS_${uppercase_CMAKE_BUILD_TYPE}}\"
+    ")
+  endif()
+  if (CLING_CXX_RLTV)
+    MESSAGE(STATUS "And then fallback to: '${CLING_CXX_RLTV}'")
+    file(APPEND ${CMAKE_CURRENT_BINARY_DIR}/cling-compiledata.h.in
+      "
+      #define CLING_CXX_RLTV \"${CLING_CXX_RLTV} ${CMAKE_CXX_FLAGS_NO_I} ${CMAKE_CXX_FLAGS_${uppercase_CMAKE_BUILD_TYPE}}\"
+    ")
+  endif()
 else()
-    file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/cling-compiledata.h.in
+    file(APPEND ${CMAKE_CURRENT_BINARY_DIR}/cling-compiledata.h.in
       "
       #define CLING_INCLUDE_PATHS \"${CLING_INCLUDE_PATHS}\"
       #define CLING_UCRT_VERSION  \"$ENV{UCRTVersion}\"

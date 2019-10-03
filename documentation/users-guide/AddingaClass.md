@@ -48,7 +48,7 @@ some methods that use Introspection to help you see the data in the
 object or class. For instance:
 
 ``` {.cpp}
-obj->Dump();      // lists all data members and their current valsue
+obj->Dump();      // lists all data members and their current values
 obj->Inspect();   // opens a window to browse data members
 obj->DrawClass(); // Draws the class inheritance tree
 ```
@@ -161,8 +161,8 @@ enum EObjBits {
 
 For example, the bits `kMustCleanup` and `kCanDelete` are used in
 **`TObject`**. See "The kCanDelete Bit" and "The kMustCleanup Bit". They
-can be set by any object and should not be reused. Make sure to no
-overlap in any given hierarchy them. The bit 13 (`kInvalidObject`) is
+can be set by any object and should not be reused. Make sure not
+to overlap them in any given hierarchy. The bit 13 (`kInvalidObject`) is
 set when an object could not be read from a ROOT file. It will check
 this bit and will skip to the next object on the file.
 
@@ -228,7 +228,7 @@ ClassImp(TLine)
 Note that you should provide a default constructor for your classes,
 i.e. a constructor with zero parameters or with one or more parameters
 all with default values in case you want to use object I/O. If do not
-provide such a default contructor, you MUST implement an I/O
+provide such a default constructor, you MUST implement an I/O
 constructor. If not you will get a compile time error. See the "The
 Default Constructor" paragraph in this chapter. The `ClassDef` and
 `ClassImp` macros are defined in the file `Rtypes.h`. This file is

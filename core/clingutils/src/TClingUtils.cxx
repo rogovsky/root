@@ -24,7 +24,7 @@
 #include <unordered_set>
 
 #include "RConfigure.h"
-#include "RConfig.h"
+#include <ROOT/RConfig.hxx>
 #include "Rtypes.h"
 
 #include "RStl.h"
@@ -58,8 +58,23 @@
 
 #include "TClingUtils.h"
 
+#ifdef _WIN32
+#define strncasecmp _strnicmp
+#include <io.h>
+#else
+#include <unistd.h>
+#endif // _WIN32
+
 namespace ROOT {
 namespace TMetaUtils {
+
+std::string GetRealPath(const std::string &path)
+{
+   llvm::SmallString<256> result_path;
+   llvm::sys::fs::real_path(path, result_path, /*expandTilde*/true);
+   return result_path.str().str();
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -462,10 +477,13 @@ TClingLookupHelper::TClingLookupHelper(cling::Interpreter &interpreter,
                                        TNormalizedCtxt &normCtxt,
                                        ExistingTypeCheck_t existingTypeCheck,
                                        AutoParse_t autoParse,
+                                       bool *shuttingDownPtr,
                                        const int* pgDebug /*= 0*/):
    fInterpreter(&interpreter),fNormalizedCtxt(&normCtxt),
    fExistingTypeCheck(existingTypeCheck),
-   fAutoParse(autoParse), fPDebug(pgDebug)
+   fAutoParse(autoParse),
+   fInterpreterIsShuttingDownPtr(shuttingDownPtr),
+   fPDebug(pgDebug)
 {
 }
 
@@ -536,7 +554,8 @@ bool TClingLookupHelper::IsDeclaredScope(const std::string &base, bool &isInline
 /// [const] typename[*&][const]
 
 bool TClingLookupHelper::GetPartiallyDesugaredNameWithScopeHandling(const std::string &tname,
-                                                                    std::string &result)
+                                                                    std::string &result,
+                                                                    bool dropstd /* = true */)
 {
    if (tname.empty()) return false;
 
@@ -581,13 +600,13 @@ bool TClingLookupHelper::GetPartiallyDesugaredNameWithScopeHandling(const std::s
          if (strncmp(result.c_str(), "const ", 6) == 0) {
             offset = 6;
          }
-         if (strncmp(result.c_str()+offset, "std::", 5) == 0) {
+         if (dropstd && strncmp(result.c_str()+offset, "std::", 5) == 0) {
             result.erase(offset,5);
          }
          for(unsigned int i = 1; i<result.length(); ++i) {
             if (result[i]=='s') {
                if (result[i-1]=='<' || result[i-1]==',' || result[i-1]==' ') {
-                  if (result.compare(i,5,"std::",5) == 0) {
+                  if (dropstd && result.compare(i,5,"std::",5) == 0) {
                      result.erase(i,5);
                   }
                }
@@ -614,9 +633,18 @@ bool TClingLookupHelper::GetPartiallyDesugaredNameWithScopeHandling(const std::s
    return false;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// TClassEdit will call this routine as soon as any of its static variable (used
+// for caching) is destroyed.
+void TClingLookupHelper::ShuttingDownSignal()
+{
+   if (fInterpreterIsShuttingDownPtr)
+      *fInterpreterIsShuttingDownPtr = true;
+}
 
    } // end namespace ROOT
 } // end namespace TMetaUtils
+
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Insert the type with name into the collection of typedefs to keep.
@@ -974,7 +1002,7 @@ ROOT::TMetaUtils::EIOCtorCategory ROOT::TMetaUtils::CheckConstructor(const clang
       cling::Interpreter::PushTransactionRAII clingRAII(const_cast<cling::Interpreter*>(&interpreter));
 
       if (auto* Ctor = interpreter.getCI()->getSema().LookupDefaultConstructor(ncCl)) {
-         if (Ctor->getAccess() == clang::AS_public) {
+         if (Ctor->getAccess() == clang::AS_public && !Ctor->isDeleted()) {
             return EIOCtorCategory::kDefault;
          }
       }
@@ -1112,12 +1140,14 @@ bool ROOT::TMetaUtils::HasIOConstructor(const clang::CXXRecordDecl *cl,
 
 ////////////////////////////////////////////////////////////////////////////////
 
-bool ROOT::TMetaUtils::NeedDestructor(const clang::CXXRecordDecl *cl)
+bool ROOT::TMetaUtils::NeedDestructor(const clang::CXXRecordDecl *cl,
+                                      const cling::Interpreter& interp)
 {
    if (!cl) return false;
 
    if (cl->hasUserDeclaredDestructor()) {
 
+      cling::Interpreter::PushTransactionRAII clingRAII(const_cast<cling::Interpreter*>(&interp));
       clang::CXXDestructorDecl *dest = cl->getDestructor();
       if (dest) {
          return (dest->getAccess() == clang::AS_public);
@@ -1652,7 +1682,7 @@ void ROOT::TMetaUtils::WriteClassInit(std::ostream& finalString,
       csymbol.insert(0,"::");
    }
 
-   int stl = TClassEdit::IsSTLCont(classname.c_str());
+   int stl = TClassEdit::IsSTLCont(classname);
    bool bset = TClassEdit::IsSTLBitset(classname.c_str());
 
    bool isStd = TMetaUtils::IsStdClass(*decl);
@@ -1674,7 +1704,7 @@ void ROOT::TMetaUtils::WriteClassInit(std::ostream& finalString,
    if (HasIOConstructor(decl, args, ctorTypes, interp)) {
       finalString << "   static void *new_" << mappedname.c_str() << "(void *p = 0);" << "\n";
 
-      if (args.size()==0 && NeedDestructor(decl))
+      if (args.size()==0 && NeedDestructor(decl, interp))
       {
          finalString << "   static void *newArray_";
          finalString << mappedname.c_str();
@@ -1683,7 +1713,7 @@ void ROOT::TMetaUtils::WriteClassInit(std::ostream& finalString,
       }
    }
 
-   if (NeedDestructor(decl)) {
+   if (NeedDestructor(decl, interp)) {
       finalString << "   static void delete_" << mappedname.c_str() << "(void *p);" << "\n" << "   static void deleteArray_" << mappedname.c_str() << "(void *p);" << "\n" << "   static void destruct_" << mappedname.c_str() << "(void *p);" << "\n";
    }
    if (HasDirectoryAutoAdd(decl, interp)) {
@@ -1706,10 +1736,8 @@ void ROOT::TMetaUtils::WriteClassInit(std::ostream& finalString,
    // Check if we have any schema evolution rules for this class
    /////////////////////////////////////////////////////////////////////////////
 
-   std::string declName;
-   ROOT::TMetaUtils::GetQualifiedName(declName,*decl);
-   ROOT::SchemaRuleClassMap_t::iterator rulesIt1 = ROOT::gReadRules.find( declName.c_str() );
-   ROOT::SchemaRuleClassMap_t::iterator rulesIt2 = ROOT::gReadRawRules.find( declName.c_str() );
+   ROOT::SchemaRuleClassMap_t::iterator rulesIt1 = ROOT::gReadRules.find( classname.c_str() );
+   ROOT::SchemaRuleClassMap_t::iterator rulesIt2 = ROOT::gReadRawRules.find( classname.c_str() );
 
    ROOT::MembersTypeMap_t nameTypeMap;
    CreateNameTypeMap( *decl, nameTypeMap ); // here types for schema evo are written
@@ -1860,10 +1888,10 @@ void ROOT::TMetaUtils::WriteClassInit(std::ostream& finalString,
    finalString << "isa_proxy, " << rootflag << "," << "\n" << "                  sizeof(" << csymbol << ") );" << "\n";
    if (HasIOConstructor(decl, args, ctorTypes, interp)) {
       finalString << "      instance.SetNew(&new_" << mappedname.c_str() << ");" << "\n";
-      if (args.size()==0 && NeedDestructor(decl))
+      if (args.size()==0 && NeedDestructor(decl, interp))
          finalString << "      instance.SetNewArray(&newArray_" << mappedname.c_str() << ");" << "\n";
    }
-   if (NeedDestructor(decl)) {
+   if (NeedDestructor(decl, interp)) {
       finalString << "      instance.SetDelete(&delete_" << mappedname.c_str() << ");" << "\n" << "      instance.SetDeleteArray(&deleteArray_" << mappedname.c_str() << ");" << "\n" << "      instance.SetDestructor(&destruct_" << mappedname.c_str() << ");" << "\n";
    }
    if (HasDirectoryAutoAdd(decl, interp)) {
@@ -1891,7 +1919,7 @@ void ROOT::TMetaUtils::WriteClassInit(std::ostream& finalString,
               ((stl > 0 && stl<ROOT::kSTLend) || (stl < 0 && stl>-ROOT::kSTLend)) && // is an stl container
               (stl != ROOT::kSTLbitset && stl !=-ROOT::kSTLbitset) ){     // is no bitset
       int idx = classname.find("<");
-      int stlType = (idx!=(int)std::string::npos) ? TClassEdit::STLKind(classname.substr(0,idx).c_str()) : 0;
+      int stlType = (idx!=(int)std::string::npos) ? TClassEdit::STLKind(classname.substr(0,idx)) : 0;
       const char* methodTCP=0;
       switch(stlType)  {
          case ROOT::kSTLvector:
@@ -2330,7 +2358,7 @@ void ROOT::TMetaUtils::WriteAuxFunctions(std::ostream& finalString,
       finalString << "new " << classname.c_str() << args << ";" << "\n";
       finalString << "   }" << "\n";
 
-      if (args.size()==0 && NeedDestructor(decl)) {
+      if (args.size()==0 && NeedDestructor(decl, interp)) {
          // Can not can newArray if the destructor is not public.
          finalString << "   static void *newArray_";
          finalString << mappedname.c_str();
@@ -2355,7 +2383,7 @@ void ROOT::TMetaUtils::WriteAuxFunctions(std::ostream& finalString,
       }
    }
 
-   if (NeedDestructor(decl)) {
+   if (NeedDestructor(decl, interp)) {
       finalString << "   // Wrapper around operator delete" << "\n" << "   static void delete_" << mappedname.c_str() << "(void *p) {" << "\n" << "      delete ((" << classname.c_str() << "*)p);" << "\n" << "   }" << "\n" << "   static void deleteArray_" << mappedname.c_str() << "(void *p) {" << "\n" << "      delete [] ((" << classname.c_str() << "*)p);" << "\n" << "   }" << "\n" << "   static void destruct_" << mappedname.c_str() << "(void *p) {" << "\n" << "      typedef " << classname.c_str() << " current_t;" << "\n" << "      ((current_t*)p)->~current_t();" << "\n" << "   }" << "\n";
    }
 
@@ -2468,23 +2496,42 @@ int ROOT::TMetaUtils::GetClassVersion(const clang::RecordDecl *cl, const cling::
       return -1;
    }
    const clang::FunctionDecl* funcCV = ROOT::TMetaUtils::ClassInfo__HasMethod(CRD,"Class_Version",interp);
+
    // if we have no Class_Info() return -1.
    if (!funcCV) return -1;
+
    // if we have many Class_Info() (?!) return 1.
    if (funcCV == (clang::FunctionDecl*)-1) return 1;
 
+   return GetTrivialIntegralReturnValue(funcCV, interp).second;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// If the function contains 'just': return SomeValue;
+/// this routine will extract this value and return it.
+/// The first element is set to true we have the body of the function and it
+/// is indeed a trivial function with just a return of a value.
+/// The second element contains the value (or -1 is case of failure)
+
+std::pair<bool, int>
+ROOT::TMetaUtils::GetTrivialIntegralReturnValue(const clang::FunctionDecl *funcCV, const cling::Interpreter &interp)
+{
+   using res_t = std::pair<bool, int>;
+
    const clang::CompoundStmt* FuncBody
       = llvm::dyn_cast_or_null<clang::CompoundStmt>(funcCV->getBody());
-   if (!FuncBody) return -1;
+   if (!FuncBody)
+      return res_t{false, -1};
    if (FuncBody->size() != 1) {
       // This is a non-ClassDef(), complex function - it might depend on state
       // and thus we'll need the runtime and cannot determine the result
       // statically.
-      return -1;
+      return res_t{false, -1};
    }
    const clang::ReturnStmt* RetStmt
       = llvm::dyn_cast<clang::ReturnStmt>(FuncBody->body_back());
-   if (!RetStmt) return -1;
+   if (!RetStmt)
+      return res_t{false, -1};
    const clang::Expr* RetExpr = RetStmt->getRetValue();
    // ClassDef controls the content of Class_Version() but not the return
    // expression which is CPP expanded from what the user provided as second
@@ -2493,12 +2540,12 @@ int ROOT::TMetaUtils::GetClassVersion(const clang::RecordDecl *cl, const cling::
    // Go through ICE to be more general.
    llvm::APSInt RetRes;
    if (!RetExpr->isIntegerConstantExpr(RetRes, funcCV->getASTContext()))
-      return -1;
+      return res_t{false, -1};
    if (RetRes.isSigned()) {
-      return (Version_t)RetRes.getSExtValue();
+      return res_t{true, (Version_t)RetRes.getSExtValue()};
    }
    // else
-   return (Version_t)RetRes.getZExtValue();
+   return res_t{true, (Version_t)RetRes.getZExtValue()};
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2531,6 +2578,56 @@ int ROOT::TMetaUtils::IsSTLContainer(const clang::CXXBaseSpecifier &base)
 
    if (decl) return TMetaUtils::IsSTLCont(*decl);
    else return ROOT::kNotSTL;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Calls the given lambda on every header in the given module.
+/// includeDirectlyUsedModules designates if the foreach should also loop over
+/// the headers in all modules that are directly used via a `use` declaration
+/// in the modulemap.
+void ROOT::TMetaUtils::foreachHeaderInModule(const clang::Module &module,
+                                             const std::function<void(const clang::Module::Header &)> &closure,
+                                             bool includeDirectlyUsedModules)
+{
+   // Iterates over all headers in a module and calls the closure on each.
+
+   // FIXME: We currently have to hardcode '4' to do this. Maybe we
+   // will have a nicer way to do this in the future.
+   // NOTE: This is on purpose '4', not '5' which is the size of the
+   // vector. The last element is the list of excluded headers which we
+   // obviously don't want to check here.
+   const std::size_t publicHeaderIndex = 4;
+
+   // Integrity check in case this array changes its size at some point.
+   const std::size_t maxArrayLength = ((sizeof module.Headers) / (sizeof *module.Headers));
+   static_assert(publicHeaderIndex + 1 == maxArrayLength,
+                 "'Headers' has changed it's size, we need to update publicHeaderIndex");
+
+   // Make a list of modules and submodules that we can check for headers.
+   // We use a SetVector to prevent an infinite loop in unlikely case the
+   // modules somehow are messed up and don't form a tree...
+   llvm::SetVector<const clang::Module *> modules;
+   modules.insert(&module);
+   for (size_t i = 0; i < modules.size(); ++i) {
+      const clang::Module *M = modules[i];
+      for (const clang::Module *subModule : M->submodules())
+         modules.insert(subModule);
+   }
+
+   for (const clang::Module *m : modules) {
+      if (includeDirectlyUsedModules) {
+         for (clang::Module *used : m->DirectUses) {
+            foreachHeaderInModule(*used, closure, true);
+         }
+      }
+
+      for (std::size_t i = 0; i < publicHeaderIndex; i++) {
+         auto &headerList = m->Headers[i];
+         for (const clang::Module::Header &moduleHeader : headerList) {
+            closure(moduleHeader);
+         }
+      }
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2678,7 +2775,7 @@ void ROOT::TMetaUtils::WriteClassCode(CallWriteStreamer_t WriteStreamerFunc,
 
    std::string fullname;
    ROOT::TMetaUtils::GetQualifiedName(fullname,cl);
-   if (TClassEdit::IsSTLCont(fullname.c_str()) ) {
+   if (TClassEdit::IsSTLCont(fullname) ) {
       Internal::RStl::Instance().GenerateTClassFor(cl.GetNormalizedName(), llvm::dyn_cast<clang::CXXRecordDecl>(cl.GetRecordDecl()), interp, normCtxt);
       return;
    }
@@ -2887,10 +2984,8 @@ clang::QualType ROOT::TMetaUtils::AddDefaultParameters(clang::QualType instanceT
                if (ArgType.getArgument().isNull()
                    || ArgType.getArgument().getKind() != clang::TemplateArgument::Type) {
                   ROOT::TMetaUtils::Error("ROOT::TMetaUtils::AddDefaultParameters",
-                                          "Template parameter substitution failed for %s around %s",
-                                          instanceType.getAsString().c_str(),
-                                          SubTy.getAsString().c_str()
-                                          );
+                                          "Template parameter substitution failed for %s around %s\n",
+                                          instanceType.getAsString().c_str(), SubTy.getAsString().c_str());
                   break;
                }
                clang::QualType BetterSubTy = ArgType.getArgument().getAsType();
@@ -2978,7 +3073,7 @@ llvm::StringRef ROOT::TMetaUtils::DataMemberInfo__ValidArrayIndex(const clang::D
    // Now we go through all indentifiers
    const char *tokenlist = "*+-";
    char *current = const_cast<char*>(working.c_str());
-   current = strtok(current,tokenlist);
+   current = strtok(current,tokenlist); // this method does not need to be reentrant
 
    while (current!=0) {
       // Check the token
@@ -3197,6 +3292,7 @@ llvm::StringRef ROOT::TMetaUtils::GetFileName(const clang::Decl& decl,
       const DirectoryLookup *foundDir = 0;
       // use HeaderSearch on the basename, to make sure it takes a header from
       // the include path (e.g. not from /usr/include/bits/)
+      assert(headerFE && "Couldn't find FileEntry from FID!");
       const FileEntry *FEhdr
          = HdrSearch.LookupFile(llvm::sys::path::filename(headerFE->getName()),
                                 SourceLocation(),
@@ -3210,6 +3306,16 @@ llvm::StringRef ROOT::TMetaUtils::GetFileName(const clang::Decl& decl,
       if (FEhdr) break;
       headerFID = sourceManager.getFileID(includeLoc);
       headerFE = sourceManager.getFileEntryForID(headerFID);
+      // If we have a system header in a module we can't just trace back the
+      // original include with the preprocessor. But it should be enough if
+      // we trace it back to the top-level system header that includes this
+      // declaration.
+      if (interp.getCI()->getLangOpts().Modules && !headerFE) {
+         assert(decl.isFirstDecl() && "Couldn't trace back include from a decl"
+                                      " that is not from an AST file");
+         assert(StringRef(includeLoc.printToString(sourceManager)).startswith("<module-includes>"));
+         break;
+      }
       includeLoc = getFinalSpellingLoc(sourceManager,
                                        sourceManager.getIncludeLoc(headerFID));
    }
@@ -3301,6 +3407,11 @@ void ROOT::TMetaUtils::GetFullyQualifiedTypeName(std::string &typenamestr,
                                                  const clang::QualType &qtype,
                                                  const cling::Interpreter &interpreter)
 {
+   // We need this because GetFullyQualifiedTypeName is triggering deserialization
+   // This calling the same name function GetFullyQualifiedTypeName, but this should stay here because
+   // callee doesn't have an interpreter pointer
+   cling::Interpreter::PushTransactionRAII RAII(const_cast<cling::Interpreter*>(&interpreter));
+
    GetFullyQualifiedTypeName(typenamestr,
                              qtype,
                              interpreter.getCI()->getASTContext());
@@ -3805,6 +3916,8 @@ clang::QualType ROOT::TMetaUtils::GetNormalizedType(const clang::QualType &type,
 {
    clang::ASTContext &ctxt = interpreter.getCI()->getASTContext();
 
+   // Modules can trigger deserialization.
+   cling::Interpreter::PushTransactionRAII RAII(const_cast<cling::Interpreter*>(&interpreter));
    clang::QualType normalizedType = cling::utils::Transform::GetPartiallyDesugaredType(ctxt, type, normCtxt.GetConfig(), true /* fully qualify */);
 
    // Readd missing default template parameters
@@ -3844,6 +3957,9 @@ void ROOT::TMetaUtils::GetNormalizedName(std::string &norm_name, const clang::Qu
    // strip both the anonymous and the inline namespace names (and we probably do not want the later to be suppressed).
 
    std::string normalizedNameStep1;
+
+   // getAsStringInternal can trigger deserialization
+   cling::Interpreter::PushTransactionRAII clingRAII(const_cast<cling::Interpreter*>(&interpreter));
    normalizedType.getAsStringInternal(normalizedNameStep1,policy);
 
    // Still remove the std:: and default template argument for STL container and
@@ -3891,7 +4007,7 @@ ROOT::TMetaUtils::GetNameTypeForIO(const clang::QualType& thisType,
    if (!hasChanged) return std::make_pair(thisTypeName,thisType);
 
    if (hasChanged && ROOT::TMetaUtils::GetErrorIgnoreLevel() <= ROOT::TMetaUtils::kNote) {
-      ROOT::TMetaUtils::Info("ROOT::TMetaUtils::GetTypeForIO", 
+      ROOT::TMetaUtils::Info("ROOT::TMetaUtils::GetTypeForIO",
         "Name changed from %s to %s\n", thisTypeName.c_str(), thisTypeNameForIO.c_str());
    }
 
@@ -3945,75 +4061,6 @@ std::string ROOT::TMetaUtils::GetModuleFileName(const char* moduleName)
    return dictFileName;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-/// Declare a virtual module.map to clang. Returns Module on success.
-
-clang::Module* ROOT::TMetaUtils::declareModuleMap(clang::CompilerInstance* CI,
-                                                  const char* moduleFileName,
-                                                  const char* headers[])
-{
-   clang::Preprocessor& PP = CI->getPreprocessor();
-   clang::ModuleMap& ModuleMap = PP.getHeaderSearchInfo().getModuleMap();
-
-   // Set the patch for searching for modules
-   clang::HeaderSearch& HS = CI->getPreprocessor().getHeaderSearchInfo();
-   HS.setModuleCachePath(llvm::sys::path::parent_path(moduleFileName));
-
-   llvm::StringRef moduleName = llvm::sys::path::filename(moduleFileName);
-   moduleName = llvm::sys::path::stem(moduleName);
-
-   std::pair<clang::Module*, bool> modCreation;
-
-   modCreation
-      = ModuleMap.findOrCreateModule(moduleName.str(),
-                                     0 /*Parent*/,
-                                     false /*Framework*/, false /*Explicit*/);
-   if (!modCreation.second && !strstr(moduleFileName, "/allDict_rdict.pcm")) {
-      std::cerr << "TMetaUtils::declareModuleMap: "
-         "Duplicate definition of dictionary module "
-                << moduleFileName << std::endl;
-            /*"\nOriginal module was found in %s.", - if only we could...*/
-      // Go on, add new headers nonetheless.
-   }
-
-   clang::HeaderSearch& HdrSearch = PP.getHeaderSearchInfo();
-   for (const char** hdr = headers; hdr && *hdr; ++hdr) {
-      const clang::DirectoryLookup* CurDir;
-      const clang::FileEntry* hdrFileEntry
-         =  HdrSearch.LookupFile(*hdr, clang::SourceLocation(),
-                                 false /*isAngled*/, 0 /*FromDir*/, CurDir,
-                                 llvm::ArrayRef<std::pair<const clang::FileEntry *,
-                                    const clang::DirectoryEntry *>>(),
-                                 0/*IsMapped*/, 0 /*SearchPath*/, 0 /*RelativePath*/,
-                                 0 /*RequestingModule*/, 0 /*SuggestedModule*/,
-                                 false /*SkipCache*/, false /*BuildSystemModule*/,
-                                 false /*OpenFile*/, true /*CacheFailures*/);
-      if (!hdrFileEntry) {
-         std::cerr << "TMetaUtils::declareModuleMap: "
-            "Cannot find header file " << *hdr
-                   << " included in dictionary module "
-                   << moduleName.str()
-                   << " in include search path!";
-         hdrFileEntry = PP.getFileManager().getFile(*hdr, /*OpenFile=*/false,
-                                                    /*CacheFailure=*/false);
-      } else if (getenv("ROOT_MODULES")) {
-         // Tell HeaderSearch that the header's directory has a module.map
-         llvm::StringRef srHdrDir(hdrFileEntry->getName());
-         srHdrDir = llvm::sys::path::parent_path(srHdrDir);
-         const clang::DirectoryEntry* Dir
-            = PP.getFileManager().getDirectory(srHdrDir);
-         if (Dir) {
-            HdrSearch.setDirectoryHasModuleMap(Dir);
-         }
-      }
-
-      ModuleMap.addHeader(modCreation.first,
-                          clang::Module::Header{*hdr,hdrFileEntry},
-                          clang::ModuleMap::NormalHeader);
-   } // for headers
-   return modCreation.first;
-}
-
 int dumpDeclForAssert(const clang::Decl& D, const char* commentStart) {
    llvm::errs() << llvm::StringRef(commentStart, 80) << '\n';
    D.dump();
@@ -4046,7 +4093,14 @@ llvm::StringRef ROOT::TMetaUtils::GetComment(const clang::Decl &decl, clang::Sou
 
    // If the location is a macro get the expansion location.
    sourceLocation = sourceManager.getExpansionRange(sourceLocation).second;
-   if (sourceManager.isLoadedSourceLocation(sourceLocation)) {
+   // FIXME: We should optimize this routine instead making it do the wrong thing
+   // returning an empty comment if the decl came from the AST.
+   // In order to do that we need to: check if the decl has an attribute and
+   // return the attribute content (including walking the redecl chain) and if
+   // this is not the case we should try finding it in the header file.
+   // This will allow us to move the implementation of TCling*Info::Title() in
+   // TClingDeclInfo.
+   if (!decl.hasOwningModule() && sourceManager.isLoadedSourceLocation(sourceLocation)) {
       // Do not touch disk for nodes coming from the PCH.
       return "";
    }
@@ -4570,11 +4624,21 @@ clang::QualType ROOT::TMetaUtils::ReSubstTemplateArg(clang::QualType input, cons
          } else {
             replacedCtxt = decl->getDescribedClassTemplate();
          }
+      } else if (auto const declguide = llvm::dyn_cast<clang::CXXDeductionGuideDecl>(replacedDeclCtxt)) {
+         replacedCtxt = llvm::dyn_cast<clang::ClassTemplateDecl>(declguide->getDeducedTemplate());
+      } else if (auto const ctdecl = llvm::dyn_cast<clang::ClassTemplateDecl>(replacedDeclCtxt)) {
+         replacedCtxt = ctdecl;
       } else {
-         replacedCtxt = llvm::dyn_cast<clang::ClassTemplateDecl>(replacedDeclCtxt);
+         std::string astDump;
+         llvm::raw_string_ostream ostream(astDump);
+         instance->dump(ostream);
+         ostream.flush();
+         ROOT::TMetaUtils::Warning("ReSubstTemplateArg","Unexpected type of declaration context for template parameter: %s.\n\tThe responsible class is:\n\t%s\n",
+                                   replacedDeclCtxt->getDeclKindName(), astDump.c_str());
+         replacedCtxt = nullptr;
       }
 
-      if (replacedCtxt->getCanonicalDecl() == TSTdecl->getSpecializedTemplate()->getCanonicalDecl()
+      if ((replacedCtxt && replacedCtxt->getCanonicalDecl() == TSTdecl->getSpecializedTemplate()->getCanonicalDecl())
           || /* the following is likely just redundant */
           substType->getReplacedParameter()->getDecl()
           == TSTdecl->getSpecializedTemplate ()->getTemplateParameters()->getParam(index))
@@ -4732,7 +4796,7 @@ void ROOT::TMetaUtils::ExtractEnclosingNameSpaces(const clang::Decl& decl,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Extract enclosing namespaces recusrively
+/// Extract enclosing namespaces recursively
 
 void ROOT::TMetaUtils::ExtractCtxtEnclosingNameSpaces(const clang::DeclContext& ctxt,
                                                       std::list<std::pair<std::string,bool> >& enclosingNamespaces)
@@ -5032,8 +5096,6 @@ int ROOT::TMetaUtils::AST2SourceTools::PrepareArgsForFwdDecl(std::string& templa
                           const clang::TemplateParameterList& tmplParamList,
                           const cling::Interpreter& interpreter)
 {
-   static const char* paramPackWarning="Template parameter pack found: autoload of variadic templates is not supported yet.\n";
-
    templateArgs="<";
    for (auto prmIt = tmplParamList.begin();
         prmIt != tmplParamList.end(); prmIt++){
@@ -5044,14 +5106,12 @@ int ROOT::TMetaUtils::AST2SourceTools::PrepareArgsForFwdDecl(std::string& templa
       auto nDecl = *prmIt;
       std::string typeName;
 
-      if(nDecl->isParameterPack ()){
-         ROOT::TMetaUtils::Warning(0,paramPackWarning);
-         return 1;
-      }
-
       // Case 1
       if (llvm::isa<clang::TemplateTypeParmDecl>(nDecl)){
-         typeName = "typename " + (*prmIt)->getNameAsString();
+         typeName = "typename ";
+         if (nDecl->isParameterPack())
+            typeName += "... ";
+         typeName += (*prmIt)->getNameAsString();
       }
       // Case 2
       else if (auto nttpd = llvm::dyn_cast<clang::NonTypeTemplateParmDecl>(nDecl)){
@@ -5084,7 +5144,7 @@ int ROOT::TMetaUtils::AST2SourceTools::PrepareArgsForFwdDecl(std::string& templa
          }
       }
 
-   templateArgs += typeName;
+      templateArgs += typeName;
    }
 
    templateArgs+=">";
@@ -5116,9 +5176,12 @@ int ROOT::TMetaUtils::AST2SourceTools::FwdDeclFromTmplDecl(const clang::Template
    }
    templatePrefixString = "template " + templatePrefixString + " ";
 
-   defString = templatePrefixString + "class " + templDecl.getNameAsString();
+   defString = templatePrefixString + "class ";
+   if (templDecl.isParameterPack())
+      defString += "... ";
+   defString +=  templDecl.getNameAsString();
    if (llvm::isa<clang::TemplateTemplateParmDecl>(&templDecl)) {
-      // When fwd delcaring the template template arg of
+      // When fwd declaring the template template arg of
       //   namespace N { template <template <class T> class C> class X; }
       // we don't need to put it into any namespace, and we want no trailing
       // ';'

@@ -16,7 +16,9 @@
 #include "ClingPragmas.h"
 #include "DeclCollector.h"
 #include "DeclExtractor.h"
+#include "DefinitionShadower.h"
 #include "DynamicLookup.h"
+#include "IncrementalCUDADeviceCompiler.h"
 #include "IncrementalExecutor.h"
 #include "NullDerefProtectionTransformer.h"
 #include "TransactionPool.h"
@@ -38,12 +40,17 @@
 #include "clang/Basic/FileManager.h"
 #include "clang/CodeGen/ModuleBuilder.h"
 #include "clang/Frontend/CompilerInstance.h"
+#include "clang/Frontend/FrontendDiagnostic.h"
+#include "clang/Frontend/FrontendPluginRegistry.h"
+#include "clang/Frontend/MultiplexConsumer.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Lex/PreprocessorOptions.h"
 #include "clang/Parse/Parser.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/SemaDiagnostic.h"
 #include "clang/Serialization/ASTWriter.h"
+#include "clang/Serialization/ASTReader.h"
+#include "llvm/Support/Path.h"
 
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
@@ -62,12 +69,15 @@ namespace {
 #if defined(__GLIBCXX__)
     #define CLING_CXXABI_VERS       std::to_string(__GLIBCXX__)
     const char* CLING_CXXABI_NAME = "__GLIBCXX__";
+    static constexpr bool CLING_CXXABI_BACKWARDCOMP = true;
 #elif defined(_LIBCPP_VERSION)
-    #define CLING_CXXABI_VERS       std::to_string(_LIBCPP_VERSION)
-    const char* CLING_CXXABI_NAME = "_LIBCPP_VERSION";
+    #define CLING_CXXABI_VERS       std::to_string(_LIBCPP_ABI_VERSION)
+    const char* CLING_CXXABI_NAME = "_LIBCPP_ABI_VERSION";
+    static constexpr bool CLING_CXXABI_BACKWARDCOMP = false;
 #elif defined(_CRT_MSVCP_CURRENT)
     #define CLING_CXXABI_VERS        _CRT_MSVCP_CURRENT
     const char* CLING_CXXABI_NAME = "_CRT_MSVCP_CURRENT";
+    static constexpr bool CLING_CXXABI_BACKWARDCOMP = false;
 #else
     #error "Unknown platform for ABI check";
 #endif
@@ -75,6 +85,17 @@ namespace {
     const std::string CurABI = Interp.getMacroValue(CLING_CXXABI_NAME);
     if (CurABI == CLING_CXXABI_VERS)
       return true;
+    if (CurABI.empty()) {
+    cling::errs() <<
+      "Warning in cling::IncrementalParser::CheckABICompatibility():\n"
+      "  Failed to extract C++ standard library version.\n";
+    }
+
+    if (CLING_CXXABI_BACKWARDCOMP && CurABI < CLING_CXXABI_VERS) {
+       // Backward compatible ABIs allow us to interpret old headers
+       // against a newer stdlib.so.
+       return true;
+    }
 
     cling::errs() <<
       "Warning in cling::IncrementalParser::CheckABICompatibility():\n"
@@ -103,7 +124,7 @@ namespace {
       m_PrevClient.EndSourceFile();
       SyncDiagCountWithTarget();
     }
-  
+
     void finish() override {
       m_PrevClient.finish();
       SyncDiagCountWithTarget();
@@ -162,12 +183,65 @@ namespace {
   };
 } // unnamed namespace
 
+static void HandlePlugins(CompilerInstance& CI,
+                         std::vector<std::unique_ptr<ASTConsumer>>& Consumers) {
+  // Copied from Frontend/FrontendAction.cpp.
+  // FIXME: Remove when we switch to a tools-based cling driver.
+
+  // If the FrontendPluginRegistry has plugins before loading any shared library
+  // this means we have linked our plugins. This is useful when cling runs in
+  // embedded mode (in a shared library). This is the only feasible way to have
+  // plugins if cling is in a single shared library which is dlopen-ed with
+  // RTLD_LOCAL. In that situation plugins can still find the cling, clang and
+  // llvm symbols opened with local visibility.
+  if (FrontendPluginRegistry::begin() == FrontendPluginRegistry::end()) {
+    for (const std::string& Path : CI.getFrontendOpts().Plugins) {
+      std::string Err;
+      if (llvm::sys::DynamicLibrary::LoadLibraryPermanently(Path.c_str(), &Err))
+        CI.getDiagnostics().Report(clang::diag::err_fe_unable_to_load_plugin)
+          << Path << Err;
+    }
+    // If we are not statically linked, we should register the pragmas ourselves
+    // because the dlopen happens after creating the clang::Preprocessor which
+    // calls RegisterBuiltinPragmas.
+    // FIXME: This can be avoided by refactoring our routine and moving it to
+    // the CIFactory. This requires an abstraction which allows us to
+    // conditionally create MultiplexingConsumers.
+
+    // Copied from Lex/Pragma.cpp
+    // Pragmas added by plugins
+    for (PragmaHandlerRegistry::iterator it = PragmaHandlerRegistry::begin(),
+           ie = PragmaHandlerRegistry::end(); it != ie; ++it)
+      CI.getPreprocessor().AddPragmaHandler(it->instantiate().release());
+  }
+
+  for (auto it = clang::FrontendPluginRegistry::begin(),
+         ie = clang::FrontendPluginRegistry::end();
+       it != ie; ++it) {
+    std::unique_ptr<clang::PluginASTAction> P(it->instantiate());
+
+    PluginASTAction::ActionType PluginActionType = P->getActionType();
+    assert(PluginActionType != clang::PluginASTAction::ReplaceAction);
+
+    if (P->ParseArgs(CI, CI.getFrontendOpts().PluginArgs[it->getName()])) {
+      std::unique_ptr<ASTConsumer> PluginConsumer
+        = P->CreateASTConsumer(CI, /*InputFile*/ "");
+      if (PluginActionType == clang::PluginASTAction::AddBeforeMainAction)
+        Consumers.insert(Consumers.begin(), std::move(PluginConsumer));
+      else
+        Consumers.push_back(std::move(PluginConsumer));
+    }
+  }
+}
+
 namespace cling {
-  IncrementalParser::IncrementalParser(Interpreter* interp, const char* llvmdir)
-      : m_Interpreter(interp),
-        m_CI(CIFactory::createCI("", interp->getOptions(), llvmdir,
-                                 m_Consumer = new cling::DeclCollector())),
-        m_ModuleNo(0) {
+  IncrementalParser::IncrementalParser(Interpreter* interp, const char* llvmdir,
+                                   const ModuleFileExtensions& moduleExtensions)
+      : m_Interpreter(interp) {
+    std::unique_ptr<cling::DeclCollector> consumer;
+    consumer.reset(m_Consumer = new cling::DeclCollector());
+    m_CI.reset(CIFactory::createCI("", interp->getOptions(), llvmdir,
+                                   std::move(consumer), moduleExtensions));
 
     if (!m_CI) {
       cling::errs() << "Compiler instance could not be created.\n";
@@ -182,20 +256,65 @@ namespace cling {
       return;
     }
 
+
+    std::vector<std::unique_ptr<ASTConsumer>> Consumers;
+    HandlePlugins(*m_CI, Consumers);
+    std::unique_ptr<ASTConsumer> WrappedConsumer;
+
     DiagnosticsEngine& Diag = m_CI->getDiagnostics();
     if (m_CI->getFrontendOpts().ProgramAction != frontend::ParseSyntaxOnly) {
-      m_CodeGen.reset(CreateLLVMCodeGen(
-          Diag, makeModuleName(), m_CI->getHeaderSearchOpts(),
-          m_CI->getPreprocessorOpts(), m_CI->getCodeGenOpts(),
-          *m_Interpreter->getLLVMContext()));
+      auto CG
+        = std::unique_ptr<clang::CodeGenerator>(CreateLLVMCodeGen(Diag,
+                                                               makeModuleName(),
+                                                    m_CI->getHeaderSearchOpts(),
+                                                    m_CI->getPreprocessorOpts(),
+                                                         m_CI->getCodeGenOpts(),
+                                               *m_Interpreter->getLLVMContext())
+                                                );
+      m_CodeGen = CG.get();
+      assert(m_CodeGen);
+      if (!Consumers.empty()) {
+        Consumers.push_back(std::move(CG));
+        WrappedConsumer.reset(new MultiplexConsumer(std::move(Consumers)));
+      }
+      else
+        WrappedConsumer = std::move(CG);
     }
 
     // Initialize the DeclCollector and add callbacks keeping track of macros.
-    m_Consumer->Setup(this, m_CodeGen.get(), m_CI->getPreprocessor());
+    m_Consumer->Setup(this, std::move(WrappedConsumer), m_CI->getPreprocessor());
 
     m_DiagConsumer.reset(new FilteringDiagConsumer(Diag, false));
 
     initializeVirtualFile();
+
+    if(m_CI->getFrontendOpts().ProgramAction != frontend::ParseSyntaxOnly &&
+      m_Interpreter->getOptions().CompilerOpts.CUDA){
+        // Create temporary folder for all files, which the CUDA device compiler
+        // will generate.
+        llvm::SmallString<256> TmpPath;
+        llvm::StringRef sep = llvm::sys::path::get_separator().data();
+        llvm::sys::path::system_temp_directory(false, TmpPath);
+        TmpPath.append(sep.data());
+        TmpPath.append("cling-%%%%");
+        TmpPath.append(sep.data());
+
+        llvm::SmallString<256> TmpFolder;
+        llvm::sys::fs::createUniqueFile(TmpPath.c_str(), TmpFolder);
+        llvm::sys::fs::create_directory(TmpFolder);
+
+        // The CUDA fatbin file is the connection beetween the CUDA device
+        // compiler and the CodeGen of cling. The file will every time reused.
+        if(getCI()->getCodeGenOpts().CudaGpuBinaryFileNames.empty())
+          getCI()->getCodeGenOpts().CudaGpuBinaryFileNames.push_back(
+            std::string(TmpFolder.c_str()) + "cling.fatbin");
+
+        m_CUDACompiler.reset(
+          new IncrementalCUDADeviceCompiler(TmpFolder.c_str(),
+                                            m_CI->getCodeGenOpts().OptimizationLevel,
+                                            m_Interpreter->getOptions(),
+                                            *m_CI));
+    }
   }
 
   bool
@@ -272,6 +391,28 @@ namespace cling {
     return m_CI && m_CI->hasFileManager() && m_Consumer
            && !m_VirtualFileID.isInvalid()
            && (!initialized || (m_TransactionPool && m_Parser));
+  }
+
+  namespace {
+    template <class T>
+    struct Reversed {
+      const T &m_orig;
+      auto begin() -> decltype(m_orig.rbegin()) { return m_orig.rbegin(); }
+      auto end() -> decltype (m_orig.rend()) { return m_orig.rend(); }
+    };
+    template <class T>
+    Reversed<T> reverse(const T& orig) { return {orig}; }
+  }
+
+  const Transaction* IncrementalParser::getLastWrapperTransaction() const {
+    if (auto *T = getCurrentTransaction())
+      if (T->getWrapperFD())
+        return T;
+
+    for (auto T: reverse(m_Transactions))
+      if (T->getWrapperFD())
+        return T;
+    return nullptr;
   }
 
   const Transaction* IncrementalParser::getCurrentTransaction() const {
@@ -469,6 +610,18 @@ namespace cling {
       Transaction* nestedT = beginTransaction(T->getCompilationOpts());
       // Pull all template instantiations in that came from the consumers.
       getCI()->getSema().PerformPendingInstantiations();
+#ifdef LLVM_ON_WIN32
+      // Microsoft-specific:
+      // Late parsed templates can leave unswallowed "macro"-like tokens.
+      // They will seriously confuse the Parser when entering the next
+      // source file. So lex until we are EOF.
+      Token Tok;
+      Tok.setKind(tok::eof);
+      do {
+        getCI()->getSema().getPreprocessor().Lex(Tok);
+      } while (Tok.isNot(tok::eof));
+#endif
+
       ParseResultTransaction nestedPRT = endTransaction(nestedT);
       commitTransaction(nestedPRT);
       m_Consumer->setTransaction(prevConsumerT);
@@ -500,9 +653,12 @@ namespace cling {
     }
     T->setState(Transaction::kCommitted);
 
-    if (InterpreterCallbacks* callbacks = m_Interpreter->getCallbacks())
-      callbacks->TransactionCommitted(*T);
-
+    {
+      Transaction* prevConsumerT = m_Consumer->getTransaction();
+      if (InterpreterCallbacks* callbacks = m_Interpreter->getCallbacks())
+        callbacks->TransactionCommitted(*T);
+      m_Consumer->setTransaction(prevConsumerT);
+    }
   }
 
   void IncrementalParser::emitTransaction(Transaction* T) {
@@ -540,10 +696,8 @@ namespace cling {
 
       std::unique_ptr<llvm::Module> M(getCodeGenerator()->ReleaseModule());
 
-      if (M) {
-        m_Interpreter->addModule(M.get(), T->getCompilationOpts().OptLevel);
+      if (M)
         T->setModule(std::move(M));
-      }
 
       if (T->getIssuedDiags() != Transaction::kNone) {
         // Module has been released from Codegen, reset the Diags now.
@@ -649,10 +803,6 @@ namespace cling {
     const CompilationOptions& CO
        = m_Consumer->getTransaction()->getCompilationOpts();
 
-    assert(!(S.getLangOpts().Modules
-             && CO.CodeGenerationForModule)
-           && "CodeGenerationForModule to be removed once PCMs are available!");
-
     // Recover resources if we crash before exiting this method.
     llvm::CrashRecoveryContextCleanupRegistrar<Sema> CleanupSema(&S);
 
@@ -747,6 +897,7 @@ namespace cling {
     // They will seriously confuse the Parser when entering the next
     // source file. So lex until we are EOF.
     Token Tok;
+    Tok.setKind(tok::eof);
     do {
       PP.Lex(Tok);
     } while (Tok.isNot(tok::eof));
@@ -768,6 +919,9 @@ namespace cling {
       return kFailed;
     else if (Diags.getNumWarnings())
       return kSuccessWithWarnings;
+
+    if(!m_Interpreter->isInSyntaxOnlyMode() && m_CI->getLangOpts().CUDA )
+      m_CUDACompiler->compileDeviceCode(input, m_Consumer->getTransaction());
 
     return kSuccess;
   }
@@ -792,6 +946,7 @@ namespace cling {
        // into the PCH.
        ASTTransformers.emplace_back(new NullDerefProtectionTransformer(m_Interpreter));
     }
+    ASTTransformers.emplace_back(new DefinitionShadower(*TheSema, *m_Interpreter));
 
     typedef std::unique_ptr<WrapperTransformer> WTPtr_t;
     std::vector<WTPtr_t> WrapperTransformers;

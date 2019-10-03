@@ -101,6 +101,8 @@ TPave::TPave(Double_t x1, Double_t y1,Double_t x2, Double_t  y2,
 
 TPave::~TPave()
 {
+   // Required since we overload TObject::Hash.
+   ROOT::CallRecursiveRemoveIfNeeded(*this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -117,8 +119,18 @@ TPave::TPave(const TPave &pave) : TBox(pave)
    fInit         = 0;
    fShadowColor  = 0;
 
-   ((TPave&)pave).TPave::Copy(*this);
+   pave.TPave::Copy(*this);
 }
+
+////////////////////////////////////////////////////////////////////////////////
+/// Assignment operator
+
+TPave &TPave::operator=(const TPave &src)
+{
+   src.TPave::Copy(*this);
+   return *this;
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Convert pave coordinates from NDC to Pad coordinates.

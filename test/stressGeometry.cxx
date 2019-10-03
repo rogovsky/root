@@ -92,7 +92,7 @@ typedef struct {
 } p_t;
 p_t p;
 
-const Int_t NG = 34;
+const Int_t NG = 33;
 const char *exps[NG] = {"aleph",
                         "barres",
                         "felix",
@@ -145,21 +145,21 @@ const Int_t versions[NG] =  {5, //aleph
                              3, //wa91
                              3, //sdc
                              4, //integral
-                             3, //ams
+                             4, //ams
                              3, //brahms
-                             4, //gem
-                             3, //tesla
+                             5, //gem
+                             4, //tesla
                              3, //btev
-                             5, //cdf
+                             6, //cdf
                              4, //hades2
                              4, //lhcbfull
                              4, //star
                              4, //sld
                              4, //cms
-                             5, //alice3
+                             6, //alice3
                              4, //babar2
                              3, //belle
-                             5}; //atlas
+                             6}; //atlas
 // The timings below are on my machine PIV 3GHz
 const Double_t cp_brun[NG] = {1.9,  //aleph
                               0.1,  //barres
@@ -257,7 +257,14 @@ void stressGeometry(const char *exp="*", Bool_t generate_ref=kFALSE, Bool_t vecg
       if (opt.Contains(exps[i])) iexp[i] = 1;
       else                       iexp[i] = 0;
    }
-   iexp[NG-1]=0;
+#if defined(linux) && !defined(__x86_64__)
+   // 32bit linux: we have an error with ATLAS, see https://sft.its.cern.ch/jira/browse/ROOT-9893
+   // Disable unless explicitly enabled.
+   if (all) {
+      printf("DISABLED ATLAS TEST due to known failure on Linux 32 bit!\n");
+      iexp[32] = 0;
+   }
+#endif
    TFile::SetCacheFileDir(".");
    TString fname;
    for (i=0; i<NG; i++) {

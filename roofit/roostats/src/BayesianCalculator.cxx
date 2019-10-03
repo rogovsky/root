@@ -168,7 +168,7 @@ public:
 
    PosteriorCdfFunction(RooAbsReal & nll,  RooArgList & bindParams, RooAbsReal * prior = 0, const char * integType = 0, double nllMinimum = 0) :
       fFunctor(nll, bindParams, RooArgList() ),              // functor
-      fPriorFunc(std::shared_ptr<RooFunctor>((RooFunctor*)0)),
+      fPriorFunc(nullptr),
       fLikelihood(fFunctor, 0, nllMinimum),         // integral of exp(-nll) function
       fIntegrator(ROOT::Math::IntegratorMultiDim::GetType(integType) ),  // integrator
       fXmin(bindParams.getSize() ),               // vector of parameters (min values)
@@ -178,7 +178,7 @@ public:
    {
 
       if (prior) {
-         fPriorFunc = std::shared_ptr<RooFunctor>(new RooFunctor(*prior, bindParams, RooArgList() ));
+         fPriorFunc = std::make_shared<RooFunctor>(*prior, bindParams, RooArgList());
          fLikelihood.SetPrior(fPriorFunc.get() );
       }
 
@@ -272,7 +272,7 @@ private:
       if (fHasNorm && fUseOldValues) {
          // look in the map of the stored cdf values the closes one
          std::map<double,double>::iterator itr = fNormCdfValues.upper_bound(x);
-         itr--;   // upper bound returns a position 1 up of the value we want
+         --itr;   // upper bound returns a position 1 up of the value we want
          if (itr != fNormCdfValues.end() ) {
             fXmin[0] = itr->first;
             normcdf0 = itr->second;
@@ -354,7 +354,7 @@ public:
    PosteriorFunction(RooAbsReal & nll, RooRealVar & poi, RooArgList & nuisParams, RooAbsReal * prior = 0, const char * integType = 0, double
                      norm = 1.0,  double nllOffset = 0, int niter = 0) :
       fFunctor(nll, nuisParams, RooArgList() ),
-      fPriorFunc(std::shared_ptr<RooFunctor>((RooFunctor*)0)),
+      fPriorFunc(nullptr),
       fLikelihood(fFunctor, 0, nllOffset),
       fPoi(&poi),
       fXmin(nuisParams.getSize() ),
@@ -364,7 +364,7 @@ public:
    {
 
       if (prior) {
-         fPriorFunc = std::shared_ptr<RooFunctor>(new RooFunctor(*prior, nuisParams, RooArgList() ));
+         fPriorFunc = std::make_shared<RooFunctor>(*prior, nuisParams, RooArgList());
          fLikelihood.SetPrior(fPriorFunc.get() );
       }
 
@@ -470,7 +470,7 @@ public:
    PosteriorFunctionFromToyMC(RooAbsReal & nll, RooAbsPdf & pdf, RooRealVar & poi, RooArgList & nuisParams, RooAbsReal * prior = 0, double
                               nllOffset = 0, int niter = 0, bool redoToys = true ) :
       fFunctor(nll, nuisParams, RooArgList() ),
-      fPriorFunc(std::shared_ptr<RooFunctor>((RooFunctor*)0)),
+      fPriorFunc(nullptr),
       fLikelihood(fFunctor, 0, nllOffset),
       fPdf(&pdf),
       fPoi(&poi),
@@ -483,7 +483,7 @@ public:
       if (niter == 0) fNumIterations = 100; // default value
 
       if (prior) {
-         fPriorFunc = std::shared_ptr<RooFunctor>(new RooFunctor(*prior, nuisParams, RooArgList() ));
+         fPriorFunc = std::make_shared<RooFunctor>(*prior, nuisParams, RooArgList());
          fLikelihood.SetPrior(fPriorFunc.get() );
       }
 
@@ -757,9 +757,11 @@ void BayesianCalculator::SetModel(const ModelConfig & model) {
    fPOI.removeAll();
    fNuisanceParameters.removeAll();
    fConditionalObs.removeAll();
+   fGlobalObs.removeAll();
    if (model.GetParametersOfInterest()) fPOI.add( *(model.GetParametersOfInterest()) );
    if (model.GetNuisanceParameters())  fNuisanceParameters.add( *(model.GetNuisanceParameters() ) );
    if (model.GetConditionalObservables())  fConditionalObs.add( *(model.GetConditionalObservables() ) );
+   if (model.GetGlobalObservables())  fGlobalObs.add( *(model.GetGlobalObservables() ) );
    // remove constant nuisance parameters
    RemoveConstantParameters(&fNuisanceParameters);
 
@@ -775,7 +777,8 @@ void BayesianCalculator::SetModel(const ModelConfig & model) {
 /// or in the model itself. If no prior nuisance is specified, but prior parameters are then
 /// the integration is performed assuming a flat prior for the nuisance parameters.
 ///
-/// NOTE: the return object is managed by the class, users do not need to delete it
+/// NOTE: the return object is managed by the BayesianCalculator class, users do not need to delete it,
+///       but the object will be deleted when the BayesiabCalculator object is deleted  
 
 RooAbsReal* BayesianCalculator::GetPosteriorFunction() const
 {
@@ -805,7 +808,7 @@ RooAbsReal* BayesianCalculator::GetPosteriorFunction() const
    //constrainedParams->Print("V");
 
    // use RooFit::Constrain() to be sure constraints terms are taken into account
-   fLogLike = fPdf->createNLL(*fData, RooFit::Constrain(*constrainedParams), RooFit::ConditionalObservables(fConditionalObs) );
+   fLogLike = fPdf->createNLL(*fData, RooFit::Constrain(*constrainedParams), RooFit::ConditionalObservables(fConditionalObs), RooFit::GlobalObservables(fGlobalObs) );
 
 
 
@@ -900,7 +903,7 @@ RooAbsReal* BayesianCalculator::GetPosteriorFunction() const
       RooArgSet* constrParams = fPdf->getParameters(*fData);
       // remove the constant parameters
       RemoveConstantParameters(constrParams);
-      fLogLike = pdfAndPrior->createNLL(*fData, RooFit::Constrain(*constrParams),RooFit::ConditionalObservables(fConditionalObs) );
+      fLogLike = pdfAndPrior->createNLL(*fData, RooFit::Constrain(*constrParams),RooFit::ConditionalObservables(fConditionalObs),RooFit::GlobalObservables(fGlobalObs) );
       delete constrParams;
 
       TString likeName = TString("likelihood_times_prior_") + TString(pdfAndPrior->GetName());
@@ -992,6 +995,21 @@ RooAbsPdf* BayesianCalculator::GetPosteriorPdf() const
 
    return posteriorPdf;
 }
+
+////////////////////////////////////////////////////////////////////////////////
+/// When am approximate posterior is computed binninig the parameter of interest (poi) range
+/// (see SetScanOfPosteriors) an histogram is created and can be returned to the user
+///  A nullptr is instead returned when the posterior is computed without binning the poi.
+///
+/// NOTE: the returned object is managed by the BayesianCalculator class,
+///  if the user wants to take ownership of the returned histogram, he needs to clone
+///  or copy the return object.
+
+TH1 *  BayesianCalculator::GetPosteriorHistogram() const
+{
+   return  (fApproxPosterior) ? fApproxPosterior->GetHistogram() : nullptr;
+} 
+
 
 ////////////////////////////////////////////////////////////////////////////////
 /// return a RooPlot with the posterior  and the credibility region
@@ -1380,7 +1398,8 @@ void BayesianCalculator::ComputeIntervalFromApproxPosterior(double lowerCutOff, 
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// compute the shortest interval
+/// compute the shortest interval from the histogram representing the posterior
+
 
 void BayesianCalculator::ComputeShortestInterval( ) const {
    coutI(Eval) << "BayesianCalculator - computing shortest interval with CL = " << 1.-fSize << std::endl;
@@ -1394,9 +1413,11 @@ void BayesianCalculator::ComputeShortestInterval( ) const {
    h1->SetName(fApproxPosterior->GetName());
    // get bins and sort them
    double * bins = h1->GetArray();
-   int n = h1->GetSize()-2; // exclude under/overflow bins
+   // exclude under/overflow bins
+   int n = h1->GetSize()-2; 
    std::vector<int> index(n);
-   TMath::Sort(n, bins, &index[0]);
+   //  exclude bins[0] (the underflow bin content)
+   TMath::Sort(n, bins+1, &index[0]);
    // find cut off as test size
    double sum = 0;
    double actualCL = 0;
@@ -1413,10 +1434,11 @@ void BayesianCalculator::ComputeShortestInterval( ) const {
          break;
       }
 
-      if ( h1->GetBinLowEdge(idx) < lower)
-         lower = h1->GetBinLowEdge(idx);
-      if ( h1->GetXaxis()->GetBinUpEdge(idx) > upper)
-         upper = h1->GetXaxis()->GetBinUpEdge(idx);
+      // histogram bin content starts from 1
+      if ( h1->GetBinLowEdge(idx+1) < lower)
+         lower = h1->GetBinLowEdge(idx+1);
+      if ( h1->GetXaxis()->GetBinUpEdge(idx+1) > upper)
+         upper = h1->GetXaxis()->GetBinUpEdge(idx+1);
    }
 
    ccoutD(Eval) << "BayesianCalculator::ComputeShortestInterval - actual interval CL = "

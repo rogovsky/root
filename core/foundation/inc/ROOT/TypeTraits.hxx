@@ -15,10 +15,69 @@
 #include <memory> // shared_ptr, unique_ptr for IsSmartOrDumbPtr
 #include <type_traits>
 #include <vector> // for IsContainer
+#include "ROOT/RSpan.hxx" // for IsContainer
 
 namespace ROOT {
 
 /// ROOT type_traits extensions
+namespace TypeTraits {
+/// Lightweight storage for a collection of types.
+/// Differently from std::tuple, no instantiation of objects of stored types is performed
+template <typename... Types>
+struct TypeList {
+   static constexpr std::size_t list_size = sizeof...(Types);
+};
+} // end ns TypeTraits
+
+namespace Detail {
+template <typename T> constexpr auto HasCallOp(int /*goodOverload*/) -> decltype(&T::operator(), true) { return true; }
+template <typename T> constexpr bool HasCallOp(char /*badOverload*/) { return false; }
+
+/// Extract types from the signature of a callable object. See CallableTraits.
+template <typename T, bool HasCallOp = ROOT::Detail::HasCallOp<T>(0)>
+struct CallableTraitsImpl {};
+
+// Extract signature of operator() and delegate to the appropriate CallableTraitsImpl overloads
+template <typename T>
+struct CallableTraitsImpl<T, true> {
+   using arg_types = typename CallableTraitsImpl<decltype(&T::operator())>::arg_types;
+   using arg_types_nodecay = typename CallableTraitsImpl<decltype(&T::operator())>::arg_types_nodecay;
+   using ret_type = typename CallableTraitsImpl<decltype(&T::operator())>::ret_type;
+};
+
+// lambdas, std::function, const member functions
+template <typename R, typename T, typename... Args>
+struct CallableTraitsImpl<R (T::*)(Args...) const, false> {
+   using arg_types = ROOT::TypeTraits::TypeList<typename std::decay<Args>::type...>;
+   using arg_types_nodecay = ROOT::TypeTraits::TypeList<Args...>;
+   using ret_type = R;
+};
+
+// mutable lambdas and functor classes, non-const member functions
+template <typename R, typename T, typename... Args>
+struct CallableTraitsImpl<R (T::*)(Args...), false> {
+   using arg_types = ROOT::TypeTraits::TypeList<typename std::decay<Args>::type...>;
+   using arg_types_nodecay = ROOT::TypeTraits::TypeList<Args...>;
+   using ret_type = R;
+};
+
+// function pointers
+template <typename R, typename... Args>
+struct CallableTraitsImpl<R (*)(Args...), false> {
+   using arg_types = ROOT::TypeTraits::TypeList<typename std::decay<Args>::type...>;
+   using arg_types_nodecay = ROOT::TypeTraits::TypeList<Args...>;
+   using ret_type = R;
+};
+
+// free functions
+template <typename R, typename... Args>
+struct CallableTraitsImpl<R(Args...), false> {
+   using arg_types = ROOT::TypeTraits::TypeList<typename std::decay<Args>::type...>;
+   using arg_types_nodecay = ROOT::TypeTraits::TypeList<Args...>;
+   using ret_type = R;
+};
+} // end ns Detail
+
 namespace TypeTraits {
 
 ///\class ROOT::TypeTraits::
@@ -63,52 +122,37 @@ struct IsContainer {
    static constexpr bool value = Test<Test_t>(nullptr);
 };
 
-/// Lightweight storage for a collection of types.
-/// Differently from std::tuple, no instantiation of objects of stored types is performed
-template <typename... Types>
-struct TypeList {
-   static constexpr std::size_t list_size = sizeof...(Types);
+template<typename T>
+struct IsContainer<std::span<T>> {
+   static constexpr bool value = true;
 };
+
+/// Checks for signed integers types that are not characters
+template<class T>
+struct IsSignedNumeral : std::integral_constant<bool,
+   std::is_integral<T>::value &&
+   std::is_signed<T>::value &&
+   !std::is_same<T, char>::value
+> {};
+
+/// Checks for unsigned integer types that are not characters
+template<class T>
+struct IsUnsignedNumeral : std::integral_constant<bool,
+   std::is_integral<T>::value &&
+   !std::is_signed<T>::value &&
+   !std::is_same<T, char>::value
+> {};
+
+/// Checks for floating point types (that are not characters)
+template<class T>
+using IsFloatNumeral = std::is_floating_point<T>;
 
 /// Extract types from the signature of a callable object.
-template <typename T>
-struct CallableTraits {
-   using arg_types = typename CallableTraits<decltype(&T::operator())>::arg_types;
-   using arg_types_nodecay = typename CallableTraits<decltype(&T::operator())>::arg_types_nodecay;
-   using ret_type = typename CallableTraits<decltype(&T::operator())>::ret_type;
-};
-
-// lambdas and std::function
-template <typename R, typename T, typename... Args>
-struct CallableTraits<R (T::*)(Args...) const> {
-   using arg_types = TypeList<typename std::decay<Args>::type...>;
-   using arg_types_nodecay = TypeList<Args...>;
-   using ret_type = R;
-};
-
-// mutable lambdas and functor classes
-template <typename R, typename T, typename... Args>
-struct CallableTraits<R (T::*)(Args...)> {
-   using arg_types = TypeList<typename std::decay<Args>::type...>;
-   using arg_types_nodecay = TypeList<Args...>;
-   using ret_type = R;
-};
-
-// function pointers
-template <typename R, typename... Args>
-struct CallableTraits<R (*)(Args...)> {
-   using arg_types = TypeList<typename std::decay<Args>::type...>;
-   using arg_types_nodecay = TypeList<Args...>;
-   using ret_type = R;
-};
-
-// free functions
-template <typename R, typename... Args>
-struct CallableTraits<R(Args...)> {
-   using arg_types = TypeList<typename std::decay<Args>::type...>;
-   using arg_types_nodecay = TypeList<Args...>;
-   using ret_type = R;
-};
+/// The `CallableTraits` struct contains three type aliases:
+///   - arg_types: a `TypeList` of all types in the signature, decayed through std::decay
+///   - arg_types_nodecay: a `TypeList` of all types in the signature, including cv-qualifiers
+template<typename F>
+using CallableTraits = ROOT::Detail::CallableTraitsImpl<F>;
 
 // Return first of a variadic list of types.
 template <typename T, typename... Rest>
@@ -130,9 +174,9 @@ template <typename... Args>
 using RemoveFirst_t = typename RemoveFirst<Args...>::type;
 
 /// Return first of possibly many template parameters.
-/// For non-template types, the result is the type itself.
+/// For non-template types, the result is void
 /// e.g. TakeFirstParameter<U<A,B>> is A
-///      TakeFirstParameter<T> is T
+///      TakeFirstParameter<T> is void
 template <typename T>
 struct TakeFirstParameter {
    using type = void;
@@ -159,6 +203,31 @@ struct RemoveFirstParameter<U<T, Rest...>> {
 
 template <typename T>
 using RemoveFirstParameter_t = typename RemoveFirstParameter<T>::type;
+
+template <typename T>
+struct HasBeginAndEnd {
+
+   template <typename V>
+   using Begin_t = typename V::const_iterator (V::*)() const;
+
+   template <typename V>
+   using End_t = typename V::const_iterator (V::*)() const;
+
+   template <typename V>
+   static constexpr auto Check(int)
+      -> decltype(static_cast<Begin_t<V>>(&V::begin), static_cast<End_t<V>>(&V::end), true)
+   {
+      return true;
+   }
+
+   template <typename V>
+   static constexpr bool Check(...)
+   {
+      return false;
+   }
+
+   static constexpr bool const value = Check<T>(0);
+};
 
 } // ns TypeTraits
 } // ns ROOT

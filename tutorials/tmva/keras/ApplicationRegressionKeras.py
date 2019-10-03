@@ -1,4 +1,13 @@
 #!/usr/bin/env python
+## \file
+## \ingroup tutorial_tmva_keras
+## \notebook -nodraw
+## This tutorial shows how to apply a trained model to new data (regression).
+##
+## \macro_code
+##
+## \date 2017
+## \author TMVA Team
 
 from ROOT import TMVA, TFile, TString
 from array import array
@@ -26,7 +35,7 @@ for branch in tree.GetListOfBranches():
         reader.AddVariable(branchName, branches[branchName])
 
 # Book methods
-reader.BookMVA('PyKeras', TString('dataset/weights/TMVAClassification_PyKeras.weights.xml'))
+reader.BookMVA('PyKeras', TString('dataset/weights/TMVARegression_PyKeras.weights.xml'))
 
 # Print some example regressions
 print('Some example regressions:')

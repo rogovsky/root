@@ -197,7 +197,7 @@ struct ProcInfo_t {
    Long_t    fMemVirtual;  // virtual memory used by this process in KB
    ProcInfo_t() : fCpuUser(0), fCpuSys(0), fMemResident(0),
                   fMemVirtual(0) { }
-   virtual ~ProcInfo_t() { }
+   virtual ~ProcInfo_t();
    ClassDef(ProcInfo_t, 1);// System resource usage of given process.
 };
 
@@ -212,6 +212,26 @@ struct RedirectHandle_t {
                                          fStdErrDup(-1), fReadOffSet(-1) { }
    void Reset() { fFile = ""; fStdOutTty = ""; fStdErrTty = "";
                   fStdOutDup = -1; fStdErrDup = -1; fReadOffSet = -1; }
+};
+
+enum ESockOptions {
+   kSendBuffer,        // size of send buffer
+   kRecvBuffer,        // size of receive buffer
+   kOobInline,         // OOB message inline
+   kKeepAlive,         // keep socket alive
+   kReuseAddr,         // allow reuse of local portion of address 5-tuple
+   kNoDelay,           // send without delay
+   kNoBlock,           // non-blocking I/O
+   kProcessGroup,      // socket process group (used for SIGURG and SIGIO)
+   kAtMark,            // are we at out-of-band mark (read only)
+   kBytesToRead        // get number of bytes to read, FIONREAD (read only)
+};
+
+enum ESendRecvOptions {
+   kDefault,           // default option (= 0)
+   kOob,               // send or receive out-of-band data
+   kPeek,              // peek at incoming message (receive only)
+   kDontBlock          // send/recv as much data as possible without blocking
 };
 
 #ifdef __CINT__
@@ -467,6 +487,7 @@ public:
    virtual Func_t          DynFindSymbol(const char *module, const char *entry);
    virtual int             Load(const char *module, const char *entry = "", Bool_t system = kFALSE);
    virtual void            Unload(const char *module);
+   virtual UInt_t          LoadAllLibraries();
    virtual void            ListSymbols(const char *module, const char *re = "");
    virtual void            ListLibraries(const char *regexp = "");
    virtual const char     *GetLibraries(const char *regexp = "",

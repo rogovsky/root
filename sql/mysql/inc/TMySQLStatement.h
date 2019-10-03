@@ -22,6 +22,14 @@ typedef struct { int dummy; } MYSQL_STMT;
 typedef struct { int dummy; } MYSQL_BIND;
 #endif
 
+// MariaDB is fork of MySQL and still include definition of my_bool
+// MariaDB major version is 10, therefore it confuses version ID here
+#ifndef MARIADB_VERSION_ID
+#if MYSQL_VERSION_ID > 80000 && MYSQL_VERSION_ID < 100000
+typedef bool my_bool;
+#endif
+#endif
+
 class TMySQLStatement : public TSQLStatement {
 
 protected:
@@ -88,6 +96,7 @@ public:
    virtual Bool_t      SetDate(Int_t npar, Int_t year, Int_t month, Int_t day);
    virtual Bool_t      SetTime(Int_t npar, Int_t hour, Int_t min, Int_t sec);
    virtual Bool_t      SetDatime(Int_t npar, Int_t year, Int_t month, Int_t day, Int_t hour, Int_t min, Int_t sec);
+   using TSQLStatement::SetTimestamp;
    virtual Bool_t      SetTimestamp(Int_t npar, Int_t year, Int_t month, Int_t day, Int_t hour, Int_t min, Int_t sec, Int_t frac = 0);
 
    virtual Bool_t      NextIteration();
@@ -112,6 +121,7 @@ public:
    virtual Bool_t      GetDate(Int_t npar, Int_t& year, Int_t& month, Int_t& day);
    virtual Bool_t      GetTime(Int_t npar, Int_t& hour, Int_t& min, Int_t& sec);
    virtual Bool_t      GetDatime(Int_t npar, Int_t& year, Int_t& month, Int_t& day, Int_t& hour, Int_t& min, Int_t& sec);
+   using TSQLStatement::GetTimestamp;
    virtual Bool_t      GetTimestamp(Int_t npar, Int_t& year, Int_t& month, Int_t& day, Int_t& hour, Int_t& min, Int_t& sec, Int_t&);
 
    ClassDef(TMySQLStatement, 0);  // SQL statement class for MySQL DB

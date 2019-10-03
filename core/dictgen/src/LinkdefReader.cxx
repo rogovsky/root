@@ -905,7 +905,7 @@ public:
          if (tok.getIdentifierInfo()) type = tok.getIdentifierInfo()->getName();
       }
 
-      PP.Lex(tok);
+      PP.LexUnexpandedToken(tok);
       const char *start = fSourceManager.getCharacterData(tok.getLocation());
       clang::Token end;
       end.startToken(); // Initialize token.
@@ -913,7 +913,7 @@ public:
          // PP.DumpToken(tok, true);
          // llvm::errs() << "\n";
          end = tok;
-         PP.Lex(tok);
+         PP.LexUnexpandedToken(tok);
       }
 
       if (tok.isNot(clang::tok::semi)) {
@@ -1014,7 +1014,8 @@ bool LinkdefReader::Parse(SelectionRules &sr, llvm::StringRef code, const std::v
    // Extract all #pragmas
    std::unique_ptr<llvm::MemoryBuffer> memBuf = llvm::MemoryBuffer::getMemBuffer(code, "CLING #pragma extraction");
    clang::CompilerInstance *pragmaCI = cling::CIFactory::createCI(std::move(memBuf), parserArgsC.size(),
-                                                                  &parserArgsC[0], llvmdir, nullptr, true /*OnlyLex*/);
+                                                                  &parserArgsC[0], llvmdir, nullptr /*Consumer*/,
+                                                                  {} /*ModuleFileExtension*/, true /*OnlyLex*/);
 
    clang::Preprocessor &PP = pragmaCI->getPreprocessor();
    clang::DiagnosticConsumer &DClient = pragmaCI->getDiagnosticClient();
@@ -1038,5 +1039,5 @@ bool LinkdefReader::Parse(SelectionRules &sr, llvm::StringRef code, const std::v
    } while (tok.isNot(clang::tok::eof));
 
    fSelectionRules = 0;
-   return true;
+   return 0 == DClient.getNumErrors();
 }

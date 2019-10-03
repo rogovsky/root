@@ -209,8 +209,6 @@ Here's the complete list:
 * docdir (<prefix>/doc/root)
   Documentation, like the LICENCE, README, etc. files will be
   installed into this directory.
-* testdir (<docdir>/test)
-  The test applications and libraries will be installed here.
 * tutdir (<docdir>/tutorial)
   All the tutorials will be installed in this directory.
 
@@ -301,10 +299,7 @@ first. See
 
 7.7.  SapDB Client:
 -------------------
-To build the SapDB interface you need to install the SapDB calling
-interface first, which can be found in the rpm sapdb-callif-xxxx. See
-
-   http://www.sapdb.org
+Not supported any longer
 
 
 7.8. Pythia Event Generators:
@@ -330,71 +325,26 @@ Venus libraries.  The sources can be downloaded from
 
     ftp://root.cern.ch/root/venus/
 
+
 7.10. Secure Remote Password (SRP) Authentication:
 --------------------------------------------------
-To build the strong authentication module used by rootd and proofd,
-you first have to install the SRP (Secure Remote Password)
-system. See:
-
-   http://srp.stanford.edu/
-
-Please note, that the library "libsrp-dev" as distributed by Standford
-is not enough to build the two utility program in the srputil
-directory of the ROOT source tree.
+Not supported any longer
 
 
 7.11. AFS Authentication:
 -------------------------
-To build rootd and proofd with support for AFS authentication, you
-first have to install AFS client libraries system. There are a few AFS
-distributions available.
-
-* OpenAFS
-  IBMs OpenSource AFS distribution - see
-
-    http://www.openafs.org
-
-* Transarc AFS
-  IBMs commercial AFS ditribution - see
-
-    http://www.transarc.ibm.com/Support/afs
+Not supported any longer
 
 
-7.12. Kerberos Authentication:
-------------------------------
-To build the Kerberos authentication module used by rootd and proofd,
-you first have to install Kerberos V on your machine. See:
+7.12. Kerberos Authentication (LEGACY):
+---------------------------------------
+Not supported any longer
 
-   http://web.mit.edu/kerberos/www/
-
-for details and downloads.
-If the installation directory is different from the standard ones
-(typically /usr/kerberos) the --with-krb5=<krb5_dir> flag must be
-used to tell configure where to look for Kerberos. Alternatrively
-the --with-krb5-incdir and --with-krb5-libdir can be specified
-individually.
-
-
-7.13. Globus Authentication:
-----------------------------
-To build the Globus authentication module used by rootd and proofd,
-you first have to make sure that the Globus Tool Kit is installed
-on the machine. See:
-
-   http://www.globus.org/
-
-for details and downloads.
-Globus Tool Kit is available only for a subset of Unix platforms.
-The variable GLOBUS_LOCATION should be defined as the directory
-containing Globus lib, include and bin. For compilation purposes
-you can pass this directory to the configure script with the option
---with-globus-dir=<globus_dir>. An experimental path is available
-for versions 2.2.3 and 2.2.4 of the Globus Tool Kit to fix a small
-bug preventing full functionality of the root implementation; this
-is activated by setting --with-globus-patch-dir=<globus_src_dir>
-where <globus_src_dir> is the globus tool kit source,
+7.13. Globus Authentication (LEGACY):
+-------------------------------------
+Not supported any longer
 
 7.14. SSH Authentication:
 -------------------------
-There is no need to build special modules for SSH authentication.
+Not supported any longer
 

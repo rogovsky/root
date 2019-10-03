@@ -19,7 +19,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "RConfigure.h"
-#include "RConfig.h"
+#include <ROOT/RConfig.hxx>
 #include "Riostream.h"
 
 #ifdef WIN32

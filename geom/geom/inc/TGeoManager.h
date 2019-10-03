@@ -33,9 +33,20 @@ class TGeoShape;
 class TVirtualGeoPainter;
 class THashList;
 class TGeoParallelWorld;
+class TGeoRegion;
+class TGDMLMatrix;
+class TGeoOpticalSurface;
+class TGeoSkinSurface;
+class TGeoBorderSurface;
 
 class TGeoManager : public TNamed
 {
+public:
+  enum EDefaultUnits {
+     kG4Units   = 0,
+     kRootUnits = 1
+  };
+
 protected:
    static std::mutex     fgMutex;           //! mutex for navigator booking in MT mode
    static Bool_t         fgLock;            //! Lock preventing a second geometry to be loaded
@@ -43,6 +54,8 @@ protected:
    static Int_t          fgMaxLevel;        //! Maximum level in geometry
    static Int_t          fgMaxDaughters;    //! Maximum number of daughters
    static Int_t          fgMaxXtruVert;     //! Maximum number of Xtru vertices
+   static UInt_t         fgExportPrecision; //! Precision to be used in ASCII exports
+   static EDefaultUnits  fgDefaultUnits;    //! Default units in GDML if not explicit in some tags
 
    TGeoManager(const TGeoManager&);
    TGeoManager& operator=(const TGeoManager&);
@@ -87,17 +100,23 @@ private :
    TObjArray            *fGVolumes;         //! list of runtime volumes
    TObjArray            *fTracks;           //-> list of tracks attached to geometry
    TObjArray            *fPdgNames;         //-> list of pdg names for tracks
-//   TObjArray            *fNavigators;       //! list of navigators
+   TObjArray            *fGDMLMatrices;     //-> list of matrices read from GDML
+   TObjArray            *fOpticalSurfaces;  //-> list of optical surfaces read from GDML
+   TObjArray            *fSkinSurfaces;     //-> list of skin surfaces read from GDML
+   TObjArray            *fBorderSurfaces;   //-> list of border surfaces read from GDML
    TList                *fMaterials;        //-> list of materials
    TList                *fMedia;            //-> list of tracking media
    TObjArray            *fNodes;            //-> current branch of nodes
    TObjArray            *fOverlaps;         //-> list of geometrical overlaps
+   TObjArray            *fRegions;          //-> list of regions
    UChar_t              *fBits;             //! bits used for voxelization
    // Map of navigator arrays per thread
    typedef std::map<std::thread::id, TGeoNavigatorArray *>   NavigatorsMap_t;
    typedef NavigatorsMap_t::iterator                         NavigatorsMapIt_t;
    typedef std::map<std::thread::id, Int_t>                  ThreadsMap_t;
    typedef ThreadsMap_t::const_iterator                      ThreadsMapIt_t;
+   // Map of constant properties
+   typedef std::map<std::string, Double_t>                   ConstPropMap_t;
 
    NavigatorsMap_t       fNavigators;       //! Map between thread id's and navigator arrays
    static ThreadsMap_t  *fgThreadId;        //! Thread id's map
@@ -130,6 +149,7 @@ private :
    Int_t                 fRaytraceMode;     //! Raytrace mode: 0=normal, 1=pass through, 2=transparent
    Bool_t                fUsePWNav;         // Activate usage of parallel world in navigation
    TGeoParallelWorld    *fParallelWorld;    // Parallel world
+   ConstPropMap_t        fProperties;       // Map of user-defined constant properties
 //--- private methods
    Bool_t                IsLoopingVolumes() const     {return fLoopVolumes;}
    void                  Init();
@@ -148,12 +168,17 @@ public:
    //--- adding geometrical objects
    Int_t                  AddMaterial(const TGeoMaterial *material);
    Int_t                  AddOverlap(const TNamed *ovlp);
+   Int_t                  AddRegion(TGeoRegion *region);
    Int_t                  AddTransformation(const TGeoMatrix *matrix);
    Int_t                  AddShape(const TGeoShape *shape);
    Int_t                  AddTrack(Int_t id, Int_t pdgcode, TObject *particle=0);
    Int_t                  AddTrack(TVirtualGeoTrack *track);
    Int_t                  AddVolume(TGeoVolume *volume);
    TGeoNavigator         *AddNavigator();
+   Bool_t                 AddProperty(const char *property, Double_t value);
+   Double_t               GetProperty(const char *name, Bool_t *error = nullptr) const;
+   Double_t               GetProperty(size_t i, TString &name, Bool_t *error = nullptr) const;
+   Int_t                  GetNproperties() const { return fProperties.size(); }
    void                   ClearOverlaps();
    void                   RegisterMatrix(const TGeoMatrix *matrix);
    void                   SortOverlaps();
@@ -449,6 +474,11 @@ public:
    static  void           SetVerboseLevel(Int_t vl);
    static TGeoManager    *Import(const char *filename, const char *name="", Option_t *option="");
    static Bool_t          IsLocked();
+   static void            SetExportPrecision(UInt_t prec) {fgExportPrecision = prec;}
+   static UInt_t          GetExportPrecision() {return fgExportPrecision;}
+   static void            SetDefaultG4Units() {fgDefaultUnits = kG4Units;}
+   static void            SetDefaultRootUnits() {fgDefaultUnits = kRootUnits;}
+   static EDefaultUnits   GetDefaultUnits();
    Bool_t                 IsStreamingVoxels() const {return fStreamVoxels;}
    Bool_t                 IsCleaning() const {return fIsGeomCleaning;}
 
@@ -465,6 +495,11 @@ public:
    TObjArray             *GetListOfGShapes() const      {return fGShapes;}
    TObjArray             *GetListOfUVolumes() const     {return fUniqueVolumes;}
    TObjArray             *GetListOfTracks() const       {return fTracks;}
+   TObjArray             *GetListOfGDMLMatrices() const {return fGDMLMatrices;}
+   TObjArray             *GetListOfOpticalSurfaces() const {return fOpticalSurfaces;}
+   TObjArray             *GetListOfSkinSurfaces() const    {return fSkinSurfaces;}
+   TObjArray             *GetListOfBorderSurfaces() const  {return fBorderSurfaces;}
+   TObjArray             *GetListOfRegions() const      {return fRegions;}
    TGeoNavigatorArray    *GetListOfNavigators() const;
    TGeoElementTable      *GetElementTable();
 
@@ -521,9 +556,22 @@ public:
    TGeoMedium            *GetMedium(const char *medium) const;
    TGeoMedium            *GetMedium(Int_t numed) const;
    Int_t                  GetMaterialIndex(const char *matname) const;
+
+   //--- GDML object accessors
+   TGDMLMatrix           *GetGDMLMatrix(const char *name) const;
+   void                   AddGDMLMatrix(TGDMLMatrix *mat);
+   TGeoOpticalSurface    *GetOpticalSurface(const char *name) const;
+   void                   AddOpticalSurface(TGeoOpticalSurface *optsurf);
+   TGeoSkinSurface       *GetSkinSurface(const char *name) const;
+   void                   AddSkinSurface(TGeoSkinSurface *surf);
+   TGeoBorderSurface     *GetBorderSurface(const char *name) const;
+   void                   AddBorderSurface(TGeoBorderSurface *surf);
+
 //   TGeoShape             *GetShape(const char *name) const;
    TGeoVolume            *GetVolume(const char*name) const;
    TGeoVolume            *GetVolume(Int_t uid) const {return (TGeoVolume*)fUniqueVolumes->At(uid);}
+   int                    GetNregions() const {return fRegions->GetEntriesFast();}
+   TGeoRegion            *GetRegion(int i) {return (TGeoRegion*)fRegions->At(i);}
    Int_t                  GetUID(const char *volname) const;
    Int_t                  GetNNodes() {if (!fNNodes) CountNodes(); return fNNodes;}
    TGeoNodeCache         *GetCache() const         {return GetCurrentNavigator()->GetCache();}
@@ -547,7 +595,7 @@ public:
    void                  SetUseParallelWorldNav(Bool_t flag);
    Bool_t                IsParallelWorldNav() const {return fUsePWNav;}
 
-   ClassDef(TGeoManager, 14)          // geometry manager
+   ClassDef(TGeoManager, 17)          // geometry manager
 };
 
 R__EXTERN TGeoManager *gGeoManager;

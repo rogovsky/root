@@ -4,7 +4,8 @@
 /// \macro_code
 ///
 /// \date 2015-03-22
-/// \warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
+/// \warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback
+/// is welcome!
 /// \author Axel Naumann <axel@cern.ch>
 
 /*************************************************************************
@@ -15,35 +16,34 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#include "Rtypes.h"
+#include "ROOT/RCanvas.hxx"
+#include "ROOT/RColor.hxx"
+#include "ROOT/RHistDrawable.hxx"
 
-R__LOAD_LIBRARY(libGpad);
+void draw()
+{
+   using namespace ROOT::Experimental;
 
-#include "ROOT/THist.hxx"
-#include "ROOT/TCanvas.hxx"
-#include "ROOT/TDirectory.hxx"
+   // Create the histogram.
+   RAxisConfig xaxis("x", 10, 0., 1.);
+   RAxisConfig yaxis("y", {0., 1., 2., 3., 10.});
+   auto pHist = std::make_shared<RH2D>(xaxis, yaxis);
 
-void draw() {
-  using namespace ROOT;
+   // Fill a few points.
+   pHist->Fill({0.01, 1.02});
+   pHist->Fill({0.54, 3.02});
+   pHist->Fill({0.98, 1.02});
+   pHist->Fill({1.90, 1.02});
+   pHist->Fill({0.75, -0.02});
 
-  // Create the histogram.
-  Experimental::TAxisConfig xaxis("x", 10, 0., 1.);
-  Experimental::TAxisConfig yaxis("y", {0., 1., 2., 3.,10.});
-  auto pHist = std::make_shared<Experimental::TH2D>(xaxis, yaxis);
+   // Create a canvas to be displayed.
+   auto canvas = RCanvas::Create("Canvas Title");
+   auto draw1 = canvas->Draw(pHist);
+   draw1->AttrLine().SetColor(RColor::kRed);
 
-  // Fill a few points.
-  pHist->Fill({0.01, 1.02});
-  pHist->Fill({0.54, 3.02});
-  pHist->Fill({0.98, 1.02});
-  pHist->Fill({1.90, 1.02});
-  pHist->Fill({0.75,-0.02});
+   auto other = std::make_shared<RH2D>(*pHist);
+   auto draw2 = canvas->Draw(other);
+   draw2->AttrLine().SetColor(RColor::kBlue).SetWidth(12);
 
-  // Register the histogram with ROOT: now it lives even after draw() ends.
-  Experimental::TDirectory::Heap().Add("hist", pHist);
-
-  // Create a canvas to be displayed.
-  auto canvas = Experimental::TCanvas::Create("Canvas Title");
-  canvas->Draw(pHist);
-
-  canvas->Show();
+   canvas->Show();
 }

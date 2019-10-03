@@ -26,6 +26,7 @@ class RooAbsPdf;
 class RooPlot;
 class RooAbsReal;
 class TF1;
+class TH1;
 
 
 namespace RooStats {
@@ -55,10 +56,13 @@ namespace RooStats {
       // get the plot with option to get it normalized
       RooPlot* GetPosteriorPlot(bool norm = false, double precision = 0.01) const;
 
-      // return posterior pdf (object is managed by the BayesianCalculator class)
+      // return posterior pdf (object is managed by the user)
       RooAbsPdf* GetPosteriorPdf() const;
       // return posterior function (object is managed by the BayesianCalculator class)
       RooAbsReal* GetPosteriorFunction() const;
+
+      // return the approximate posterior as histogram (TH1 object). Note the object is managed by the BayesianCalculator class
+      TH1 * GetPosteriorHistogram() const; 
 
       // compute the interval. By Default a central interval is computed
       // By using SetLeftTileFraction can control if central/ upper/lower interval
@@ -86,6 +90,10 @@ namespace RooStats {
       // set the conditional observables which will be used when creating the NLL
       // so the pdf's will not be normalized on the conditional observables when computing the NLL
       virtual void SetConditionalObservables(const RooArgSet& set) {fConditionalObs.removeAll(); fConditionalObs.add(set);}
+
+       // set the global observables which will be used when creating the NLL
+      // so the constraint pdf's will be normalized correctly on the global observables when computing the NLL
+      virtual void SetGlobalObservables(const RooArgSet& set) {fGlobalObs.removeAll(); fGlobalObs.add(set);}
 
       // set the size of the test (rate of Type I error) ( Eg. 0.05 for a 95% Confidence Interval)
       virtual void SetTestSize( Double_t size ) {
@@ -160,6 +168,7 @@ namespace RooStats {
       RooAbsPdf* fNuisancePdf;                   // nuisance pdf (needed when using nuisance sampling technique)
       RooArgSet fNuisanceParameters;             // nuisance parameters
       RooArgSet fConditionalObs    ;             // conditional observables
+      RooArgSet fGlobalObs;                      // global observables
 
       mutable RooAbsPdf* fProductPdf;              // internal pointer to model * prior
       mutable RooAbsReal* fLogLike;                // internal pointer to log likelihood function

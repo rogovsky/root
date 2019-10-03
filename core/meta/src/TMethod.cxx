@@ -152,21 +152,22 @@ TDataMember *TMethod::FindDataMember()
       Int_t i;
 
       strlcpy(argstr,argstring,nchs+1);       //let's move it to "workspace"  copy
-      ptr2 = strtok(argstr,"{}");     //extract the data!
+      char *rest;
+      ptr2 = R__STRTOK_R(argstr, "{}", &rest); // extract the data!
       if (ptr2 == 0) {
          Fatal("FindDataMember","Internal error found '*ARGS=\"' but not \"{}\" in %s",GetCommentString());
          delete [] argstr;
          return 0;
       }
-      ptr2 = strtok((char*)0,"{}");
+      ptr2 = R__STRTOK_R((char *)0, "{}", &rest);
 
       //extract argument tokens//
       char *tokens[20];
       Int_t cnt       = 0;
       Int_t token_cnt = 0;
       do {
-         ptr1 = strtok((char*) (cnt++ ? 0:ptr2),",;"); //extract tokens
-                                                        // separated by , or ;
+         ptr1 = R__STRTOK_R((char *)(cnt++ ? 0 : ptr2), ",;", &rest); // extract tokens
+                                                                   // separated by , or ;
          if (ptr1) {
             Int_t nch = strlen(ptr1);
             tok = new char[nch+1];
@@ -184,8 +185,8 @@ TDataMember *TMethod::FindDataMember()
 
       for (i=0; i<token_cnt;i++) {
          cnt = 0;
-         ptr1 = strtok(tokens[i],"=>");  //LeftHandedSide=methodarg
-         ptr2 = strtok((char*)0,"=>"); //RightHandedSide-points to datamember
+         ptr1 = R__STRTOK_R(tokens[i], "=>", &rest);         // LeftHandedSide=methodarg
+         ptr2 = R__STRTOK_R((char *)0, "=>", &rest);         // RightHandedSide-points to datamember
 
          //find the MethodArg
          a      = 0;
@@ -220,7 +221,7 @@ TDataMember *TMethod::FindDataMember()
       TMethodArg *a = 0;
       if (fMethodArgs) a = (TMethodArg*)(fMethodArgs->First());
 
-      char dataname[64]    = "";
+      char dataname[67]    = "";
       char basename[64]    = "";
       const char *funcname = GetName();
       if ( strncmp(funcname,"Get",3) == 0 || strncmp(funcname,"Set",3) == 0 )
@@ -232,7 +233,7 @@ TDataMember *TMethod::FindDataMember()
       else
          return 0;
 
-      snprintf(dataname,64,"f%s",basename);
+      snprintf(dataname,67,"f%s",basename);
 
       TClass *cl = GetClass()->GetBaseDataMember(dataname);
       if (cl) {
@@ -240,7 +241,7 @@ TDataMember *TMethod::FindDataMember()
          if (a) a->fDataMember = member;
          return member;
       } else {
-         snprintf(dataname,64,"fIs%s",basename);  //in case of IsEditable()
+         snprintf(dataname,67,"fIs%s",basename);  //in case of IsEditable()
                                                         //and fIsEditable
          cl = GetClass()->GetBaseDataMember(dataname);
          if (cl) {

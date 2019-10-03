@@ -1,4 +1,4 @@
-#! /bin/sh
+#!/bin/sh
 
 # Script to update base/inc/RVersion.h.
 # Called by main Makefile as soon as build/version_number has been updated.
@@ -7,13 +7,11 @@
 
 ROOTEXE=$1/bin/root.exe
 SCRIPT=build/version.cxx
-CORETEAM=build/unix/git_coreteam.py
 VERSION=`cat build/version_number`
 
 $ROOTEXE -q -b -l $SCRIPT || exit 1
 
-python $CORETEAM || exit 1
-mv rootcoreteam.h rootx/src/rootcoreteam.h
+build/unix/coreteam.sh rootx/src/rootcoreteam.h
 
 if test "x`uname | grep -i cygwin`" != "x"; then
     dos2unix core/base/inc/RVersion.h
@@ -27,5 +25,5 @@ git commit core/base/inc/RVersion.h rootx/src/rootcoreteam.h build/version_numbe
 echo "Update also doc/vXXX/index.html to $VERSION."
 echo ""
 echo "New version is $VERSION."
-echo "See http://root.cern.ch/drupal/howtorelease for the next steps,"
+echo "See https://root.cern/release-checklist for the next steps,"
 echo "for instance tagging if this is a release."

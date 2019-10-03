@@ -93,7 +93,7 @@ public:
     ///
     /// Several parameters can be used if separated with whitespace
 
-   TDavixFile(const char* url, Option_t *option="", const char *ftitle="", Int_t compress=1);
+   TDavixFile(const char* url, Option_t *option="", const char *ftitle="", Int_t compress = ROOT::RCompressionSetting::EDefaults::kUseGeneralPurpose);
 
    ~TDavixFile();
 
@@ -105,6 +105,7 @@ public:
     virtual Bool_t ReadBuffers(char *buf, Long64_t *pos, Int_t *len, Int_t nbuf);
     virtual Bool_t ReadBufferAsync(Long64_t offs, Int_t len);
     virtual Bool_t WriteBuffer(const char *buffer, Int_t bufferLength);
+    virtual TString GetNewUrl();
 
     // TDavixFile options
     /// Enable or disable certificate authority check

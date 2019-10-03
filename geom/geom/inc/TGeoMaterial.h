@@ -12,15 +12,15 @@
 #ifndef ROOT_TGeoMaterial
 #define ROOT_TGeoMaterial
 
-#include "TNamed.h"
-
-#include "TAttFill.h"
+#include <TNamed.h>
+#include <TAttFill.h>
+#include <TList.h>
 
 #include "TGeoElement.h"
 
-
 // forward declarations
 class TGeoExtension;
+class TGDMLMatrix;
 
 // Some units used in G4
 static const Double_t STP_temperature = 273.15;     // [K]
@@ -54,6 +54,8 @@ protected:
    TObject                 *fShader;     // shader with optical properties
    TObject                 *fCerenkov;   // pointer to class with Cerenkov properties
    TGeoElement             *fElement;    // pointer to element composing the material
+   TList                    fProperties; // user-defined properties
+   TList                    fConstProperties; // user-defined constant properties
    TGeoExtension           *fUserExtension;  //! Transient user-defined extension to materials
    TGeoExtension           *fFWExtension;    //! Transient framework-defined extension to materials
 
@@ -80,6 +82,20 @@ public:
    virtual TGeoMaterial    *DecayMaterial(Double_t time, Double_t precision=0.001);
    virtual void             FillMaterialEvolution(TObjArray *population, Double_t precision=0.001);
    // getters & setters
+   bool                     AddProperty(const char *property, const char *ref);
+   bool                     AddConstProperty(const char *property, const char *ref);
+   Int_t                    GetNproperties() const { return fProperties.GetSize(); }
+   Int_t                    GetNconstProperties() const { return fConstProperties.GetSize(); }
+   const char              *GetPropertyRef(const char *property) const;
+   const char              *GetPropertyRef(Int_t i) const { return (fProperties.At(i) ? fProperties.At(i)->GetTitle() : nullptr); }
+   Double_t                 GetConstProperty(const char *property, Bool_t *error = nullptr) const;
+   Double_t                 GetConstProperty(Int_t i, Bool_t *error = nullptr) const;
+   const char              *GetConstPropertyRef(const char *property) const;
+   const char              *GetConstPropertyRef(Int_t i) const { return (fConstProperties.At(i) ? fConstProperties.At(i)->GetTitle() : nullptr); }
+   TList const             &GetProperties() const { return fProperties; }
+   TList const             &GetConstProperties() const { return fConstProperties; }
+   TGDMLMatrix*             GetProperty(const char* name)  const;
+   TGDMLMatrix*             GetProperty(Int_t i)  const;
    virtual Int_t            GetByteCount() const {return sizeof(*this);}
    virtual Double_t         GetA() const       {return fA;}
    virtual Double_t         GetZ()  const      {return fZ;}
@@ -125,16 +141,11 @@ public:
 
 
 
-   ClassDef(TGeoMaterial, 5)              // base material class
+   ClassDef(TGeoMaterial, 7)              // base material class
 
 //***** Need to add classes and globals to LinkDef.h *****
 };
 
-////////////////////////////////////////////////////////////////////////////
-//                                                                        //
-// TGeoMixture - mixtures of elements                                     //
-//                                                                        //
-////////////////////////////////////////////////////////////////////////////
 
 class TGeoMixture : public TGeoMaterial
 {
@@ -145,6 +156,7 @@ protected :
    Double_t                *fAmixture;   // [fNelements] array of A of the elements
    Double_t                *fWeights;    // [fNelements] array of relative proportions by mass
    Int_t                   *fNatoms;     // [fNelements] array of numbers of atoms
+   Double_t                *fVecNbOfAtomsPerVolume; //[fNelements] array of numbers of atoms per unit volume
    TObjArray               *fElements;   // array of elements composing the mixture
 // methods
    TGeoMixture(const TGeoMixture&); // Not implemented
@@ -187,8 +199,11 @@ public:
    virtual void             SetA(Double_t a) {fA = a;}
    virtual void             SetZ(Double_t z) {fZ = z;}
    virtual void             SetDensity(Double_t density) {fDensity = density; AverageProperties();}
+   void                     ComputeDerivedQuantities();
+   void                     ComputeRadiationLength();
+   void                     ComputeNuclearInterLength();
 
-   ClassDef(TGeoMixture, 2)              // material mixtures
+   ClassDef(TGeoMixture, 3)              // material mixtures
 };
 
 inline void TGeoMixture::DefineElement(Int_t, Double_t a, Double_t z, Double_t weight)

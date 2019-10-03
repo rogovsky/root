@@ -35,13 +35,12 @@ as a TString, construct a TString from it, eg:
 ~~~
 */
 
-#include "RConfig.h"
+#include <ROOT/RConfig.hxx>
 #include <stdlib.h>
 #include <ctype.h>
 #include <list>
 #include <algorithm>
 
-#include "snprintf.h"
 #include "Varargs.h"
 #include "TString.h"
 #include "TBuffer.h"
@@ -126,6 +125,10 @@ TString::TString(const std::string &s)
 
 TString::TString(const char *cs, Ssiz_t n)
 {
+   if (n < 0) {
+      Error("TString::TString", "Negative length!");
+      return;
+   }
    char *data = Init(n, n);
    memcpy(data, cs, n);
 }
@@ -173,7 +176,7 @@ TString::TString(const TString &s)
 ////////////////////////////////////////////////////////////////////////////////
 /// Move constructor.
 
-TString::TString(TString &&s)
+TString::TString(TString &&s) noexcept
 {
    // Short or long, all data is in fRaw.
    fRep.fRaw = s.fRep.fRaw;
@@ -205,6 +208,14 @@ TString::TString(const TSubString& substr)
 
 TString::TString(const char *a1, Ssiz_t n1, const char *a2, Ssiz_t n2)
 {
+   if (n1 < 0) {
+      Error("TString::TString", "Negative first length!");
+      return;
+   }
+   if (n2 < 0) {
+      Error("TString::TString", "Negative second length!");
+      return;
+   }
    if (!a1) n1=0;
    if (!a2) n2=0;
    Ssiz_t tot = n1+n2;
@@ -317,6 +328,17 @@ TString& TString::operator=(const TString &rhs)
          memcpy(data, rhs.GetLongPointer(), n);
       }
    }
+   return *this;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Move-Assignment operator.
+
+TString& TString::operator=(TString &&rhs) noexcept
+{
+   UnLink();
+   fRep.fRaw = rhs.fRep.fRaw;
+   rhs.Zero();
    return *this;
 }
 
@@ -651,7 +673,6 @@ UInt_t TString::Hash(ECaseCompare cmp) const
    // From MurmurHash.cpp:
 #if defined(_MSC_VER)
    // Microsoft Visual Studio
-#define FORCE_INLINE    __forceinline
 #include <stdlib.h>
 #define ROTL64(x,y)     _rotl64(x,y)
 #define BIG_CONSTANT(x) (x)
@@ -662,14 +683,6 @@ UInt_t TString::Hash(ECaseCompare cmp) const
       return (x << r) | (x >> (64 - r));
    }
 
-#if (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__) <= 40101
-// gcc v4.1.1 can't inline getblock, so don't really force it.
-#define FORCE_INLINE inline
-#else
-// (at least) in gcc v4.7, __attribute__((always_inline))" does not replace "inline" and they
-// need to be used together.
-#define FORCE_INLINE __attribute__((always_inline)) inline
-#endif
 #define ROTL64(x,y)     rotl64(x,y)
 #define BIG_CONSTANT(x) (x##LLU)
 #endif // !defined(_MSC_VER)
@@ -680,7 +693,7 @@ namespace {
    /// Block read - if your platform needs to do endian-swapping or can only
    /// handle aligned reads, do the conversion here
 
-   FORCE_INLINE uint64_t getblock(const uint64_t* p, int i)
+   R__ALWAYS_INLINE uint64_t getblock(const uint64_t* p, int i)
    {
       return p[i];
    }
@@ -688,7 +701,7 @@ namespace {
    /////////////////////////////////////////////////////////////////////////////
    /// Finalization mix - force all bits of a hash block to avalanche
 
-   FORCE_INLINE uint64_t fmix(uint64_t k)
+   R__ALWAYS_INLINE uint64_t fmix(uint64_t k)
    {
       k ^= k >> 33;
       k *= BIG_CONSTANT(0xff51afd7ed558ccd);
@@ -849,6 +862,10 @@ static int MemIsEqual(const char *p, const char *q, Ssiz_t n)
 Ssiz_t TString::Index(const char *pattern, Ssiz_t plen, Ssiz_t startIndex,
                       ECaseCompare cmp) const
 {
+   if (plen < 0) {
+      Error("TString::Index", "Negative first pattern length!");
+      return kNPOS;
+   }
    Ssiz_t slen = Length();
    if (slen < startIndex + plen) return kNPOS;
    if (plen == 0) return startIndex;
@@ -919,7 +936,8 @@ Bool_t TString::MaybeWildcard() const
 
 TString& TString::Prepend(char c, Ssiz_t rep)
 {
-   if (!rep) return *this;
+   if (rep <= 0)
+      return *this;
 
    Ssiz_t len = Length();
    Ssiz_t tot = len + rep;  // Final string length
@@ -964,6 +982,14 @@ TString &TString::Replace(Ssiz_t pos, Ssiz_t n1, const char *cs, Ssiz_t n2)
    if (pos <= kNPOS || pos > len) {
       Error("TString::Replace",
             "first argument out of bounds: pos = %d, Length = %d", pos, len);
+      return *this;
+   }
+   if (n1 < 0) {
+      Error("TString::Replace", "Negative number of characters to remove!");
+      return *this;
+   }
+   if (n2 < 0) {
+      Error("TString::Replace", "Negative number of replacement characters!");
       return *this;
    }
 
@@ -1459,91 +1485,11 @@ TString operator+(const TString &s, char c)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Add integer to string.
-
-TString operator+(const TString &s, Long_t i)
-{
-   char si[32];
-   snprintf(si, sizeof(si), "%ld", i);
-   return TString(s.Data(), s.Length(), si, strlen(si));
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Add integer to string.
-
-TString operator+(const TString &s, ULong_t i)
-{
-   char si[32];
-   snprintf(si, sizeof(si), "%lu", i);
-   return TString(s.Data(), s.Length(), si, strlen(si));
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Add integer to string.
-
-TString operator+(const TString &s, Long64_t i)
-{
-   char si[32];
-   snprintf(si, sizeof(si), "%lld", i);
-   return TString(s.Data(), s.Length(), si, strlen(si));
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Add integer to string.
-
-TString operator+(const TString &s, ULong64_t i)
-{
-   char si[32];
-   snprintf(si, sizeof(si), "%llu", i);
-   return TString(s.Data(), s.Length(), si, strlen(si));
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Add string to integer.
+/// Add string to char.
 
 TString operator+(char c, const TString &s)
 {
    return TString(&c, 1, s.Data(), s.Length());
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Add string to integer.
-
-TString operator+(Long_t i, const TString &s)
-{
-   char si[32];
-   snprintf(si, sizeof(si), "%ld", i);
-   return TString(si, strlen(si), s.Data(), s.Length());
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Add string to integer.
-
-TString operator+(ULong_t i, const TString &s)
-{
-   char si[32];
-   snprintf(si, sizeof(si), "%lu", i);
-   return TString(si, strlen(si), s.Data(), s.Length());
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Add string to integer.
-
-TString operator+(Long64_t i, const TString &s)
-{
-   char si[32];
-   snprintf(si, sizeof(si), "%lld", i);
-   return TString(si, strlen(si), s.Data(), s.Length());
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Add string to integer.
-
-TString operator+(ULong64_t i, const TString &s)
-{
-   char si[32];
-   snprintf(si, sizeof(si), "%llu", i);
-   return TString(si, strlen(si), s.Data(), s.Length());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2274,9 +2220,9 @@ TObjArray *TString::Tokenize(const TString &delim) const
    start = -1;
    std::list<Int_t>::const_iterator it;
 #ifndef R__HPUX
-   for (it = splitIndex.begin(); it != splitIndex.end(); it++) {
+   for (it = splitIndex.begin(); it != splitIndex.end(); ++it) {
 #else
-   for (it = splitIndex.begin(); it != (std::list<Int_t>::const_iterator) splitIndex.end(); it++) {
+   for (it = splitIndex.begin(); it != (std::list<Int_t>::const_iterator) splitIndex.end(); ++it) {
 #endif
       Int_t stop = *it;
       if (stop - 1 >= start + 1) {
@@ -2328,6 +2274,17 @@ again:
 ////////////////////////////////////////////////////////////////////////////////
 /// Formats a string using a printf style format descriptor.
 /// Existing string contents will be overwritten.
+/// See also the static version TString::Format
+/// ~~~ {.cpp}
+///   TString formatted;
+///   formatted.Form("%s in <%s>: %s", type, location, msg);
+///
+///   lines.emplace_back(TString::Format("Welcome to ROOT %s%%shttp://root.cern.ch",
+///                      gROOT->GetVersion()));
+/// ~~~
+///
+/// Note: this is not to be confused with ::Format and ::Form (in the global namespace)
+/// which returns a const char* and relies on a thread-local static character buffer.
 
 void TString::Form(const char *va_(fmt), ...)
 {
@@ -2339,8 +2296,17 @@ void TString::Form(const char *va_(fmt), ...)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Static method which formats a string using a printf style format
-/// descriptor and return a TString. Same as TString::Form() but it is
+/// descriptor and return a TString. Similar to TString::Form() but it is
 /// not needed to first create a TString.
+/// ~~~ {.cpp}
+///   lines.emplace_back(TString::Format("Welcome to ROOT %s%%shttp://root.cern.ch",
+///                      gROOT->GetVersion()));
+///   TString formatted;
+///   formatted.Form("%s in <%s>: %s", type, location, msg);
+/// ~~~
+///
+/// Note: this is not to be confused with ::Format and ::Form (in the global namespace)
+/// which returns a const char* and relies on a thread-local static character buffer.
 
 TString TString::Format(const char *va_(fmt), ...)
 {

@@ -17,6 +17,12 @@ from contextlib import contextmanager
 import os
 import sys
 
+# Support both Python2 and Python3 at the same time
+if sys.version_info.major > 2 :
+    _input = input
+else:
+    _input = raw_input
+
 def fileno(file_or_fd):
     """
     Look for 'fileno' attribute.
@@ -69,13 +75,11 @@ def stderrRedirected():
 
 ##
 # redirect output (escape characters during ROOT importation...)
-# The gymnastic with sys argv  is necessary to workaround for ROOT-7577
-argvTmp = sys.argv[:]
-sys.argv = []
 with stdoutRedirected():
     import ROOT
+# Silence Davix warning (see ROOT-7577)
+ROOT.PyConfig.IgnoreCommandLineOptions = True
 ROOT.gROOT.GetVersion()
-sys.argv = argvTmp
 
 import argparse
 import glob
@@ -191,6 +195,14 @@ def isTreeKey(key):
     cl = ROOT.gROOT.GetClass(classname)
     return cl.InheritsFrom(ROOT.TTree.Class())
 
+def isTHnSparseKey(key):
+    """
+    Return True if the object, corresponding to the key, inherits from THnSparse
+    """
+    classname = key.GetClassName()
+    cl = ROOT.gROOT.GetClass(classname)
+    return cl.InheritsFrom(ROOT.THnSparse.Class())
+
 def getKey(rootFile,pathSplit):
     """
     Get the key of the corresponding object (rootFile,pathSplit)
@@ -289,7 +301,7 @@ def joinPathSplit(pathSplit):
     """
     return "/".join(pathSplit)
 
-MANY_OCCURENCE_WARNING = "Same name objects aren't supported: '{0}' of '{1}' won't be processed"
+MANY_OCCURENCE_WARNING = "Several versions of '{0}' are present in '{1}'. Only the most recent will be considered."
 
 def manyOccurenceRemove(pathSplitList,fileName):
     """
@@ -330,7 +342,7 @@ def patternToPathSplitList(fileName,pattern):
     if pathSplitList == []:
         logging.warning("can't find {0} in {1}".format(pattern,fileName))
 
-    # Same match (remove double occurences from the list)
+    # Same match (remove double occurrences from the list)
     manyOccurenceRemove(pathSplitList,fileName)
 
     return pathSplitList
@@ -366,16 +378,13 @@ def patternToFileNameAndPathSplitList(pattern,wildcards = True):
     s3RootObjPattern = s3RootFilePattern+":*"
     gsRootFilePattern = "gs://*.root"
     gsRootObjPattern = gsRootFilePattern+":*"
-    rfioRootFilePattern = "rfio://*.root"
-    rfioRootObjPattern = rfioRootFilePattern+":*"
     pcmFilePattern = "*.pcm"
     pcmObjPattern = pcmFilePattern+":*"
 
     if fnmatch.fnmatch(pattern,httpRootObjPattern) or \
        fnmatch.fnmatch(pattern,xrootdRootObjPattern) or \
        fnmatch.fnmatch(pattern,s3RootObjPattern) or \
-       fnmatch.fnmatch(pattern,gsRootObjPattern) or \
-       fnmatch.fnmatch(pattern,rfioRootObjPattern):
+       fnmatch.fnmatch(pattern,gsRootObjPattern):
         patternSplit = pattern.rsplit(":", 1)
         fileName = patternSplit[0]
         objPattern = patternSplit[1]
@@ -385,8 +394,7 @@ def patternToFileNameAndPathSplitList(pattern,wildcards = True):
     if fnmatch.fnmatch(pattern,httpRootFilePattern) or \
        fnmatch.fnmatch(pattern,xrootdRootFilePattern) or \
        fnmatch.fnmatch(pattern,s3RootFilePattern) or \
-       fnmatch.fnmatch(pattern,gsRootFilePattern) or \
-       fnmatch.fnmatch(pattern,rfioRootFilePattern):
+       fnmatch.fnmatch(pattern,gsRootFilePattern):
         fileName = pattern
         pathSplitList = [[]]
         return [(fileName,pathSplitList)]
@@ -482,11 +490,10 @@ def getSourceDestListOptDict(parser, wildcards = True):
 ##########
 
 ##########
-# Several functions shared by roocp, roomv and roorm
+# Several functions shared by rootcp, rootmv and rootrm
 
 TARGET_ERROR = "target '{0}' is not a directory"
-OMITTING_FILE_ERROR = "omitting file '{0}'"
-OMITTING_DIRECTORY_ERROR = "omitting directory '{0}'"
+OMITTING_ERROR = "omitting {0} '{1}'. Did you forget to specify the -r option for a recursive copy?"
 OVERWRITE_ERROR = "cannot overwrite non-directory '{0}' with directory '{1}'"
 
 def copyRootObject(sourceFile,sourcePathSplit,destFile,destPathSplit,oneSource,recursive,replace):
@@ -496,7 +503,7 @@ def copyRootObject(sourceFile,sourcePathSplit,destFile,destPathSplit,oneSource,r
     retcode = 0
     isMultipleInput = not (oneSource and sourcePathSplit != [])
     recursiveOption = recursive
-    # Multiple input and unexisting or non-directory destination
+    # Multiple input and un-existing or non-directory destination
     # TARGET_ERROR
     if isMultipleInput and destPathSplit != [] \
         and not (isExisting(destFile,destPathSplit) \
@@ -507,12 +514,12 @@ def copyRootObject(sourceFile,sourcePathSplit,destFile,destPathSplit,oneSource,r
     # OMITTING_FILE_ERROR or OMITTING_DIRECTORY_ERROR
     if not recursiveOption:
         if sourcePathSplit == []:
-            logging.warning(OMITTING_FILE_ERROR.format( \
-                sourceFile.GetName()))
+            logging.warning(OMITTING_ERROR.format( \
+                "file", sourceFile.GetName()))
             retcode += 1
         elif isDirectory(sourceFile,sourcePathSplit):
             logging.warning(OMITTING_DIRECTORY_ERROR.format( \
-                sourcePathSplit[-1]))
+                "directory", sourcePathSplit[-1]))
             retcode += 1
     # Run copyRootObjectRecursive function with the wish
     # to follow the unix copy behaviour
@@ -584,8 +591,19 @@ def copyRootObjectRecursive(sourceFile,sourcePathSplit,destFile,destPathSplit,re
     """
     retcode = 0
     replaceOption = replace
+    seen = {}
     for key in getKeyList(sourceFile,sourcePathSplit):
         objectName = key.GetName()
+
+        # write keys only if the cycle is higher than before
+        if objectName not in seen.keys():
+            seen[objectName] = key
+        else:
+            if seen[objectName].GetCycle() < key.GetCycle():
+                seen[objectName] = key
+            else:
+                continue
+
         if isDirectoryKey(key):
             if not isExisting(destFile,destPathSplit+[objectName]):
                 createDirectory(destFile,destPathSplit+[objectName])
@@ -634,6 +652,8 @@ def copyRootObjectRecursive(sourceFile,sourcePathSplit,destFile,destPathSplit,re
             else:
                 if setName != "":
                     obj.SetName(setName)
+                else:
+                    obj.SetName(objectName)
                 changeDirectory(destFile,destPathSplit)
                 obj.Write()
             obj.Delete()
@@ -663,10 +683,10 @@ def deleteRootObject(rootFile, pathSplit, interactive, recursive):
     else:
         if interactive:
             if pathSplit != []:
-                answer = raw_input(ASK_OBJECT_REMOVE \
+                answer = _input(ASK_OBJECT_REMOVE \
                     .format("/".join(pathSplit),rootFile.GetName()))
             else:
-                answer = raw_input(ASK_FILE_REMOVE \
+                answer = _input(ASK_FILE_REMOVE \
                     .format(rootFile.GetName()))
             remove = answer.lower() == 'y'
         else:
@@ -679,7 +699,7 @@ def deleteRootObject(rootFile, pathSplit, interactive, recursive):
                 os.remove(rootFile.GetName())
     return retcode
 
-# End of functions shared by roocp, roomv and roorm
+# End of functions shared by rootcp, rootmv and rootrm
 ##########
 
 ##########
@@ -707,8 +727,7 @@ REPLACE_HELP = "replace object if already existing"
 
 def _openBrowser(rootFile=None):
     browser = ROOT.TBrowser()
-    if rootFile: rootFile.Browse(browser)
-    raw_input("Press enter to exit.")
+    _input("Press enter to exit.")
 
 def rootBrowse(fileName=None):
     if fileName:
@@ -792,19 +811,20 @@ def _copyTreeSubset(sourceFile,sourcePathSplit,destFile,destPathSplit,firstEvent
         lastEvent = nbrEntries-1
     numberOfEntries = (lastEvent-firstEvent)+1
 
-    # "Skim" events based on branch values using selectionString
-    # as well as selecting a range of events by index
-    outputTree = bigTree.CopyTree(selectionString,"",numberOfEntries,firstEvent)
-
-    # "Slim" tree by removing branches - 
-    # This is done after the skimming to allow for the user to skim on a 
+    # "Slim" tree by removing branches -
+    # This is done after the skimming to allow for the user to skim on a
     # branch they no longer need to keep
+    outputTree = bigTree
     if branchexclude:
         _setBranchStatus(outputTree,branchexclude,0)
     if branchinclude:
         _setBranchStatus(outputTree,branchinclude,1)
     if branchexclude or branchinclude:
         outputTree = outputTree.CloneTree()
+
+    # "Skim" events based on branch values using selectionString
+    # as well as selecting a range of events by index
+    outputTree = outputTree.CopyTree(selectionString,"",numberOfEntries,firstEvent)
 
     outputTree.Write()
     return retcode
@@ -899,6 +919,7 @@ def _recursifTreePrinter(tree,indent):
             str(branch.GetTotBytes())]
         write(TREE_TEMPLATE.format(*rec,**dic),indent,end="\n")
         _recursifTreePrinter(branch,indent+2)
+    write("")
 
 def _prepareTime(time):
     """Get time in the proper shape
@@ -914,6 +935,21 @@ MONTH = {1:'Jan',2:'Feb',3:'Mar',4:'Apr',5:'May',6:'Jun', \
 LONG_TEMPLATE = \
     isSpecial(ANSI_BOLD,"{0:{classWidth}}")+"{1:{timeWidth}}" + \
     "{2:{nameWidth}}{3:{titleWidth}}"
+
+def _printClusters(tree, indent):
+    clusterStart = 0
+    nTotClusters = 0
+    clusterIter = tree.GetClusterIterator(0)
+    clusterStart = clusterIter()
+    write(isSpecial(ANSI_BOLD, "Cluster INCLUSIVE ranges:\n"), indent)
+    while clusterStart < tree.GetEntries():
+        # here we list the inclusive ranges, therefore we have a -1
+        clustLine = " - # %d: [%d, %d]\n" % (
+            nTotClusters, clusterStart, clusterIter.GetNextEntry() - 1)
+        write(clustLine, indent)
+        nTotClusters += 1
+        clusterStart = clusterIter()
+    write(isSpecial(ANSI_BOLD,"The total number of clusters is %d\n" % nTotClusters), indent)
 
 def _rootLsPrintLongLs(keyList,indent,treeListing):
     """Print a list of Tkey in columns
@@ -932,17 +968,23 @@ def _rootLsPrintLongLs(keyList,indent,treeListing):
         datime = key.GetDatime()
         time = datime.GetTime()
         date = datime.GetDate()
+        year = datime.GetYear()
         time = _prepareTime(time)
         rec = \
             [key.GetClassName(), \
             MONTH[int(str(date)[4:6])]+" " +str(date)[6:]+ \
-            " "+time[:2]+":"+time[2:4], \
+            " "+time[:2]+":"+time[2:4]+" "+str(year)+" ", \
             key.GetName(), \
             "\""+key.GetTitle()+"\""]
         write(LONG_TEMPLATE.format(*rec,**dic),indent,end="\n")
         if treeListing and isTreeKey(key):
             tree = key.ReadObj()
             _recursifTreePrinter(tree,indent+2)
+            tree = tree.GetTree()
+            _printClusters(tree, indent+2)
+        if treeListing and isTHnSparseKey(key):
+            hs = key.ReadObj()
+            hs.Print('all')
 
 ##
 # The code of the getTerminalSize function can be found here :
@@ -1037,7 +1079,7 @@ def _rootLsPrintSimpleLs(keyList,indent,oneColumn):
     """Print list of strings in columns
     - blue for directories
     - green for trees"""
-    # This code is adaptated from the pprint_list function here :
+    # This code is adapted from the pprint_list function here :
     # http://stackoverflow.com/questions/25026556/output-list-like-ls
     # Thanks hawkjo !!
     if len(keyList) == 0: return
@@ -1051,7 +1093,7 @@ def _rootLsPrintSimpleLs(keyList,indent,oneColumn):
     if max_element_width >= term_width: ncol,col_widths = 1,[1]
     else:
         # Start with max possible number of columns and reduce until it fits
-        ncol = 1 if oneColumn else min( len(keyList), term_width / min_element_width  )
+        ncol = 1 if oneColumn else min( len(keyList), term_width // min_element_width  )
         while True:
             col_widths = \
                 [ max( len(key.GetName()) + min_chars_between \
@@ -1085,7 +1127,7 @@ def _rootLsPrintSimpleLs(keyList,indent,oneColumn):
 def _rootLsPrint(keyList, indent, oneColumn, \
                  longListing, treeListing):
     """Print informations given by keyList with a rootLs
-    style choosen with the options"""
+    style chosen with the options"""
     if longListing or treeListing: \
        _rootLsPrintLongLs(keyList, indent, treeListing)
     else:
@@ -1361,7 +1403,7 @@ def rootPrint(sourceList, directoryOption = None, divideOption = None, drawOptio
             retcode += 1
             continue
         openRootFiles.append(rootFile)
-        # Fill the key list (almost the same as in rools)
+        # Fill the key list (almost the same as in root)
         keyList = _keyListExtended(rootFile,pathSplitList)
         for key in keyList:
             if isTreeKey(key):

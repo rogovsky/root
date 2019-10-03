@@ -117,7 +117,9 @@ example might be useful. The geometry here represents the word ROOT that
 is replicated in some symmetric manner. You might for instance ask some
 questions after having a first look:
 
-***`Q: "OK, I understand the first lines that load the libGeom library and create a geometry manager object. I also recognize from the previous example the following lines creating some materials and media, but what about the geometrical transformations below?"`***
+***`Q:`*** "OK, I understand the first lines that load the libGeom library and create
+a geometry manager object. I also recognize from the previous example the following
+lines creating some materials and media, but what about the geometrical transformations below?"
 
 ***`A:`*** As explained before, the model that we are trying to create
 is a hierarchy of volumes based on ***`containment`***. This is
@@ -130,7 +132,8 @@ accomplished by defining a ***`local geometrical transformation`*** of
 the daughter with respect to the mother coordinate system. These
 transformations will be subsequently used in the example.
 
-***`Q: "I see the lines defining the top level volume as in the previous example, but what about the other volumes named REPLICA and ROOT?"`***
+***`Q:`*** "I see the lines defining the top level volume as in the previous example,
+but what about the other volumes named REPLICA and ROOT?"
 
 ***`A:`*** You will also notice that several other volumes are created
 by using lines like:
@@ -149,7 +152,8 @@ Volumes"). As for REPLICA and ROOT volumes, they are just some
 structure represented by (a real or) a virtual volume can be
 ***`replicated`*** several times in the geometry.
 
-***`Q: "Fine, so probably the real volumes are the ones composing the letters R, O and T. Why one have to define so many volumes to make an R?"`***
+***`Q:`*** "Fine, so probably the real volumes are the ones composing the letters R,
+O and T. Why one have to define so many volumes to make an R?"
 
 ***`A:`*** Well, in real life some objects have much more complex shapes
 that an ***`R`***. The modeller cannot just know all of them; the idea
@@ -157,7 +161,8 @@ is to make a complex object by using elementary building blocks that
 have known shapes (called ***`primitive shapes`***). Gluing these
 together in the appropriate way is the user responsibility.
 
-***`Q: "I am getting the global picture but not making much out of it... There are also a lot of calls to TGeoVolume::AddNode() that I do not understand."`***
+***`Q:`*** "I am getting the global picture but not making much out of it... There
+are also a lot of calls to TGeoVolume::AddNode() that I do not understand."
 
 ***`A:`*** A volume is positioned inside another one by using this
 method. The relative geometrical transformation as well as a copy number
@@ -409,7 +414,7 @@ One can make materials or mixtures from radionuclides:
 root[] TGeoMaterial *mat = new TGeoMaterial("C14", c14, 2.0);
 ```
 
-The following properties of radionulides can be currently accessed via
+The following properties of radionuclides can be currently accessed via
 getters in the **`TGeoElementRN`** class:
 
 Atomic number and charge (from the base class **`TGeoElement`**)
@@ -672,7 +677,7 @@ A box is a particular parallelepiped having the parameters:
 
 #### Trapezoids
 
-In general, we will call trapezoidall shapes having 8 vertices and up to
+In general, we will call trapezoidal shapes having 8 vertices and up to
 6 trapezoid faces. Besides that, two of the opposite faces are parallel
 to XY plane and are positioned at ` dZ`. Since general trapezoids are
 seldom used in detector geometry descriptions, there are several
@@ -1854,7 +1859,7 @@ will illustrate them by examples.
     row-beside-row inside the container, making life much easier for its
     navigation algorithms. The problem is that in order to reproduce the
     honeycomb structure out of rows of cells, we have to overlap row
-    containers. Woops - we have not obeyed rule No. 2 in positioning.
+    containers. Whoops - we have not obeyed rule No. 2 in positioning.
     The way out is to position our rows with a special prototype:
 
 ``` {.cpp}
@@ -1928,7 +1933,7 @@ few chambers, but definitely not for 1000. Fortunately the modeller is
 smarter than that and creates for each volume some optimization
 structures called `voxels` to minimize the penalty having too many
 daughters, but if you have 100 pads like this in your geometry you will
-anyway loose a lot in your tracking performance. The way out when
+anyway lose a lot in your tracking performance. The way out when
 volumes can be arranged according to simple patterns is the usage of
 divisions. We will describe them in detail later on. Let's think now at
 a different situation: instead of 1000 chambers of the same type, we may
@@ -3111,7 +3116,7 @@ For animating tracks, additional options can be added:
 
 `/G:`Geometry animate. Generally when drawing or animating tracks, one
 has to first perform a normal drawing of the geometry as convenient. The
-tracks will be drawn over the geometry. The geometryitself will be
+tracks will be drawn over the geometry. The geometry itself will be
 animated (camera moving and rotating in order to "catch" the majority of
 current track segments.)
 
@@ -3363,8 +3368,8 @@ name): `gGeoManager->GetVolume("vol_name")->Draw();`
 
 Supposing you now understand the basic things to do for drawing the
 geometry or parts of it, you still might be not happy and wishing to
-have more control on it. We will describe below how you can tune some
-fine settings. Since the corresponding attributes are flags belonging to
+have more control on it. We will describe below how you can fine-tune some
+ settings. Since the corresponding attributes are flags belonging to
 volume and node objects, you can change them at any time (even when the
 picture is already drawn) and see immediately the result.
 
@@ -3479,7 +3484,7 @@ misalignment information.
 ### Physical Nodes
 
 Physical nodes are the actual "touchable" objects in the geometry,
-representing actually a path of positioned volumes starting witrh the
+representing actually a path of positioned volumes starting with the
 top node: `path=/TOP/A_1/B_4/C_3` , where `A`, `B`, `C` represent names
 of volumes. The number of physical nodes is given by the total number of
 possible of branches in the geometry hierarchy. In case of detector
@@ -3532,7 +3537,7 @@ TGeoShape   *GetShape(Int_t level=-1) const
 TGeoVolume  *GetVolume(Int_t level=-1) const
 ```
 
-By default the object at level n is retrieved (the alignable object).
+By default the object at level n is retrieved (the align-able object).
 
 Once created, a physical node can be misaligned, meaning that its
 positioning matrix or even the shape.:
@@ -3568,7 +3573,7 @@ pn1->Align(...);
 
 The call to `pn1->Align()` will invalidate the pointer to the node `B_1`
 in `pn2` object.. The way out is to either call `pn1->Align()` before
-the creation of `pn2`, eithr to use a global method that will correct
+the creation of `pn2`, either to use a global method that will correct
 all existing physical nodes:
 
 ``` {.cpp}
@@ -3605,7 +3610,7 @@ Option_t *opt="vg")
     TGeoBBox\_0x1, TGeoBBox\_0x2, ...). If `"f"` option is set then then
     suffix will contain pointer of object (e.g. TGeoBBox\_0xAAAAA01,
     ...). Finally if option `"n"` is set then no suffix will be added,
-    though in this case uniqness of the names is not ensured and it can
+    though in this case uniqueness of the names is not ensured and it can
     cause that file will be invalid.
 
 Loading geometry from a root file can be done in the same way as for any
@@ -3679,7 +3684,7 @@ geom->CloseGeometry();
 ### GDML
 
 Few lines above word GDML was used. GDML stands for **G**eometry
-**D**escription **M**arkup **L**anguage. It is an application-indepedent
+**D**escription **M**arkup **L**anguage. It is an application-independent
 geometry description format based on XML. It is mainly used for geometry
 interchange between ROOT and Geant4 framework. More details about this
 project can be found http://gdml.web.cern.ch. This feature
@@ -3863,7 +3868,7 @@ The next stage is to check if computation of the distance to a give
 physical object specified by a path was required. If this is the case,
 the modeller changes the state to point to the required object, converts
 the current point and direction coordinates to the local frame of this
-object and c omputes the distance to its shape. The node returned is the
+object and computes the distance to its shape. The node returned is the
 one pointed by the input path in case the shape is crossed; otherwise
 the returned value is NULL. In case the distance to next crossed
 boundary is required, the current point has to be physically INSIDE the
@@ -4040,9 +4045,9 @@ restore the parameters at the moment the shape was edited.
 All material properties changes are undoable. The mixture editor
 currently allows adding elements one by one in the mixture composition.
 This can be done either by element weight fraction or by number of
-atoms. Once an element was added using one method the other mehod is not
+atoms. Once an element was added using one method the other method is not
 selectable anymore. Summing component fractions up to 1 in the final
-mixture is the user responsability. Adding materials as components of a
+mixture is the user responsibility. Adding materials as components of a
 mixture is not supported in this version.
 
 The elements that were added to the mixture appear in the bottom of the

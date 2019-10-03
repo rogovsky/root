@@ -12,7 +12,9 @@ set(LLVM_NO_DEAD_STRIP 1)
 if(BUILD_SHARED_LIBS)
   set(LIBS
     LLVMSupport
+
     clangFrontendTool
+
     clingInterpreter
     clingMetaProcessor
     clingUserInterface
@@ -24,7 +26,10 @@ if(BUILD_SHARED_LIBS)
 else()
   set(LIBS
     LLVMSupport
+
+    clangASTMatchers
     clangFrontendTool
+
     clingUserInterface
   )
   add_cling_executable(cling
@@ -64,6 +69,7 @@ if(MSVC)
     ??3@YAXPEAX@Z
     ??_U@YAPEAX_K@Z
     ??_V@YAXPEAX@Z
+    ??3@YAXPEAX_K@Z
   )
 
   # Most (if not all) of these MSVC decided are inlines that aren't exported

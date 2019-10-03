@@ -1,3 +1,9 @@
+# Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.
+# All rights reserved.
+#
+# For the licensing terms see $ROOTSYS/LICENSE.
+# For the list of contributors see $ROOTSYS/README/CREDITS.
+
 project(mathmore-tests)
 find_package(ROOT REQUIRED)
 
@@ -27,6 +33,8 @@ set(TestMathMoreSource
 
 set(testFunctor_LABELS longtest)
 set(testPermute_LABELS longtest)
+set(testRandom_LABELS longtest)
+set(testMCIntegration_LABELS longtest)
 
 if(ROOT_unuran_FOUND)
   list(APPEND Libraries Unuran)
@@ -39,12 +47,9 @@ if(ROOT_minuit2_FOUND)
   list(APPEND Libraries Minuit2)
 endif()
 
-
 #some tests requires directly gsl
 include_directories(${GSL_INCLUDE_DIR} ${CMAKE_SOURCE_DIR})
-add_definitions(-DUSE_ROOT_ERROR -DHAVE_ROOTLIBS)
-
-ROOT_ADD_CXX_FLAG(CMAKE_CXX_FLAGS -Wno-deprecated-declarations) # bind1st
+add_definitions(-DHAVE_ROOTLIBS)
 
 #---Build and add all the defined test in the list---------------
 foreach(file ${TestMathMoreSource})

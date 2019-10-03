@@ -191,14 +191,15 @@ std::string HeaderSearch::getModuleFileName(StringRef ModuleName,
   return Result.str().str();
 }
 
-Module *HeaderSearch::lookupModule(StringRef ModuleName, bool AllowSearch) {
+Module *HeaderSearch::lookupModule(StringRef ModuleName, bool AllowSearch,
+                                   bool AllowExtraModuleMapSearch) {
   // Look in the module map to determine if there is a module by this name.
   Module *Module = ModMap.findModule(ModuleName);
   if (Module || !AllowSearch || !HSOpts->ImplicitModuleMaps)
     return Module;
 
   StringRef SearchName = ModuleName;
-  Module = lookupModule(ModuleName, SearchName);
+  Module = lookupModule(ModuleName, SearchName, AllowExtraModuleMapSearch);
 
   // The facility for "private modules" -- adjacent, optional module maps named
   // module.private.modulemap that are supposed to define private submodules --
@@ -212,7 +213,8 @@ Module *HeaderSearch::lookupModule(StringRef ModuleName, bool AllowSearch) {
   return Module;
 }
 
-Module *HeaderSearch::lookupModule(StringRef ModuleName, StringRef SearchName) {
+Module *HeaderSearch::lookupModule(StringRef ModuleName, StringRef SearchName,
+                                   bool AllowExtraModuleMapSearch) {
   Module *Module = nullptr;
 
   // Look through the various header search paths to load any available module
@@ -271,8 +273,9 @@ Module *HeaderSearch::lookupModule(StringRef ModuleName, StringRef SearchName) {
       continue;
 
     // Load all module maps in the immediate subdirectories of this search
-    // directory.
-    loadSubdirectoryModuleMaps(SearchDirs[Idx]);
+    // directory if ModuleName was from @import.
+    if (AllowExtraModuleMapSearch)
+      loadSubdirectoryModuleMaps(SearchDirs[Idx]);
 
     // Look again for the module.
     Module = ModMap.findModule(ModuleName);
@@ -354,7 +357,7 @@ const FileEntry *DirectoryLookup::LookupFile(
     return HS.getFileAndSuggestModule(TmpDir, IncludeLoc, getDir(),
                                       isSystemHeaderDirectory(),
                                       RequestingModule, SuggestedModule,
-                                      OpenFile, true /*CacheFailures*/);
+                                      OpenFile);
   }
 
   if (isFramework())
@@ -1037,10 +1040,6 @@ HeaderFileInfo &HeaderSearch::getFileInfo(const FileEntry *FE) {
       mergeHeaderFileInfo(*HFI, ExternalHFI);
   }
 
-  // Is the file open even though its content comes from an external source?
-  if (HFI->External && FE->File)
-    FE->closeFile();
-
   HFI->IsValid = true;
   // We have local information about this header file, so it's no longer
   // strictly external.
@@ -1062,11 +1061,6 @@ HeaderSearch::getExistingFileInfo(const FileEntry *FE,
     }
 
     HFI = &FileInfo[FE->getUID()];
-
-    // Is the file open even though its content comes from an external source?
-    if (HFI->External && FE->File)
-       FE->closeFile();
-
     if (!WantExternal && (!HFI->IsValid || HFI->External))
       return nullptr;
     if (!HFI->Resolved) {
@@ -1129,6 +1123,8 @@ bool HeaderSearch::ShouldEnterIncludeFile(Preprocessor &PP,
   auto TryEnterImported = [&](void) -> bool {
     if (!ModulesEnabled)
       return false;
+    // Ensure FileInfo bits are up to date.
+    ModMap.resolveHeaderDirectives(File);
     // Modules with builtins are special; multiple modules use builtins as
     // modular headers, example:
     //
@@ -1341,14 +1337,27 @@ static const FileEntry *getPrivateModuleMap(const FileEntry *File,
 }
 
 bool HeaderSearch::loadModuleMapFile(const FileEntry *File, bool IsSystem,
-                                     FileID ID, unsigned *Offset) {
+                                     FileID ID, unsigned *Offset,
+                                     StringRef OriginalModuleMapFile) {
   // Find the directory for the module. For frameworks, that may require going
   // up from the 'Modules' directory.
   const DirectoryEntry *Dir = nullptr;
   if (getHeaderSearchOpts().ModuleMapFileHomeIsCwd)
     Dir = FileMgr.getDirectory(".");
   else {
-    Dir = File->getDir();
+    if (!OriginalModuleMapFile.empty()) {
+      // We're building a preprocessed module map. Find or invent the directory
+      // that it originally occupied.
+      Dir = FileMgr.getDirectory(
+          llvm::sys::path::parent_path(OriginalModuleMapFile));
+      if (!Dir) {
+        auto *FakeFile = FileMgr.getVirtualFile(OriginalModuleMapFile, 0, 0);
+        Dir = FakeFile->getDir();
+      }
+    } else {
+      Dir = File->getDir();
+    }
+
     StringRef DirName(Dir->getName());
     if (llvm::sys::path::filename(DirName) == "Modules") {
       DirName = llvm::sys::path::parent_path(DirName);

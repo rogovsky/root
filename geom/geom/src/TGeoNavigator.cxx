@@ -638,13 +638,15 @@ TGeoNode *TGeoNavigator::CrossBoundaryAndLocate(Bool_t downwards, TGeoNode *skip
    }
 
    if (skipnode) {
-      if ((current == skipnode) && (level == fLevel) ) {
+      if (current == skipnode) {
          samepath = kTRUE;
-         level = TMath::Min(level, 10);
-         for (Int_t i=1; i<level; i++) {
-            if (crtstate[i-1] != GetMother(i)) {
-               samepath = kFALSE;
-               break;
+         if (!downwards) {
+           level = TMath::Min(level, 10);
+           for (Int_t i=1; i<level; i++) {
+              if (crtstate[i-1] != GetMother(i)) {
+                 samepath = kFALSE;
+                 break;
+              }
             }
          }
       }
@@ -881,9 +883,7 @@ TGeoNode *TGeoNavigator::FindNextBoundary(Double_t stepmax, const char *path, Bo
                current->MasterToLocal(&mothpt[0], &dpt[0]);
                current->MasterToLocalVect(&vecpt[0], &dvec[0]);
                // Current point may be inside the other node - geometry error that we ignore
-               snext = TGeoShape::Big();
-               if (!current->GetVolume()->Contains(dpt))
-                  snext = current->GetVolume()->GetShape()->DistFromOutside(&dpt[0], &dvec[0], iact, fStep, &safe);
+               snext = current->GetVolume()->GetShape()->DistFromOutside(&dpt[0], &dvec[0], iact, fStep, &safe);
                if (snext<fStep-gTolerance) {
                   if (computeGlobal) {
                      fCurrentMatrix->CopyFrom(fGlobalMatrix);
@@ -1128,7 +1128,9 @@ TGeoNode *TGeoNavigator::FindNextDaughterBoundary(Double_t *point, Double_t *dir
          if (voxels && voxels->IsSafeVoxel(point, i, fStep)) continue;
          current->MasterToLocal(point, lpoint);
          current->MasterToLocalVect(dir, ldir);
-         if (current->IsOverlapping() && current->GetVolume()->Contains(lpoint)) continue;
+         if (current->IsOverlapping() &&
+             current->GetVolume()->Contains(lpoint) &&
+             current->GetVolume()->GetShape()->Safety(lpoint, kTRUE) > gTolerance) continue;
          snext = current->GetVolume()->GetShape()->DistFromOutside(lpoint, ldir, 3, fStep);
          if (snext<fStep-gTolerance) {
             if (idebug>4) {
@@ -1175,7 +1177,8 @@ TGeoNode *TGeoNavigator::FindNextDaughterBoundary(Double_t *point, Double_t *dir
          current->cd();
          current->MasterToLocal(point, lpoint);
          current->MasterToLocalVect(dir, ldir);
-         if (current->IsOverlapping() && current->GetVolume()->Contains(lpoint)) continue;
+         if (current->IsOverlapping() && current->GetVolume()->Contains(lpoint) &&
+             current->GetVolume()->GetShape()->Safety(lpoint, kTRUE) > gTolerance) continue;
          snext = current->GetVolume()->GetShape()->DistFromOutside(lpoint, ldir, 3, fStep);
          sumchecked++;
 //         printf("checked %d from %d : snext=%g\n", sumchecked, nd, snext);
@@ -1406,10 +1409,7 @@ TGeoNode *TGeoNavigator::FindNextBoundaryAndStep(Double_t stepmax, Bool_t compsa
                current->cd();
                current->MasterToLocal(&mothpt[0], &dpt[0]);
                current->MasterToLocalVect(&vecpt[0], &dvec[0]);
-               // Current point may be inside the other node - geometry error that we ignore
-               snext = TGeoShape::Big();
-               if (!current->GetVolume()->Contains(dpt))
-                  snext = current->GetVolume()->GetShape()->DistFromOutside(dpt, dvec, iact, fStep);
+               snext = current->GetVolume()->GetShape()->DistFromOutside(dpt, dvec, iact, fStep);
                if (snext<fStep-gTolerance) {
                   PopDummy();
                   PushPath(safelevel+1);
@@ -2216,7 +2216,7 @@ Int_t TGeoNavigator::GetTouchedCluster(Int_t start, Double_t *point,
    }
 
    Int_t jst=0, i, j;
-   while ((ovlps[jst]<=check_list[start]) && (jst<novlps))  jst++;
+   while ((jst<novlps) && (ovlps[jst]<=check_list[start]))  jst++;
    if (jst==novlps) return 0;
    for (i=start; i<ncheck; i++) {
       for (j=jst; j<novlps; j++) {

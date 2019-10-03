@@ -54,6 +54,7 @@
 #include "TSystem.h"
 #include "TApplication.h"
 #include "TBrowser.h"
+#include "TClass.h"
 #include "TGClient.h"
 #include "TGFrame.h"
 #include "TGTab.h"
@@ -212,6 +213,9 @@ void TRootBrowser::CreateBrowser(const char *name)
                       "HandleMenu(Int_t)");
    fPreMenuFrame->AddFrame(fMenuBar, fLH2);
    fTopMenuFrame->AddFrame(fPreMenuFrame, fLH0);
+
+   if (!TClass::GetClass("TGHtmlBrowser"))
+      fMenuFile->DisableEntry(kNewHtml);
 
    fMenuFrame = new TGHorizontalFrame(fTopMenuFrame, 100, 20, kRaisedFrame);
    fTopMenuFrame->AddFrame(fMenuFrame, fLH5);
@@ -548,7 +552,6 @@ Long_t TRootBrowser::ExecPlugin(const char *name, const char *fname,
    Long_t retval = 0;
    TBrowserPlugin *p;
    TString command, pname;
-   StartEmbedding(pos, subpos);
    if (cmd && strlen(cmd)) {
       command = cmd;
       if (name) pname = name;
@@ -563,6 +566,9 @@ Long_t TRootBrowser::ExecPlugin(const char *name, const char *fname,
       p = new TBrowserPlugin(pname.Data(), command.Data(), pos, subpos);
    }
    else return 0;
+   if (IsWebGUI() && command.Contains("new TCanvas"))
+      return gROOT->ProcessLine(command.Data());
+   StartEmbedding(pos, subpos);
    fPlugins.Add(p);
    retval = gROOT->ProcessLine(command.Data());
    if (command.Contains("new TCanvas")) {
@@ -769,7 +775,10 @@ void TRootBrowser::HandleMenu(Int_t id)
          ExecPlugin(Form("Editor %d", eNr), "", cmd.Data(), 1);
          break;
       case kNewCanvas:
-         ExecPlugin("", "", "new TCanvas()", 1);
+         if (IsWebGUI())
+            gROOT->ProcessLine("new TCanvas()");
+         else
+            ExecPlugin("", "", "new TCanvas()", 1);
          break;
       case kNewHtml:
          cmd.Form("new TGHtmlBrowser(\"%s\", gClient->GetRoot())",
@@ -866,7 +875,7 @@ void TRootBrowser::InitPlugins(Option_t *opt)
       }
 
       // Canvas plugin...
-      if (opt[i] == 'C') {
+      if ((opt[i] == 'C') && !IsWebGUI()) {
          cmd.Form("new TCanvas();");
          ExecPlugin("c1", 0, cmd.Data(), 1);
          ++fNbInitPlugins;
@@ -899,6 +908,15 @@ void TRootBrowser::InitPlugins(Option_t *opt)
    SetTab(0, 0);
    SetTab(1, 0);
    SetTab(2, 0);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Check if the GUI factory is set to use the Web GUI.
+
+Bool_t TRootBrowser::IsWebGUI()
+{
+   TString factory = gEnv->GetValue("Gui.Factory", "native");
+   return (factory.Contains("web", TString::kIgnoreCase));
 }
 
 ////////////////////////////////////////////////////////////////////////////////

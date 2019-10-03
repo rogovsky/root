@@ -17,6 +17,8 @@
 #include "TBranchSTL.h"
 #include "TBranchProxyDirector.h"
 #include "TClassEdit.h"
+#include "TFriendElement.h"
+#include "TFriendProxy.h"
 #include "TLeaf.h"
 #include "TROOT.h"
 #include "TStreamerInfo.h"
@@ -24,6 +26,7 @@
 #include "TTreeReader.h"
 #include "TGenCollectionProxy.h"
 #include "TRegexp.h"
+#include "ROOT/RMakeUnique.hxx"
 
 #include <memory>
 
@@ -63,7 +66,7 @@ namespace {
    };
 
    // Reader interface for STL
-   class TSTLReader: public TVirtualCollectionReader {
+   class TSTLReader final: public TVirtualCollectionReader {
    public:
       ~TSTLReader() {}
       TVirtualCollectionProxy* GetCP(ROOT::Detail::TBranchProxy* proxy) {
@@ -98,7 +101,7 @@ namespace {
       }
    };
 
-   class TCollectionLessSTLReader : public TVirtualCollectionReader {
+   class TCollectionLessSTLReader final: public TVirtualCollectionReader {
    private:
       TVirtualCollectionProxy *fLocalCollection;
    public:
@@ -121,14 +124,21 @@ namespace {
       virtual size_t GetSize(ROOT::Detail::TBranchProxy* proxy) {
          TVirtualCollectionProxy *myCollectionProxy = GetCP(proxy);
          if (!myCollectionProxy) return 0;
-         TVirtualCollectionProxy::TPushPop ppRaii(myCollectionProxy, proxy->GetWhere());
+         /// In the case of std::vector<bool> `PushProxy` also creates a temporary bool variable the address of which
+         /// is returned from these calls.
+         myCollectionProxy->PopProxy();
+         myCollectionProxy->PushProxy(proxy->GetWhere());
          return myCollectionProxy->Size();
       }
 
       virtual void* At(ROOT::Detail::TBranchProxy* proxy, size_t idx) {
          TVirtualCollectionProxy *myCollectionProxy = GetCP(proxy);
          if (!myCollectionProxy) return 0;
-         TVirtualCollectionProxy::TPushPop ppRaii(myCollectionProxy, proxy->GetWhere());
+         // Here we do not use a RAII but we empty the proxy to then fill it.
+         // This is done because we are returning a pointer and we need to keep
+         // alive the memory it points to.
+         myCollectionProxy->PopProxy();
+         myCollectionProxy->PushProxy(proxy->GetWhere());
          if (myCollectionProxy->HasPointers()){
             return *(void**)myCollectionProxy->At(idx);
          } else {
@@ -238,7 +248,7 @@ namespace {
       virtual size_t GetSize(ROOT::Detail::TBranchProxy* /*proxy*/) { return fSize; }
    };
 
-   class TBasicTypeArrayReader : public TVirtualCollectionReader {
+   class TBasicTypeArrayReader final: public TVirtualCollectionReader {
    public:
       ~TBasicTypeArrayReader() {}
 
@@ -265,7 +275,7 @@ namespace {
       }
    };
 
-   class TBasicTypeClonesReader : public TClonesReader {
+   class TBasicTypeClonesReader final: public TClonesReader {
    private:
       Int_t fOffset;
    public:
@@ -320,10 +330,7 @@ namespace {
    };
 }
 
-/** \class TTreeReaderArray
 
-Extracts array data from a TTree.
-*/
 
 ClassImp(TTreeReaderArrayBase);
 
@@ -348,7 +355,7 @@ void ROOT::Internal::TTreeReaderArrayBase::CreateProxy()
       const char* brDataType = "{UNDETERMINED}";
       if (br) {
          TDictionary* dictUnused = 0;
-         brDataType = GetBranchDataType(br, dictUnused);
+         brDataType = GetBranchDataType(br, dictUnused, fDict);
       }
       Error("TTreeReaderArrayBase::CreateProxy()", "The template argument type T of %s accessing branch %s (which contains data of type %s) is not known to ROOT. You will need to create a dictionary for it.",
             GetDerivedTypeName(), fBranchName.Data(), brDataType);
@@ -404,8 +411,37 @@ void ROOT::Internal::TTreeReaderArrayBase::CreateProxy()
             membername = branch->GetName();
          }
       }
-      namedProxy = new TNamedBranchProxy(fTreeReader->fDirector, branch, membername);
-      fTreeReader->GetProxies()->Add(namedProxy);
+      auto director = fTreeReader->fDirector;
+      // Determine if the branch is actually in a Friend TTree and if so which.
+      if (branch->GetTree() != fTreeReader->GetTree()->GetTree()) {
+         // It is in a friend, let's find the 'index' in the list of friend ...
+         int index = -1;
+         int current = 0;
+         for(auto fe : TRangeDynCast<TFriendElement>( fTreeReader->GetTree()->GetTree()->GetListOfFriends())) {
+            if (branch->GetTree() == fe->GetTree()) {
+               index = current;
+            }
+            ++current;
+         }
+         if (index == -1) {
+            Error("TTreeReaderArrayBase::CreateProxy()", "The branch %s is contained in a Friend TTree that is not directly attached to the main.\n"
+                  "This is not yet supported by TTreeReader.",
+                  fBranchName.Data());
+            return;
+         }
+         TFriendProxy *feproxy = nullptr;
+         if ((size_t)index < fTreeReader->fFriendProxies.size()) {
+            feproxy = fTreeReader->fFriendProxies.at(index);
+         }
+         if (!feproxy) {
+            feproxy = new ROOT::Internal::TFriendProxy(director, fTreeReader->GetTree(), index);
+            fTreeReader->fFriendProxies.resize(index+1);
+            fTreeReader->fFriendProxies.at(index) = feproxy;
+         }
+         director = feproxy->GetDirector();
+      }
+      namedProxy = new TNamedBranchProxy(director, branch, fBranchName, membername);
+      fTreeReader->AddProxy(namedProxy);
       fProxy = namedProxy->GetProxy();
       if (fProxy)
          fSetupStatus = kSetupMatch;
@@ -445,7 +481,7 @@ void ROOT::Internal::TTreeReaderArrayBase::CreateProxy()
             fSetupStatus = kSetupMismatch;
 
          // Update named proxy's dictionary
-         if (namedProxy && !namedProxy->GetContentDict()) {
+         if (!namedProxy->GetContentDict()) {
             namedProxy->SetContentDict(fDict);
          }
 
@@ -539,13 +575,13 @@ void ROOT::Internal::TTreeReaderArrayBase::SetImpl(TBranch* branch, TLeaf* myLea
 
    if (myLeaf){
       if (!myLeaf->GetLeafCount()){
-         fImpl = new TLeafReader(this);
+         fImpl = std::make_unique<TLeafReader>(this);
       }
       else {
          TString leafFullName = myLeaf->GetBranch()->GetName();
          leafFullName += ".";
          leafFullName += myLeaf->GetLeafCount()->GetName();
-         fImpl = new TLeafParameterSizeReader(fTreeReader, leafFullName.Data(), this);
+         fImpl = std::make_unique<TLeafParameterSizeReader>(fTreeReader, leafFullName.Data(), this);
       }
       fSetupStatus = kSetupMatchLeaf;
    }
@@ -564,39 +600,46 @@ void ROOT::Internal::TTreeReaderArrayBase::SetImpl(TBranch* branch, TLeaf* myLea
          if (fSetupStatus == kSetupInternalError)
             fSetupStatus = kSetupMatch;
          if (element->IsA() == TStreamerSTL::Class()){
-            fImpl = new TSTLReader();
+            fImpl = std::make_unique<TSTLReader>();
          }
          else if (element->IsA() == TStreamerObject::Class()){
             //fImpl = new TObjectArrayReader(); // BArray[12]
 
             if (element->GetClass() == TClonesArray::Class()){
-               fImpl = new TClonesReader();
+               fImpl = std::make_unique<TClonesReader>();
+            }
+            else if (branchElement->GetType() == TBranchElement::kSTLMemberNode){
+               fImpl = std::make_unique<TBasicTypeArrayReader>();
+            }
+            else if (branchElement->GetType() == TBranchElement::kClonesMemberNode){
+               // TBasicTypeClonesReader should work for object
+               fImpl = std::make_unique<TBasicTypeClonesReader>(element->GetOffset());
             }
             else {
-               fImpl = new TArrayFixedSizeReader(element->GetArrayLength());
+               fImpl = std::make_unique<TArrayFixedSizeReader>(element->GetArrayLength());
             }
          }
          else if (element->IsA() == TStreamerLoop::Class()) {
-            fImpl = new TArrayParameterSizeReader(fTreeReader, branchElement->GetBranchCount()->GetName());
+            fImpl = std::make_unique<TArrayParameterSizeReader>(fTreeReader, branchElement->GetBranchCount()->GetName());
          }
          else if (element->IsA() == TStreamerBasicType::Class()){
             if (branchElement->GetType() == TBranchElement::kSTLMemberNode){
-               fImpl = new TBasicTypeArrayReader();
+               fImpl = std::make_unique<TBasicTypeArrayReader>();
             }
             else if (branchElement->GetType() == TBranchElement::kClonesMemberNode){
-               fImpl = new TBasicTypeClonesReader(element->GetOffset());
+               fImpl = std::make_unique<TBasicTypeClonesReader>(element->GetOffset());
             }
             else {
-               fImpl = new TArrayFixedSizeReader(element->GetArrayLength());
-               ((TObjectArrayReader*)fImpl)->SetBasicTypeSize(((TDataType*)fDict)->Size());
+               fImpl = std::make_unique<TArrayFixedSizeReader>(element->GetArrayLength());
+               ((TObjectArrayReader*)fImpl.get())->SetBasicTypeSize(((TDataType*)fDict)->Size());
             }
          }
          else if (element->IsA() == TStreamerBasicPointer::Class()) {
-            fImpl = new TArrayParameterSizeReader(fTreeReader, branchElement->GetBranchCount()->GetName());
-            ((TArrayParameterSizeReader*)fImpl)->SetBasicTypeSize(((TDataType*)fDict)->Size());
+            fImpl = std::make_unique<TArrayParameterSizeReader>(fTreeReader, branchElement->GetBranchCount()->GetName());
+            ((TArrayParameterSizeReader*)fImpl.get())->SetBasicTypeSize(((TDataType*)fDict)->Size());
          }
          else if (element->IsA() == TStreamerBase::Class()){
-            fImpl = new TClonesReader();
+            fImpl = std::make_unique<TClonesReader>();
          } else {
             Error("TTreeReaderArrayBase::SetImpl()",
                   "Cannot read branch %s: unhandled streamer element type %s",
@@ -606,27 +649,27 @@ void ROOT::Internal::TTreeReaderArrayBase::SetImpl(TBranch* branch, TLeaf* myLea
       }
       else { // We are at root node?
          if (branchElement->GetClass()->GetCollectionProxy()){
-            fImpl = new TCollectionLessSTLReader(branchElement->GetClass()->GetCollectionProxy());
+            fImpl = std::make_unique<TCollectionLessSTLReader>(branchElement->GetClass()->GetCollectionProxy());
          }
       }
    } else if (branch->IsA() == TBranch::Class()) {
-      TLeaf *topLeaf = branch->GetLeaf(branch->GetName());
+      auto topLeaf = branch->GetLeaf(branch->GetName());
       if (!topLeaf) {
          Error("TTreeReaderArrayBase::SetImpl", "Failed to get the top leaf from the branch");
          fSetupStatus = kSetupMissingBranch;
          return;
       }
-      Int_t size = 0;
-      TLeaf *sizeLeaf = topLeaf->GetLeafCounter(size);
+      // We could have used GetLeafCounter, but it does not work well with Double32_t and Float16_t: ROOT-10149
+      auto sizeLeaf = topLeaf->GetLeafCount();
       if (fSetupStatus == kSetupInternalError)
          fSetupStatus = kSetupMatch;
       if (!sizeLeaf) {
-         fImpl = new TArrayFixedSizeReader(size);
+         fImpl = std::make_unique<TArrayFixedSizeReader>(topLeaf->GetLenStatic());
       }
       else {
-         fImpl = new TArrayParameterSizeReader(fTreeReader, sizeLeaf->GetName());
+         fImpl = std::make_unique<TArrayParameterSizeReader>(fTreeReader, sizeLeaf->GetName());
       }
-      ((TObjectArrayReader*)fImpl)->SetBasicTypeSize(((TDataType*)fDict)->Size());
+      ((TObjectArrayReader*)fImpl.get())->SetBasicTypeSize(((TDataType*)fDict)->Size());
    } else if (branch->IsA() == TBranchClones::Class()) {
       Error("TTreeReaderArrayBase::SetImpl", "Support for branches of type TBranchClones not implemented");
       fSetupStatus = kSetupInternalError;
@@ -635,7 +678,7 @@ void ROOT::Internal::TTreeReaderArrayBase::SetImpl(TBranch* branch, TLeaf* myLea
       fSetupStatus = kSetupInternalError;
    } else if (branch->IsA() == TBranchSTL::Class()) {
       Error("TTreeReaderArrayBase::SetImpl", "Support for branches of type TBranchSTL not implemented");
-      fImpl = new TSTLReader();
+      fImpl = std::make_unique<TSTLReader>();
       fSetupStatus = kSetupInternalError;
    } else if (branch->IsA() == TBranchRef::Class()) {
       Error("TTreeReaderArrayBase::SetImpl", "Support for branches of type TBranchRef not implemented");
@@ -657,7 +700,7 @@ const char* ROOT::Internal::TTreeReaderArrayBase::GetBranchContentDataType(TBran
                                                                  TString& contentTypeName,
                                                                  TDictionary* &dict)
 {
-   dict = 0;
+   dict = nullptr;
    contentTypeName = "";
    if (branch->IsA() == TBranchElement::Class()) {
       TBranchElement* brElement = (TBranchElement*)branch;
@@ -818,11 +861,16 @@ const char* ROOT::Internal::TTreeReaderArrayBase::GetBranchContentDataType(TBran
       const char* dataTypeName = branch->GetClassName();
       if ((!dataTypeName || !dataTypeName[0])
           && branch->IsA() == TBranch::Class()) {
-         TLeaf *myLeaf = branch->GetLeaf(branch->GetName());
+         auto myLeaf = branch->GetLeaf(branch->GetName());
          if (myLeaf){
-            TDictionary *myDataType = TDictionary::GetDictionary(myLeaf->GetTypeName());
+            auto myDataType = TDictionary::GetDictionary(myLeaf->GetTypeName());
             if (myDataType && myDataType->IsA() == TDataType::Class()){
-               dict = TDataType::GetDataType((EDataType)((TDataType*)myDataType)->GetType());
+               auto typeEnumConstant = EDataType(((TDataType*)myDataType)->GetType());
+               // We need to consider Double32_t and Float16_t as dounle and float respectively
+               // since this is the type the user uses to instantiate the TTreeReaderArray template.
+               if (typeEnumConstant == kDouble32_t) typeEnumConstant = kDouble_t;
+               else if (typeEnumConstant == kFloat16_t) typeEnumConstant = kFloat_t;
+               dict = TDataType::GetDataType(typeEnumConstant);
                contentTypeName = myLeaf->GetTypeName();
                return 0;
             }

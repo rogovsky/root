@@ -227,9 +227,9 @@ public:
       const bool cyrillic_or_cjk = is_cyrillic_or_cjk(character);
 
       if (cyrillic_or_cjk) {
-         TTF::SetTextFont(root_cjk_face_number());
+         TTF::SetTextFont((Font_t) root_cjk_face_number());
       } else {
-         TTF::SetTextFont(root_face_number(family));
+         TTF::SetTextFont((Font_t) root_face_number(family));
       }
       FT_Load_Glyph(
          TTF::fgFace[TTF::fgCurFontIdx],
@@ -278,8 +278,8 @@ public:
       mathtext::bounding_box_t ret =
          bounding_box(*iterator, current_x, family);
 
-      iterator++;
-      for(; iterator != string.end(); iterator++) {
+      ++iterator;
+      for (; iterator != string.end(); ++iterator) {
          const mathtext::point_t position =
             mathtext::point_t(current_x, 0);
          const mathtext::bounding_box_t glyph_bounding_box =
@@ -294,7 +294,7 @@ public:
           const std::wstring string,
           const unsigned int family = FAMILY_PLAIN)
    {
-      SetTextFont(root_face_number(family));
+      SetTextFont((Font_t) root_face_number(family));
       SetTextSize(_current_font_size[family]);
       TAttText::Modify();
 
@@ -302,13 +302,12 @@ public:
       float advance = 0;
 
       buf[1] = L'\0';
-      for(std::wstring::const_iterator iterator = string.begin();
-         iterator != string.end(); iterator++) {
+      for (std::wstring::const_iterator iterator = string.begin(); iterator != string.end(); ++iterator) {
          buf[0] = *iterator;
          const bool cyrillic_or_cjk = is_cyrillic_or_cjk(buf[0]);
 
          if (cyrillic_or_cjk) {
-            SetTextFont(root_cjk_face_number());
+            SetTextFont((Font_t) root_cjk_face_number());
             TAttText::Modify();
          }
 
@@ -321,7 +320,7 @@ public:
          gPad->PaintText(xt, yt, buf);
          advance += b.advance();
          if (cyrillic_or_cjk) {
-            SetTextFont(root_face_number(family));
+            SetTextFont((Font_t) root_face_number(family));
             TAttText::Modify();
          }
       }

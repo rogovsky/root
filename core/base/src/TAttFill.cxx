@@ -47,6 +47,7 @@ Begin_Macro
 {
    TCanvas *c = new TCanvas("c","Fill Area colors",0,0,500,200);
    c->DrawColorTable();
+   return c;
 }
 End_Macro
 
@@ -60,9 +61,10 @@ itself remains fully opaque.
 histo->SetFillColorAlpha(kBlue, 0.35);
 ~~~
 
-The transparency is available on all platforms when the `flagOpenGL.CanvasPreferGL` is set to `1`
-in `$ROOTSYS/etc/system.rootrc`, or on Mac with the Cocoa backend. On the file output
-it is visible with PDF, PNG, Gif, JPEG, SVG, TeX ... but not PostScript.
+The transparency is available on all platforms when the flag
+`OpenGL.CanvasPreferGL` is set to `1` in `$ROOTSYS/etc/system.rootrc`, or on Mac
+with the Cocoa backend.
+On the file output it is visible with PDF, PNG, Gif, JPEG, SVG, TeX... but not PostScript.
 
 ### The ROOT Color Wheel.
 The wheel contains the recommended 216 colors to be used in web applications.
@@ -90,6 +92,8 @@ in your code instead of hardcoded color numbers, eg:
 Begin_Macro
 {
    TColorWheel *w = new TColorWheel();
+   cw = new TCanvas("cw","cw",0,0,400,400);
+   w->SetCanvas(cw);
    w->Draw();
 }
 End_Macro
@@ -160,7 +164,7 @@ customized using:
   -  `gStyle->SetHatchesLineWidth()` to define the hatches line width.
 
 Begin_Macro
-fillpatterns.C
+fillpatterns.C(500,700)
 End_Macro
 */
 

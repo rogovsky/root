@@ -1,37 +1,34 @@
+#include "TApplication.h"
+#include "TCanvas.h"
+#include "TClass.h"
+#include "TFile.h"
+#include "TFormula.h"
+#include "TGButton.h"
+#include "TGLabel.h"
+#include "TGNumberEntry.h"
+#include "TGWindow.h"
+#include "TGaxis.h"
+#include "TH1.h"
+#include "TH2.h"
+#include "TIterator.h"
+#include "TKey.h"
+#include "TLatex.h"
+#include "TLegend.h"
+#include "TLine.h"
+#include "TList.h"
 #include "TMVA/mvaeffs.h"
-#include <iostream>
+#include "TMVA/tmvaglob.h"
+#include "TPad.h"
+#include "TROOT.h"
+#include "TStyle.h"
+
 #include <iomanip>
+#include <iostream>
+
 using std::cout;
 using std::endl;
 using std::setfill;
 using std::setw;
-
-
-
-#include "RQ_OBJECT.h"
-
-#include "TH1.h"
-#include "TROOT.h"
-#include "TList.h"
-#include "TIterator.h"
-#include "TStyle.h"
-#include "TPad.h"
-#include "TCanvas.h"
-#include "TLatex.h"
-#include "TLegend.h"
-#include "TLine.h"
-#include "TH2.h"
-#include "TFormula.h"
-#include "TFile.h"
-#include "TApplication.h"
-#include "TKey.h"
-#include "TClass.h"
-#include "TGaxis.h"
-
-#include "TGWindow.h"
-#include "TGButton.h"
-#include "TGLabel.h"
-#include "TGNumberEntry.h"
 
 // this macro plots the signal and background efficiencies
 // as a function of the MVA cut.
@@ -98,10 +95,26 @@ void TMVA::StatDialogMVAEffs::SetNBackground()
 
 TString TMVA::StatDialogMVAEffs::GetFormula() 
 {
-   TString f = fFormula;
-   f.ReplaceAll("S","x");
-   f.ReplaceAll("B","y");
-   return f;
+   // replace all occurrence of S and B but only if neighbours are not alphanumerics
+   auto replace_vars = [](TString & f, char oldLetter, char newLetter ) {
+      auto pos = f.First(oldLetter);
+      while(pos != kNPOS) {
+         if ( ( pos > 0 && !TString(f[pos-1]).IsAlpha() ) ||
+              ( pos < f.Length()-1 &&  !TString(f[pos+1]).IsAlpha() ) )
+         {
+            f[pos] = newLetter;
+         }
+      int pos2 = pos+1;
+      pos = f.Index(oldLetter,pos2);
+      }
+   };
+
+   TString formula = fFormula;
+   replace_vars(formula,'S','x');
+   replace_vars(formula,'B','y');
+   // f.ReplaceAll("S","x");
+   // f.ReplaceAll("B","y");
+   return formula;
 }
 
 
@@ -515,7 +528,16 @@ void TMVA::mvaeffs(TString dataset, TString fin ,
 {
    TMVAGlob::Initialize( useTMVAStyle );
 
-   StatDialogMVAEffs* gGui = new StatDialogMVAEffs(dataset,gClient->GetRoot(), 1000, 1000);
+   TGClient * graphicsClient = TGClient::Instance();
+   if (graphicsClient == nullptr) {
+      // When including mvaeffs in a stand-alone macro, the graphics subsystem
+      // is not initialised and `TGClient::Instance` is a nullptr.
+      graphicsClient = new TGClient();
+   }
+
+   StatDialogMVAEffs* gGui = new StatDialogMVAEffs(dataset, 
+      graphicsClient->GetRoot(), 1000, 1000);
+
 
    TFile* file = TMVAGlob::OpenFile( fin );
    gGui->ReadHistograms(file);

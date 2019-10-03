@@ -10,13 +10,9 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-/*
-BEGIN_HTML
-<p>
-</p>
-END_HTML
-*/
-//
+/** \class RooStats::HistFactory::Helper
+ *  \ingroup HistFactory 
+ */
 
 
 
@@ -43,7 +39,7 @@ namespace RooStats {
       vector< pair<std::string, std::string> > list;
       for(vector<std::string>::iterator itr=names.begin(); itr!=names.end(); ++itr){
 	vector<std::string>::iterator itr2=itr; 
-	for(itr2++; itr2!=names.end(); ++itr2){
+	for(++itr2; itr2!=names.end();++itr2){
 	  list.push_back(pair<std::string, std::string>(*itr, *itr2));
 	}
       }

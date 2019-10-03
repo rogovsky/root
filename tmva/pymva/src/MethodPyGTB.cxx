@@ -50,6 +50,18 @@
 
 using namespace TMVA;
 
+namespace TMVA {
+namespace Internal {
+class PyGILRAII {
+   PyGILState_STATE m_GILState;
+
+public:
+   PyGILRAII() : m_GILState(PyGILState_Ensure()) {}
+   ~PyGILRAII() { PyGILState_Release(m_GILState); }
+};
+} // namespace Internal
+} // namespace TMVA
+
 REGISTER_METHOD(PyGTB)
 
 ClassImp(MethodPyGTB);
@@ -308,6 +320,7 @@ void MethodPyGTB::ProcessOptions()
 //_______________________________________________________________________
 void  MethodPyGTB::Init()
 {
+   TMVA::Internal::PyGILRAII raii;
    _import_array(); //require to use numpy arrays
 
    // Check options and load them to local python namespace
@@ -385,7 +398,7 @@ void MethodPyGTB::TestClassification()
 }
 
 //_______________________________________________________________________
-std::vector<Double_t> MethodPyGTB::GetMvaValues(Long64_t firstEvt, Long64_t lastEvt, Bool_t)
+std::vector<Double_t> MethodPyGTB::GetMvaValues(Long64_t firstEvt, Long64_t lastEvt, Bool_t logProgress)
 {
    // Load model if not already done
    if (fClassifier == 0) ReadModelFromFile();
@@ -395,6 +408,15 @@ std::vector<Double_t> MethodPyGTB::GetMvaValues(Long64_t firstEvt, Long64_t last
    if (firstEvt > lastEvt || lastEvt > nEvents) lastEvt = nEvents;
    if (firstEvt < 0) firstEvt = 0;
    nEvents = lastEvt-firstEvt;
+
+   // use timer
+   Timer timer( nEvents, GetName(), kTRUE );
+
+   if (logProgress)
+      Log() << kHEADER << Form("[%s] : ",DataInfo().GetName())
+            << "Evaluation of " << GetMethodName() << " on "
+            << (Data()->GetCurrentType() == Types::kTraining ? "training" : "testing")
+            << " sample (" << nEvents << " events)" << Endl;
 
    // Get data
    npy_intp dims[2];
@@ -423,6 +445,13 @@ std::vector<Double_t> MethodPyGTB::GetMvaValues(Long64_t firstEvt, Long64_t last
 
    Py_DECREF(pEvent);
    Py_DECREF(result);
+
+   if (logProgress) {
+      Log() << kINFO
+            << "Elapsed time for evaluation of " << nEvents <<  " events: "
+            << timer.GetElapsedTime() << "       " << Endl;
+   }
+
 
    return mvaValues;
 }

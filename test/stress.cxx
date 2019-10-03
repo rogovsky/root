@@ -120,6 +120,9 @@ void cleanup();
 
 int main(int argc, char **argv)
 {
+   std::string inclRootSys = ("-I" + TROOT::GetRootSys() + "/test").Data();
+   TROOT::AddExtraInterpreterArgs({inclRootSys});
+
    gROOT->SetBatch();
    TApplication theApp("App", &argc, argv);
    gBenchmark = new TBenchmark();
@@ -354,8 +357,21 @@ void stress2()
 
    Bool_t OK = kTRUE;
    //Long64_t lastgood = 12383; //9428;
-   Long64_t lastgood = 9789;  // changes for new TFormula
-   if (last <lastgood-200 || last > lastgood+200 || comp <2.0 || comp > 2.4) OK = kFALSE;
+   //Long64_t lastgood = 9789;  // changes for new TFormula
+   //Long64_t lastgood = 9797;  // changes for TH1 v8 ROOT-9173 on 32-bits
+#ifdef R__HAS_DEFAULT_LZ4
+      Long64_t lastgood = 10733;
+      if (last < lastgood - 200 || last > lastgood + 200 || comp < 1.5 || comp > 2.1)
+         OK = kFALSE;
+#else
+#ifdef R__HAS_CLOUDFLARE_ZLIB
+      Long64_t lastgood = 9813;
+#else
+      Long64_t lastgood = 10034;  // changes in TFormula (v12)
+#endif
+      if (last < lastgood - 200 || last > lastgood + 200 || comp < 2.0 || comp > 2.4)
+         OK = kFALSE;
+#endif
    if (OK) printf("OK\n");
    else    {
       printf("FAILED\n");
@@ -385,14 +401,32 @@ void stress3()
    Long64_t last = f.GetEND();
    Float_t comp = f.GetCompressionFactor();
    Bool_t OK = kTRUE;
-   constexpr Long64_t lastgood  = 51651;
+#ifdef R__HAS_CLOUDFLARE_ZLIB
+   constexpr Long64_t lastgood = 52027;
+#else
+   constexpr Long64_t lastgood = 51886;
+#endif
    constexpr Long64_t tolerance = 150;
-   if (last <lastgood-tolerance || last > lastgood+tolerance || comp <1.8 || comp > 2.4) OK = kFALSE;
+#ifdef R__HAS_DEFAULT_LZ4
+      constexpr Long64_t difflastgoodlz4 = 5500;
+      if (last < lastgood - tolerance || last > lastgood + difflastgoodlz4 + tolerance || comp < 1.5 || comp > 2.1)
+         OK = kFALSE;
+#else
+      if (last < lastgood - tolerance || last > lastgood + tolerance || comp < 1.8 || comp > 2.4)
+         OK = kFALSE;
+#endif
    if (OK) printf("OK\n");
    else    {
       printf("FAILED\n");
-      printf("%-8s File size= %lld (expected %lld +/- %lld)\n"
-             "%-8s Comp Fact=  %3.2f (expected 2.1 +/- 0.3)\n"," ",last,lastgood,tolerance," ",comp);
+#ifdef R__HAS_DEFAULT_LZ4
+      printf("%-8s LZ4 file size= %lld (expected %lld +/- %lld)\n"
+             "%-8s Comp Fact=  %3.2f (expected 1.8 +/- 0.3)\n",
+             " ", last, lastgood + difflastgoodlz4, tolerance, " ", comp);
+#else
+       printf("%-8s File size= %lld (expected %lld +/- %lld)\n"
+             "%-8s Comp Fact=  %3.2f (expected 2.1 +/- 0.3)\n",
+             " ", last, lastgood, tolerance, " ", comp);
+#endif
    }
    if (gPrintSubBench) { printf("Test  3 : "); gBenchmark->Show("stress");gBenchmark->Start("stress"); }
 }

@@ -1,3 +1,9 @@
+# Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.
+# All rights reserved.
+#
+# For the licensing terms see $ROOTSYS/LICENSE.
+# For the list of contributors see $ROOTSYS/README/CREDITS.
+
 # - Locate GFAL library
 # Defines:
 #
@@ -20,7 +26,7 @@ set(GFAL_INCLUDE_DIRS ${GFAL_INCLUDE_DIR} ${SRM_IFCE_INCLUDE_DIR})
 if(GFAL_LIBRARY MATCHES gfal2)
   # use pkg-config to get the directories for glib and then use these values
   find_package(PkgConfig)
-  pkg_check_modules(GLIB2 glib-2.0)
+  pkg_check_modules(GLIB2 REQUIRED glib-2.0)
   list(APPEND GFAL_INCLUDE_DIRS ${GLIB2_INCLUDE_DIRS})
 endif()
 

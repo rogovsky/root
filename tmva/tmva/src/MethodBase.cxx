@@ -393,7 +393,7 @@ TMVA::MethodBase::~MethodBase( void )
    for (Int_t i = 0; i < 2; i++ ) {
       if (fEventCollections.at(i)) {
          for (std::vector<Event*>::const_iterator it = fEventCollections.at(i)->begin();
-              it != fEventCollections.at(i)->end(); it++) {
+              it != fEventCollections.at(i)->end(); ++it) {
             delete (*it);
          }
          delete fEventCollections.at(i);
@@ -762,11 +762,22 @@ void TMVA::MethodBase::AddRegressionOutput(Types::ETreeType type)
          << (type==Types::kTraining?"training":"testing") << " sample" << Endl;
 
    regRes->Resize( nEvents );
+
+   // Drawing the progress bar every event was causing a huge slowdown in the evaluation time
+   // So we set some parameters to draw the progress bar a total of totalProgressDraws, i.e. only draw every 1 in 100 
+   
+   Int_t totalProgressDraws = 100; // total number of times to update the progress bar
+   Int_t drawProgressEvery = 1;    // draw every nth event such that we have a total of totalProgressDraws
+   if(nEvents >= totalProgressDraws) drawProgressEvery = nEvents/totalProgressDraws;
+
    for (Int_t ievt=0; ievt<nEvents; ievt++) {
+
       Data()->SetCurrentEvent(ievt);
       std::vector< Float_t > vals = GetRegressionValues();
       regRes->SetValue( vals, ievt );
-      timer.DrawProgressBar( ievt );
+
+      // Only draw the progress bar once in a while, doing this every event causes the evaluation to be ridiculously slow
+      if(ievt % drawProgressEvery == 0 || ievt==nEvents-1) timer.DrawProgressBar( ievt );
    }
 
    Log() << kINFO <<Form("Dataset[%s] : ",DataInfo().GetName())
@@ -820,6 +831,7 @@ void TMVA::MethodBase::AddMulticlassOutput(Types::ETreeType type)
 
    TString histNamePrefix(GetTestvarName());
    histNamePrefix += (type==Types::kTraining?"_Train":"_Test");
+
    resMulticlass->CreateMulticlassHistos( histNamePrefix, fNbinsMVAoutput, fNbinsH );
    resMulticlass->CreateMulticlassPerformanceHistos(histNamePrefix);
 }
@@ -898,9 +910,10 @@ std::vector<Double_t> TMVA::MethodBase::GetMvaValues(Long64_t firstEvt, Long64_t
    Timer timer( nEvents, GetName(), kTRUE );
 
    if (logProgress)
-   Log() << kHEADER<<Form("[%s] : ",DataInfo().GetName())<< "Evaluation of " << GetMethodName() << " on "
-        << (Data()->GetCurrentType()==Types::kTraining?"training":"testing") << " sample (" << nEvents << " events)" << Endl;
-
+      Log() << kHEADER << Form("[%s] : ",DataInfo().GetName())
+            << "Evaluation of " << GetMethodName() << " on "
+            << (Data()->GetCurrentType() == Types::kTraining ? "training" : "testing")
+            << " sample (" << nEvents << " events)" << Endl;
 
    for (Int_t ievt=firstEvt; ievt<lastEvt; ievt++) {
       Data()->SetCurrentEvent(ievt);
@@ -984,6 +997,8 @@ void TMVA::MethodBase::TestRegression( Double_t& bias, Double_t& biasT,
    Float_t* tV = new Float_t[nevt];
    Float_t* wV = new Float_t[nevt];
    Float_t  xmin = 1e30, xmax = -1e30;
+   Log() << kINFO << "Calculate regression for all events" << Endl;
+   Timer timer( nevt, GetName(), kTRUE );
    for (Long64_t ievt=0; ievt<nevt; ievt++) {
 
       const Event* ev = Data()->GetEvent(ievt); // NOTE: need untransformed event here !
@@ -1011,7 +1026,11 @@ void TMVA::MethodBase::TestRegression( Double_t& bias, Double_t& biasT,
       m1  += t*w; s1 += t*t*w;
       m2  += r*w; s2 += r*r*w;
       s12 += t*r;
+      if ((ievt & 0xFF) == 0) timer.DrawProgressBar(ievt);
    }
+   timer.DrawProgressBar(nevt - 1);
+   Log() << kINFO << "Elapsed time for evaluation of " << nevt <<  " events: "
+         << timer.GetElapsedTime() << "       " << Endl;
 
    // standard quantities
    bias /= sumw;
@@ -1071,10 +1090,23 @@ void TMVA::MethodBase::TestMulticlass()
 {
    ResultsMulticlass* resMulticlass = dynamic_cast<ResultsMulticlass*>(Data()->GetResults(GetMethodName(), Types::kTesting, Types::kMulticlass));
    if (!resMulticlass) Log() << kFATAL<<Form("Dataset[%s] : ",DataInfo().GetName())<< "unable to create pointer in TestMulticlass, exiting."<<Endl;
-   Log() << kINFO <<Form("Dataset[%s] : ",DataInfo().GetName())<< "Determine optimal multiclass cuts for test data..." << Endl;
-   for (UInt_t icls = 0; icls<DataInfo().GetNClasses(); ++icls) {
-      resMulticlass->GetBestMultiClassCuts(icls);
-   }
+
+   // GA evaluation of best cut for sig eff * sig pur. Slow, disabled for now.
+   // Log() << kINFO <<Form("Dataset[%s] : ",DataInfo().GetName())<< "Determine optimal multiclass cuts for test
+   // data..." << Endl; for (UInt_t icls = 0; icls<DataInfo().GetNClasses(); ++icls) {
+   //    resMulticlass->GetBestMultiClassCuts(icls);
+   // }
+
+   // Create histograms for use in TMVA GUI
+   TString histNamePrefix(GetTestvarName());
+   TString histNamePrefixTest{histNamePrefix + "_Test"};
+   TString histNamePrefixTrain{histNamePrefix + "_Train"};
+
+   resMulticlass->CreateMulticlassHistos(histNamePrefixTest, fNbinsMVAoutput, fNbinsH);
+   resMulticlass->CreateMulticlassPerformanceHistos(histNamePrefixTest);
+
+   resMulticlass->CreateMulticlassHistos(histNamePrefixTrain, fNbinsMVAoutput, fNbinsH);
+   resMulticlass->CreateMulticlassPerformanceHistos(histNamePrefixTrain);
 }
 
 
@@ -1388,16 +1420,15 @@ void TMVA::MethodBase::ReadStateFromFile()
 
    TString tfname(GetWeightFileName());
 
-   Log() << kDEBUG //<<Form("Dataset[%s] : ",DataInfo().GetName())
+   Log() << kINFO //<<Form("Dataset[%s] : ",DataInfo().GetName())
     << "Reading weight file: "
          << gTools().Color("lightblue") << tfname << gTools().Color("reset") << Endl;
 
    if (tfname.EndsWith(".xml") ) {
-#if ROOT_VERSION_CODE >= ROOT_VERSION(5,29,0)
       void* doc = gTools().xmlengine().ParseFile(tfname,gTools().xmlenginebuffersize()); // the default buffer size in TXMLEngine::ParseFile is 100k. Starting with ROOT 5.29 one can set the buffer size, see: http://savannah.cern.ch/bugs/?78864. This might be necessary for large XML files
-#else
-      void* doc = gTools().xmlengine().ParseFile(tfname);
-#endif
+      if (!doc) {
+         Log() << kFATAL << "Error parsing XML file " << tfname << Endl;
+      }
       void* rootnode = gTools().xmlengine().DocGetRootElement(doc); // node "MethodSetup"
       ReadStateFromXML(rootnode);
       gTools().xmlengine().FreeDoc(doc);
@@ -1427,15 +1458,10 @@ void TMVA::MethodBase::ReadStateFromFile()
 /// for reading from memory
 
 void TMVA::MethodBase::ReadStateFromXMLString( const char* xmlstr ) {
-#if ROOT_VERSION_CODE >= ROOT_VERSION(5,26,00)
    void* doc = gTools().xmlengine().ParseString(xmlstr);
    void* rootnode = gTools().xmlengine().DocGetRootElement(doc); // node "MethodSetup"
    ReadStateFromXML(rootnode);
    gTools().xmlengine().FreeDoc(doc);
-#else
-   Log() << kFATAL<<Form("Dataset[%s] : ",DataInfo().GetName()) << "Method MethodBase::ReadStateFromXMLString( const char* xmlstr = "
-         << xmlstr << " ) is not available for ROOT versions prior to 5.26/00." << Endl;
-#endif
 
    return;
 }
@@ -1444,8 +1470,10 @@ void TMVA::MethodBase::ReadStateFromXMLString( const char* xmlstr ) {
 
 void TMVA::MethodBase::ReadStateFromXML( void* methodNode )
 {
+
    TString fullMethodName;
    gTools().ReadAttr( methodNode, "Method", fullMethodName );
+
    fMethodName = fullMethodName(fullMethodName.Index("::")+2,fullMethodName.Length());
 
    // update logger
@@ -1674,10 +1702,10 @@ void TMVA::MethodBase::WriteVarsToStream( std::ostream& o, const TString& prefix
 {
    o << prefix << "NVar " << DataInfo().GetNVariables() << std::endl;
    std::vector<VariableInfo>::const_iterator varIt = DataInfo().GetVariableInfos().begin();
-   for (; varIt!=DataInfo().GetVariableInfos().end(); varIt++) { o << prefix; varIt->WriteToStream(o); }
+   for (; varIt!=DataInfo().GetVariableInfos().end(); ++varIt) { o << prefix; varIt->WriteToStream(o); }
    o << prefix << "NSpec " << DataInfo().GetNSpectators() << std::endl;
    varIt = DataInfo().GetSpectatorInfos().begin();
-   for (; varIt!=DataInfo().GetSpectatorInfos().end(); varIt++) { o << prefix; varIt->WriteToStream(o); }
+   for (; varIt!=DataInfo().GetSpectatorInfos().end(); ++varIt) { o << prefix; varIt->WriteToStream(o); }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1701,7 +1729,7 @@ void TMVA::MethodBase::ReadVarsFromStream( std::istream& istr )
    VariableInfo varInfo;
    std::vector<VariableInfo>::iterator varIt = DataInfo().GetVariableInfos().begin();
    int varIdx = 0;
-   for (; varIt!=DataInfo().GetVariableInfos().end(); varIt++, varIdx++) {
+   for (; varIt!=DataInfo().GetVariableInfos().end(); ++varIt, ++varIdx) {
       varInfo.ReadFromStream(istr);
       if (varIt->GetExpression() == varInfo.GetExpression()) {
          varInfo.SetExternalLink((*varIt).GetExternalLink());
@@ -1957,10 +1985,12 @@ TDirectory* TMVA::MethodBase::BaseDir() const
          sdir = methodDir->mkdir(defaultDir);
          sdir->cd();
          // write weight file name into target file
-         TObjString wfilePath( gSystem->WorkingDirectory() );
-         TObjString wfileName( GetWeightFileName() );
-         wfilePath.Write( "TrainingPath" );
-         wfileName.Write( "WeightFileName" );
+         if (fModelPersistence) { 
+            TObjString wfilePath( gSystem->WorkingDirectory() );
+            TObjString wfileName( GetWeightFileName() );
+            wfilePath.Write( "TrainingPath" );
+            wfileName.Write( "WeightFileName" );
+         }
       }
 
    Log()<<kDEBUG<<Form("Dataset[%s] : ",DataInfo().GetName())<<" Base Directory for " << GetMethodTypeName() << " existed, return it.." <<Endl;
@@ -1971,30 +2001,38 @@ TDirectory* TMVA::MethodBase::BaseDir() const
 /// returns the ROOT directory where all instances of the
 /// corresponding MVA method are stored
 
- TDirectory* TMVA::MethodBase::MethodBaseDir() const
- {
-    if (fMethodBaseDir != 0) return fMethodBaseDir;
-
-    Log()<<kDEBUG<<Form("Dataset[%s] : ",DataInfo().GetName())<<" Base Directory for " << GetMethodTypeName() << " not set yet --> check if already there.." <<Endl;
-
-
-    TDirectory *fFactoryBaseDir=GetFile();
-
-   fMethodBaseDir = fFactoryBaseDir->GetDirectory(DataInfo().GetName());
-   if(!fMethodBaseDir) //creating dataset directory
-      {
-         fMethodBaseDir = fFactoryBaseDir->mkdir(DataInfo().GetName(),Form("Base directory for dataset %s",DataInfo().GetName()));
-         if(!fMethodBaseDir)Log()<<kFATAL<<"Can not create dir "<<DataInfo().GetName();
-      }
-   TString _methodDir = Form("Method_%s",GetMethodName().Data());
-   fMethodBaseDir = fMethodBaseDir->GetDirectory(_methodDir.Data());
-
-   if(!fMethodBaseDir){
-      fMethodBaseDir = fFactoryBaseDir->GetDirectory(DataInfo().GetName())->mkdir(_methodDir.Data(),Form("Directory for all %s methods", GetMethodTypeName().Data()));
-      Log()<<kDEBUG<<Form("Dataset[%s] : ",DataInfo().GetName())<<" Base Directory for " << GetMethodName() << " does not exist yet--> created it" <<Endl;
+TDirectory *TMVA::MethodBase::MethodBaseDir() const
+{
+   if (fMethodBaseDir != 0) {
+      return fMethodBaseDir;
    }
 
-   Log()<<kDEBUG<<Form("Dataset[%s] : ",DataInfo().GetName())<<"Return from MethodBaseDir() after creating base directory "<<Endl;
+   const char *datasetName = DataInfo().GetName();
+
+   Log() << kDEBUG << Form("Dataset[%s] : ", datasetName) << " Base Directory for " << GetMethodTypeName()
+         << " not set yet --> check if already there.." << Endl;
+
+   TDirectory *factoryBaseDir = GetFile();
+   fMethodBaseDir = factoryBaseDir->GetDirectory(datasetName);
+   if (!fMethodBaseDir) {
+      fMethodBaseDir = factoryBaseDir->mkdir(datasetName, Form("Base directory for dataset %s", datasetName));
+      if (!fMethodBaseDir) {
+         Log() << kFATAL << "Can not create dir " << datasetName;
+      }
+   }
+   TString methodTypeDir = Form("Method_%s", GetMethodTypeName().Data());
+   fMethodBaseDir = fMethodBaseDir->GetDirectory(methodTypeDir.Data());
+
+   if (!fMethodBaseDir) {
+      TDirectory *datasetDir = factoryBaseDir->GetDirectory(datasetName);
+      TString methodTypeDirHelpStr = Form("Directory for all %s methods", GetMethodTypeName().Data());
+      fMethodBaseDir = datasetDir->mkdir(methodTypeDir.Data(), methodTypeDirHelpStr);
+      Log() << kDEBUG << Form("Dataset[%s] : ", datasetName) << " Base Directory for " << GetMethodName()
+            << " does not exist yet--> created it" << Endl;
+   }
+
+   Log() << kDEBUG << Form("Dataset[%s] : ", datasetName)
+         << "Return from MethodBaseDir() after creating base directory " << Endl;
    return fMethodBaseDir;
 }
 
@@ -2026,11 +2064,13 @@ TString TMVA::MethodBase::GetWeightFileName() const
    // directory/jobname_methodname_suffix.extension.{root/txt}
    TString suffix = "";
    TString wFileDir(GetWeightFileDir());
+   TString wFileName = GetJobName() + "_" + GetMethodName() +
+      suffix + "." + gConfig().GetIONames().fWeightFileExtension + ".xml";
+   if (wFileDir.IsNull() )  return wFileName;
+   // add weight file directory of it is not null
    return ( wFileDir + (wFileDir[wFileDir.Length()-1]=='/' ? "" : "/")
-            + GetJobName() + "_" + GetMethodName() +
-            suffix + "." + gConfig().GetIONames().fWeightFileExtension + ".xml" );
+            + wFileName );
 }
-
 ////////////////////////////////////////////////////////////////////////////////
 /// writes all MVA evaluation histograms to file
 
@@ -2780,6 +2820,8 @@ Double_t TMVA::MethodBase::GetROCIntegral(TH1D *histS, TH1D *histB) const
       integral += (1-pdfB->GetIntegral(cut,xmax)) * pdfS->GetVal(cut);
       cut+=step;
    }
+   delete pdfS;
+   delete pdfB;
    return integral*step;
 }
 
@@ -2996,7 +3038,11 @@ void TMVA::MethodBase::MakeClass( const TString& theClassFileName ) const
    fout << "   virtual ~IClassifierReader() {}" << std::endl;
    fout << std::endl;
    fout << "   // return classifier response" << std::endl;
-   fout << "   virtual double GetMvaValue( const std::vector<double>& inputValues ) const = 0;" << std::endl;
+   if(GetAnalysisType() == Types::kMulticlass) {
+      fout << "   virtual std::vector<double> GetMulticlassValues( const std::vector<double>& inputValues ) const = 0;" << std::endl;
+   } else {
+      fout << "   virtual double GetMvaValue( const std::vector<double>& inputValues ) const = 0;" << std::endl;
+   }
    fout << std::endl;
    fout << "   // returns classifier status" << std::endl;
    fout << "   bool IsStatusClean() const { return fStatusIsClean; }" << std::endl;
@@ -3013,12 +3059,11 @@ void TMVA::MethodBase::MakeClass( const TString& theClassFileName ) const
    fout << " public:" << std::endl;
    fout << std::endl;
    fout << "   // constructor" << std::endl;
-   fout << "   " << className << "( std::vector<std::string>& theInputVars ) " << std::endl;
+   fout << "   " << className << "( std::vector<std::string>& theInputVars )" << std::endl;
    fout << "      : IClassifierReader()," << std::endl;
    fout << "        fClassName( \"" << className << "\" )," << std::endl;
-   fout << "        fNvars( " << GetNvar() << " )," << std::endl;
-   fout << "        fIsNormalised( " << (IsNormalised() ? "true" : "false") << " )" << std::endl;
-   fout << "   {      " << std::endl;
+   fout << "        fNvars( " << GetNvar() << " )" << std::endl;
+   fout << "   {" << std::endl;
    fout << "      // the training input variables" << std::endl;
    fout << "      const char* inputVars[] = { ";
    for (UInt_t ivar=0; ivar<GetNvar(); ivar++) {
@@ -3074,9 +3119,13 @@ void TMVA::MethodBase::MakeClass( const TString& theClassFileName ) const
    fout << "   }" << std::endl;
    fout << std::endl;
    fout << "   // the classifier response" << std::endl;
-   fout << "   // \"inputValues\" is a vector of input values in the same order as the " << std::endl;
+   fout << "   // \"inputValues\" is a vector of input values in the same order as the" << std::endl;
    fout << "   // variables given to the constructor" << std::endl;
-   fout << "   double GetMvaValue( const std::vector<double>& inputValues ) const;" << std::endl;
+   if(GetAnalysisType() == Types::kMulticlass) {
+      fout << "   std::vector<double> GetMulticlassValues( const std::vector<double>& inputValues ) const override;" << std::endl;
+   } else {
+      fout << "   double GetMvaValue( const std::vector<double>& inputValues ) const override;" << std::endl;
+   }
    fout << std::endl;
    fout << " private:" << std::endl;
    fout << std::endl;
@@ -3098,8 +3147,6 @@ void TMVA::MethodBase::MakeClass( const TString& theClassFileName ) const
    fout << "   char   GetType( int ivar ) const { return fType[ivar]; }" << std::endl;
    fout << std::endl;
    fout << "   // normalisation of input variables" << std::endl;
-   fout << "   const bool fIsNormalised;" << std::endl;
-   fout << "   bool IsNormalised() const { return fIsNormalised; }" << std::endl;
    fout << "   double fVmin[" << GetNvar() << "];" << std::endl;
    fout << "   double fVmax[" << GetNvar() << "];" << std::endl;
    fout << "   double NormVariable( double x, double xmin, double xmax ) const {" << std::endl;
@@ -3112,62 +3159,77 @@ void TMVA::MethodBase::MakeClass( const TString& theClassFileName ) const
    fout << std::endl;
    fout << "   // initialize internal variables" << std::endl;
    fout << "   void Initialize();" << std::endl;
-   fout << "   double GetMvaValue__( const std::vector<double>& inputValues ) const;" << std::endl;
+   if(GetAnalysisType() == Types::kMulticlass) {
+      fout << "   std::vector<double> GetMulticlassValues__( const std::vector<double>& inputValues ) const;" << std::endl;
+   } else {
+      fout << "   double GetMvaValue__( const std::vector<double>& inputValues ) const;" << std::endl;
+   }
    fout << "" << std::endl;
    fout << "   // private members (method specific)" << std::endl;
 
    // call the classifier specific output (the classifier must close the class !)
    MakeClassSpecific( fout, className );
 
-   fout << "   inline double " << className << "::GetMvaValue( const std::vector<double>& inputValues ) const" << std::endl;
-   fout << "   {" << std::endl;
-   fout << "      // classifier response value" << std::endl;
-   fout << "      double retval = 0;" << std::endl;
+   if(GetAnalysisType() == Types::kMulticlass) {
+      fout << "inline std::vector<double> " << className <<  "::GetMulticlassValues( const std::vector<double>& inputValues ) const" << std::endl;
+   } else {
+      fout << "inline double " << className << "::GetMvaValue( const std::vector<double>& inputValues ) const" << std::endl;
+   }
+   fout << "{" << std::endl;
+   fout << "   // classifier response value" << std::endl;
+   if(GetAnalysisType() == Types::kMulticlass) {
+      fout << "   std::vector<double> retval;" << std::endl;
+   } else {
+      fout << "   double retval = 0;" << std::endl;
+   }
    fout << std::endl;
-   fout << "      // classifier response, sanity check first" << std::endl;
-   fout << "      if (!IsStatusClean()) {" << std::endl;
-   fout << "         std::cout << \"Problem in class \\\"\" << fClassName << \"\\\": cannot return classifier response\"" << std::endl;
-   fout << "                   << \" because status is dirty\" << std::endl;" << std::endl;
-   fout << "         retval = 0;" << std::endl;
-   fout << "      }" << std::endl;
-   fout << "      else {" << std::endl;
-   fout << "         if (IsNormalised()) {" << std::endl;
-   fout << "            // normalise variables" << std::endl;
-   fout << "            std::vector<double> iV;" << std::endl;
-   fout << "            iV.reserve(inputValues.size());" << std::endl;
-   fout << "            int ivar = 0;" << std::endl;
-   fout << "            for (std::vector<double>::const_iterator varIt = inputValues.begin();" << std::endl;
-   fout << "                 varIt != inputValues.end(); varIt++, ivar++) {" << std::endl;
-   fout << "               iV.push_back(NormVariable( *varIt, fVmin[ivar], fVmax[ivar] ));" << std::endl;
-   fout << "            }" << std::endl;
-   if (GetTransformationHandler().GetTransformationList().GetSize()!=0 &&
-       GetMethodType() != Types::kLikelihood &&
-       GetMethodType() != Types::kHMatrix) {
-      fout << "            Transform( iV, -1 );" << std::endl;
-   }
-   fout << "            retval = GetMvaValue__( iV );" << std::endl;
-   fout << "         }" << std::endl;
-   fout << "         else {" << std::endl;
-   if (GetTransformationHandler().GetTransformationList().GetSize()!=0 &&
-       GetMethodType() != Types::kLikelihood &&
-       GetMethodType() != Types::kHMatrix) {
-      fout << "            std::vector<double> iV;" << std::endl;
-      fout << "            int ivar = 0;" << std::endl;
-      fout << "            for (std::vector<double>::const_iterator varIt = inputValues.begin();" << std::endl;
-      fout << "                 varIt != inputValues.end(); varIt++, ivar++) {" << std::endl;
-      fout << "               iV.push_back(*varIt);" << std::endl;
-      fout << "            }" << std::endl;
-      fout << "            Transform( iV, -1 );" << std::endl;
-      fout << "            retval = GetMvaValue__( iV );" << std::endl;
-   }
-   else {
-      fout << "            retval = GetMvaValue__( inputValues );" << std::endl;
-   }
-   fout << "         }" << std::endl;
-   fout << "      }" << std::endl;
-   fout << std::endl;
-   fout << "      return retval;" << std::endl;
+   fout << "   // classifier response, sanity check first" << std::endl;
+   fout << "   if (!IsStatusClean()) {" << std::endl;
+   fout << "      std::cout << \"Problem in class \\\"\" << fClassName << \"\\\": cannot return classifier response\"" << std::endl;
+   fout << "                << \" because status is dirty\" << std::endl;" << std::endl;
    fout << "   }" << std::endl;
+   fout << "   else {" << std::endl;
+   if (IsNormalised()) {
+      fout << "         // normalise variables" << std::endl;
+      fout << "         std::vector<double> iV;" << std::endl;
+      fout << "         iV.reserve(inputValues.size());" << std::endl;
+      fout << "         int ivar = 0;" << std::endl;
+      fout << "         for (std::vector<double>::const_iterator varIt = inputValues.begin();" << std::endl;
+      fout << "              varIt != inputValues.end(); varIt++, ivar++) {" << std::endl;
+      fout << "            iV.push_back(NormVariable( *varIt, fVmin[ivar], fVmax[ivar] ));" << std::endl;
+      fout << "         }" << std::endl;
+      if (GetTransformationHandler().GetTransformationList().GetSize() != 0 && GetMethodType() != Types::kLikelihood &&
+          GetMethodType() != Types::kHMatrix) {
+         fout << "         Transform( iV, -1 );" << std::endl;
+      }
+      
+      if(GetAnalysisType() == Types::kMulticlass) {
+         fout << "         retval = GetMulticlassValues__( iV );" << std::endl;
+      } else {
+         fout << "         retval = GetMvaValue__( iV );" << std::endl;
+      }
+   } else {
+      if (GetTransformationHandler().GetTransformationList().GetSize() != 0 && GetMethodType() != Types::kLikelihood &&
+          GetMethodType() != Types::kHMatrix) {
+         fout << "         std::vector<double> iV(inputValues);" << std::endl;
+         fout << "         Transform( iV, -1 );" << std::endl;
+         if(GetAnalysisType() == Types::kMulticlass) {
+            fout << "         retval = GetMulticlassValues__( iV );" << std::endl;
+         } else {
+            fout << "         retval = GetMvaValue__( iV );" << std::endl;
+         }
+      } else {
+         if(GetAnalysisType() == Types::kMulticlass) {
+            fout << "         retval = GetMulticlassValues__( inputValues );" << std::endl;
+         } else {
+            fout << "         retval = GetMvaValue__( inputValues );" << std::endl;
+         }
+      }
+   }
+   fout << "   }" << std::endl;
+   fout << std::endl;
+   fout << "   return retval;" << std::endl;
+   fout << "}" << std::endl;
 
    // create output for transformation - if any
    if (GetTransformationHandler().GetTransformationList().GetSize()!=0)

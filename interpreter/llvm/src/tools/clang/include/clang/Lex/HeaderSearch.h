@@ -47,7 +47,7 @@ struct HeaderFileInfo {
   /// whether it is C++ clean or not.  This can be set by the include paths or
   /// by \#pragma gcc system_header.  This is an instance of
   /// SrcMgr::CharacteristicKind.
-  unsigned DirInfo : 2;
+  unsigned DirInfo : 3;
 
   /// \brief Whether this header file info was supplied by an external source,
   /// and has not changed since.
@@ -504,8 +504,12 @@ public:
   /// search directories to produce a module definition. If not, this lookup
   /// will only return an already-known module.
   ///
+  /// \param AllowExtraModuleMapSearch Whether we allow to search modulemaps
+  /// in subdirectories.
+  ///
   /// \returns The module with the given name.
-  Module *lookupModule(StringRef ModuleName, bool AllowSearch = true);
+  Module *lookupModule(StringRef ModuleName, bool AllowSearch = true,
+                       bool AllowExtraModuleMapSearch = false);
 
   /// \brief Try to find a module map file in the given directory, returning
   /// \c nullptr if none is found.
@@ -544,10 +548,13 @@ public:
   /// \param Offset [inout] An offset within ID to start parsing. On exit,
   ///        filled by the end of the parsed contents (either EOF or the
   ///        location of an end-of-module-map pragma).
-  ///
+  /// \param OriginalModuleMapFile The original path to the module map file,
+  ///        used to resolve paths within the module (this is required when
+  ///        building the module from preprocessed source).
   /// \returns true if an error occurred, false otherwise.
   bool loadModuleMapFile(const FileEntry *File, bool IsSystem,
-                         FileID ID = FileID(), unsigned *Offset = nullptr);
+                         FileID ID = FileID(), unsigned *Offset = nullptr,
+                         StringRef OriginalModuleMapFile = StringRef());
 
   /// \brief Collect the set of all known, top-level modules.
   ///
@@ -568,8 +575,12 @@ private:
   /// but for compatibility with some buggy frameworks, additional attempts
   /// may be made to find the module under a related-but-different search-name.
   ///
+  /// \param AllowExtraModuleMapSearch Whether we allow to search modulemaps
+  /// in subdirectories.
+  ///
   /// \returns The module named ModuleName.
-  Module *lookupModule(StringRef ModuleName, StringRef SearchName);
+  Module *lookupModule(StringRef ModuleName, StringRef SearchName,
+                       bool AllowExtraModuleMapSearch = false);
 
   /// \brief Retrieve a module with the given name, which may be part of the
   /// given framework.

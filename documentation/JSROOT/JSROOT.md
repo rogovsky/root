@@ -32,7 +32,7 @@ To automate files loading and objects drawing, one can provide number of URL par
 - opt - drawing option for the item
 - items - array of items name
 - opts - array of drawing options for the items
-- title - set browser title  
+- title - set browser title
 - layout - can be 'simple', 'flex', 'collapsible', 'tabs', 'gridNxM', 'horizNMK', 'vertNMK'
 - browser - layout of the browser 'float', 'fix', 'no', 'off'
 - nobrowser - do not display file browser (same as browser=no)
@@ -44,6 +44,7 @@ To automate files loading and objects drawing, one can provide number of URL par
 - interactive - enable/disable interactive functions 0-disable all, 1-enable all
 - noselect - hide file-selection part in the browser (only when file name is specified)
 - mathjax - use MathJax for latex output
+- latex - 'off', 'symbols', 'normal', 'mathjax', 'alwaysmath' control of TLatex processor
 - style - name of TStyle object to define global JSROOT style
 - toolbar - show canvas tool buttons 'off', 'on' and 'popup'
 
@@ -87,6 +88,7 @@ List of supported classes and draw options:
 [*](https://root.cern/js/latest/examples.htm#th1_star),
 [l](https://root.cern/js/latest/examples.htm#th1_l),
 [lf2](https://root.cern/js/latest/examples.htm#th1_lf2),
+[a](https://root.cern/js/latest/examples.htm#th1_a),
 [e](https://root.cern/js/latest/examples.htm#th1_e),
 [e0](https://root.cern/js/latest/examples.htm#th1_e0),
 [e1](https://root.cern/js/latest/examples.htm#th1_e1),
@@ -139,7 +141,8 @@ List of supported classes and draw options:
 - TProfile2D : [example](https://root.cern/js/latest/examples.htm#misc_profile2d)
 - THStack : [example](https://root.cern/js/latest/examples.htm#thstack)
 - TF1 : [example](https://root.cern/js/latest/examples.htm#tf1_canv)
-- TF2 : [example](https://root.cern/js/latest/examples.htm#misc_tf2)
+- TF2 : [example](https://root.cern/js/latest/examples.htm#tf2_tf2)
+- TSpline : [example](https://root.cern/js/latest/examples.htm#misc_spline)
 - TGraph : [dflt](https://root.cern/js/latest/examples.htm#tgraph),
 [L](https://root.cern/js/latest/examples.htm#tgraph_l),
 [P](https://root.cern/js/latest/examples.htm#tgraph_p),
@@ -160,6 +163,7 @@ List of supported classes and draw options:
 [5](https://root.cern/js/latest/examples.htm#tgrapherrors_5),
 - TGraphAsymmErrors : [dflt](https://root.cern/js/latest/examples.htm#tgraphasymmerrors),
 [z](https://root.cern/js/latest/examples.htm#tgraphasymmerrors_z) and other from TGraphErrors
+- TGraphPolar : [example](https://root.cern/js/latest/examples.htm#tgraphpolar)
 - TMultiGraph : [example](https://root.cern/js/latest/examples.htm#tmultigraph_c3), [exclusion](https://root.cern/js/latest/examples.htm#tmultigraph_exclusion)
 - TGraph2D : [example](https://root.cern/js/latest/examples.htm#tgraph2d)
 - TLatex : [example](https://root.cern/js/latest/examples.htm#tlatex_latex)
@@ -221,7 +225,7 @@ Such expression can include arithmetical operations and all methods, provided in
 
    - [opt=Math.abs(px+py)](https://root.cern/js/latest/?file=../files/hsimple.root&item=ntuple&opt=Math.abs%28px+py%29)
 
-In the expression one could use "Entry$" and "Entries$" variables.
+In the expression one could use "Entry\$" and "Entries\$" variables.
 
 One also could specify cut condition, separating it with "::" from the rest draw expression like:
 
@@ -362,14 +366,14 @@ Either one do it interactively by drag and drop, or superimpose drawing with `+`
 - [item=simple_alice.json.gz+tracks_hits.root/tracks+tracks_hits.root/hits](https://root.cern/js/latest/?nobrowser&json=../files/geom/simple_alice.json.gz&file=../files/geom/tracks_hits.root&item=simple_alice.json.gz+tracks_hits.root/tracks+tracks_hits.root/hits)
 
 
-There is a problem of correct rendering of transparent volumes. To solve problem in general is very expensive 
-(in terms of computing power), therefore several approximation solution can be applied: 
+There is a problem of correct rendering of transparent volumes. To solve problem in general is very expensive
+(in terms of computing power), therefore several approximation solution can be applied:
    * **dpnt**: distance from camera view to the volume center used as rendering order
    * **dbox**: distance to nearest point from bonding box used as rendering order (**default**)
-   * **dsize**: volume size is used as rendreing order, can be used for centered volumes with many shells around
-   * **dray**: use raycasting to sort volumes in order they appear along rays, comming out of camera point
-   * **ddflt**: default three.js method for rendering transparent volumes       
-For different geometries different methods can be applied. In any case, all opaque volumes rendered first. 
+   * **dsize**: volume size is used as rendering order, can be used for centered volumes with many shells around
+   * **dray**: use ray-casting to sort volumes in order they appear along rays, coming out of camera point
+   * **ddflt**: default three.js method for rendering transparent volumes
+For different geometries different methods can be applied. In any case, all opaque volumes rendered first.
 
 
 ## Reading ROOT files from other servers
@@ -423,7 +427,7 @@ One could try to invoke such dialog with "localfile" parameter in URL string:
 
 It could happen, that due to security limitations automatic popup will be blocked.
 
-For debuging purposes one can install JSROOT on local file system and let read ROOT files from the same location. Like:
+For debugging purposes one can install JSROOT on local file system and let read ROOT files from the same location. Like:
 
    - <file:///home/user/jsroot/index.htm?file=hsimple.root&item=hpx>
 
@@ -500,7 +504,7 @@ In this particular case, the histogram is not changing.
 
 ## JSROOT API
 
-JSROOT can be used in arbitrary HTML pages and disaplay data, produced without ROOT-based applications.
+JSROOT can be used in arbitrary HTML pages and display data, produced without ROOT-based applications.
 
 Many different examples of JSROOT API usage can be found on [JSROOT API examples](https://root.cern/js/latest/api.htm) page.
 
@@ -519,7 +523,8 @@ Here, the default location of JSROOT is specified. One could have a local copy o
 
 In URL string with JSRootCore.js script one can specify which JSROOT functionality should be loaded:
 
-    + '2d' normal drawing for objects like TH1/TCanvas/TGraph
+    + '2d' basic drawing functionality, support TPad/TCanvas/TFrame
+    + 'hist' histograms drawing
     + 'more2d' more classes for 2D drawing like TH2/TF1/TEllipse
     + '3d' 3D drawing for 2D/3D histograms
     + 'geo' 3D drawing of TGeo classes
@@ -527,6 +532,7 @@ In URL string with JSRootCore.js script one can specify which JSROOT functionali
     + 'tree' TTree functionality
     + 'math' advanced mathemathical functions
     + 'mathjax' loads MathJax.js and use it for latex output
+    + 'openui5' load and configure OpenUI5 toolkit
     + 'gui' default gui for offline/online applications
     + 'load' name of user script(s) to load
     + 'onload' name of function to call when scripts loading completed
@@ -541,9 +547,9 @@ When JSROOT installed with bower package manager, one could re-use basic librari
 
     <script type="text/javascript" src="vendor/jsroot/scripts/JSRootCore.js?bower&2d&io"></script>
 
-Bower support will be automatically enabled when script path conatin __"bower_components/jsroot/"__ string.
+Bower support will be automatically enabled when script path contain __"bower_components/jsroot/"__ string.
 
-One also could use bower and gulp to produce single script with all libraries included.  
+One also could use bower and gulp to produce single script with all libraries included.
 This is shown in the example <https://github.com/root-project/jsroot/tree/master/demo/gulp>
 
 
@@ -595,6 +601,13 @@ Here is complete [running example](https://root.cern/js/latest/api.htm#custom_ht
        JSROOT.draw("drawing", obj, "lego");
     }).send();
 
+In very seldom cases one need to access painter object, created in JSROOT.draw() function. This can be done via
+call back (forth argument) like:
+
+    JSROOT.draw("drawing", obj, "colz", function(painter) {
+       console.log('Object type in painter', painter.GetObject()._typename);
+    });
+
 One is also able to update the drawing with a new version of the object:
 
     // after some interval request object again
@@ -618,7 +631,7 @@ To correctly cleanup JSROOT drawings from HTML element, one should call:
 
 ### File API
 
-JSROOT defines the JSROOT.TFile class, which can be used to access binary ROOT files.
+JSROOT defines the TFile class, which can be used to access binary ROOT files.
 One should always remember that all I/O operations are asynchronous in JSROOT.
 Therefore, callback functions are used to react when the I/O operation completed.
 For example, reading an object from a file and displaying it will look like:
@@ -717,8 +730,8 @@ When transparent volumes appeared in the model, one could use JSROOT.GEO.produce
 to correctly set rendering order. It should be used as:
 
     JSROOT.GEO.produceRenderOrder(scene, camera.position, 'box');
-    
-Following methods can be applied: "box", "pnt", "size", "ray" and "dflt". See more info in draw options description for TGeo classes.    
+
+Following methods can be applied: "box", "pnt", "size", "ray" and "dflt". See more info in draw options description for TGeo classes.
 
 Here is [running example](https://root.cern/js/latest/api.htm#custom_html_geometry) and [source code](https://github.com/root-project/jsroot/blob/master/demo/tgeo_build.htm).
 
@@ -728,11 +741,11 @@ Here is [running example](https://root.cern/js/latest/api.htm#custom_html_geomet
 Starting from version 5.2.0, JSROOT can be used in Node.js. To install it, use:
 
     [shell] npm install jsroot
-    
+
 To use in the Node.js scripts, one should add following line:
 
      var jsroot = require('jsroot');
-     
+
 Using JSROOT functionality, one can open binary ROOT files (local and remote), parse ROOT JSON,
 create SVG output. For example, open create SVG image with lego plot, one should do:
 
@@ -745,5 +758,43 @@ create SVG output. For example, open create SVG image with lego plot, one should
                 fs.writeFileSync("lego2.svg", svg);
             });
         });
-     });               
- 
+     });
+
+
+### Use with OpenUI5
+
+[OpenUI5](http://openui5.org/) is  a web toolkit for developers to ease and speed up the development of full-blown HTML5 web applications. Since version 5.3.0 JSROOT provides possibility to use OpenUI5 functionality together with JSROOT.
+
+First problem is bootstrapping of OpenUI5. Most easy solution - specify openui5 URL parameter when loading JSROOT:
+
+
+      <script type="text/javascript"
+              src="https://root.cern/js/latest/scripts/JSRootCore.min.js?openui5&onload=doInit">
+      </script>
+
+ JSROOT uses https://openui5.hana.ondemand.com to load latest stable version of OpenUI5. After loading is completed,
+ specified initialization function will be called, where `JSROOT.sap` can be used as normal `sap` variable.
+ Simple way to start any custom application is:
+
+      <script type="text/javascript">
+         function doInit() {
+            jQuery.sap.registerModulePath("sap.m.sample.NavContainer", "./");
+            new JSROOT.sap.m.App ({
+              pages: [
+                new JSROOT.sap.m.Page({
+                  title: "Nav Container",
+                    enableScrolling : true,
+                    content: [ new sap.ui.core.ComponentContainer({
+                         name : "sap.m.sample.NavContainer"
+                    })]
+                })
+              ]
+            }).placeAt("content");
+         }
+      </script>
+
+There are small details when using OpenUI5 with THttpServer. First of all, location of JSROOT scripts should be specified
+as `jsrootsys/scripts/JSRootCore.js`. And when trying to access files from local disk, one should specify `/currentdir/` folder:
+
+    jQuery.sap.registerModulePath("sap.m.sample.NavContainer", "/currentdir/");
+

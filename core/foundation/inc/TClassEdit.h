@@ -13,7 +13,7 @@
 #ifndef ROOT_TClassEdit
 #define ROOT_TClassEdit
 
-#include "RConfig.h"
+#include <ROOT/RConfig.hxx>
 #include "RConfigure.h"
 #include <stdlib.h>
 #ifdef R__WIN32
@@ -62,7 +62,7 @@ namespace ROOT {
       class TNormalizedCtxt;
    }
 }
-#include "RStringView.h"
+#include "ROOT/RStringView.hxx"
 
 // TClassEdit is used to manipulate class and type names.
 //
@@ -120,7 +120,7 @@ namespace TClassEdit {
    class TInterpreterLookupHelper {
    public:
       TInterpreterLookupHelper() { }
-      virtual ~TInterpreterLookupHelper() { }
+      virtual ~TInterpreterLookupHelper();
 
       virtual bool ExistingTypeCheck(const std::string & /*tname*/,
                                      std::string & /*result*/) = 0;
@@ -129,7 +129,9 @@ namespace TClassEdit {
                                                    const std::string & /*nameLong*/) = 0;
       virtual bool IsDeclaredScope(const std::string & /*base*/, bool & /*isInlined*/) = 0;
       virtual bool GetPartiallyDesugaredNameWithScopeHandling(const std::string & /*tname*/,
-                                                              std::string & /*result*/) = 0;
+                                                              std::string & /*result*/,
+                                                              bool /* dropstd */ = true) = 0;
+      virtual void ShuttingDownSignal() = 0;
    };
 
    struct TSplitType {
@@ -143,6 +145,7 @@ namespace TClassEdit {
       int  IsSTLCont(int testAlloc=0) const;
       ROOT::ESTLType  IsInSTL() const;
       void ShortType(std::string &answer, int mode);
+      bool IsTemplate();
 
    private:
       TSplitType(const TSplitType&); // intentionally not implemented
@@ -160,22 +163,28 @@ namespace TClassEdit {
    bool        IsInterpreterDetail(const char *type);
    bool        IsSTLBitset(const char *type);
    ROOT::ESTLType UnderlyingIsSTLCont(std::string_view type);
+   inline ROOT::ESTLType UnderlyingIsSTLCont (ROOT::Internal::TStringView type) { return UnderlyingIsSTLCont(std::string_view(type)); }
    ROOT::ESTLType IsSTLCont (std::string_view type);
+   inline ROOT::ESTLType IsSTLCont (ROOT::Internal::TStringView type) { return IsSTLCont(std::string_view(type)); }
    int         IsSTLCont (const char *type,int testAlloc);
    bool        IsStdClass(const char *type);
    bool        IsVectorBool(const char *name);
-   void        GetNormalizedName(std::string &norm_name,std::string_view name);
+   void        GetNormalizedName(std::string &norm_name, std::string_view name);
+   inline void GetNormalizedName (std::string &norm_name, ROOT::Internal::TStringView name) { return GetNormalizedName(norm_name, std::string_view(name)); }
    std::string GetLong64_Name(const char *original);
    std::string GetLong64_Name(const std::string& original);
    int         GetSplit  (const char *type, std::vector<std::string> &output, int &nestedLoc, EModType mode = TClassEdit::kNone);
    ROOT::ESTLType STLKind(std::string_view type);    //Kind of stl container
+   inline ROOT::ESTLType STLKind(ROOT::Internal::TStringView type) { return STLKind(std::string_view(type)); }
    int         STLArgs   (int kind);            //Min number of arguments without allocator
    std::string ResolveTypedef(const char *tname, bool resolveAll = false);
    std::string ShortType (const char *typeDesc, int mode);
    std::string InsertStd(const char *tname);
    const char* GetUnqualifiedName(const char*name);
    inline bool IsUniquePtr(std::string_view name) {return 0 == name.compare(0, 11, "unique_ptr<");}
+   inline bool IsUniquePtr(ROOT::Internal::TStringView name) {return IsUniquePtr(std::string_view(name)); }
    inline bool IsStdArray(std::string_view name) {return 0 == name.compare(0, 6, "array<");}
+   inline bool IsStdArray(ROOT::Internal::TStringView name) {return IsStdArray(std::string_view(name)); }
    inline std::string GetUniquePtrType(std::string_view name)
    {
       // Find the first template parameter
@@ -184,6 +193,7 @@ namespace TClassEdit {
       GetSplit(name.data(), v, i);
       return v[1];
    }
+   inline std::string GetUniquePtrType(ROOT::Internal::TStringView name) {return GetUniquePtrType(std::string_view(name)); }
    std::string GetNameForIO(const std::string& templateInstanceName,
                            TClassEdit::EModType mode = TClassEdit::kNone,
                            bool* hasChanged = nullptr);
@@ -214,6 +224,30 @@ namespace TClassEdit {
    return demangled_name;
    }
    char* DemangleTypeIdName(const std::type_info& ti, int& errorCode);
+
+
+   /// Result of splitting a function declaration into
+   /// fReturnType fScopeName::fFunctionName<fFunctionTemplateArguments>(fFunctionParameters)
+   struct FunctionSplitInfo {
+      /// Return type of the function, might be empty if the function declaration string did not provide it.
+      std::string fReturnType;
+
+      /// Name of the scope qualification of the function, possibly empty
+      std::string fScopeName;
+
+      /// Name of the function
+      std::string fFunctionName;
+
+      /// Template arguments of the function template specialization, if any; will contain one element "" for
+      /// `function<>()`
+      std::vector<std::string> fFunctionTemplateArguments;
+
+      /// Function parameters.
+      std::vector<std::string> fFunctionParameters;
+   };
+
+   /// Split a function declaration into its different parts.
+   bool SplitFunction(std::string_view decl, FunctionSplitInfo &result);
 }
 
 #endif

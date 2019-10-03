@@ -40,15 +40,7 @@ A simple Binary search tree including a volume search method.
 #include <queue>
 #include <algorithm>
 
-// #if ROOT_VERSION_CODE >= 364802
-// #ifndef ROOT_TMathBase
-// #include "TMathBase.h"
-// #endif
-// #else
-// #ifndef ROOT_TMath
 #include "TMath.h"
-// #endif
-// #endif
 
 #include "TMatrixDBase.h"
 #include "TObjString.h"
@@ -101,7 +93,7 @@ TMVA::BinarySearchTree::BinarySearchTree( const BinarySearchTree &b)
 TMVA::BinarySearchTree::~BinarySearchTree( void )
 {
    for(std::vector< std::pair<Double_t, const TMVA::Event*> >::iterator pIt = fNormalizeTreeTable.begin();
-       pIt != fNormalizeTreeTable.end(); pIt++) {
+       pIt != fNormalizeTreeTable.end(); ++pIt) {
       delete pIt->second;
    }
 }
@@ -302,7 +294,7 @@ void TMVA::BinarySearchTree::NormalizeTree ( std::vector< std::pair<Double_t, co
    if (leftBound == rightBound) return;
 
    if (actDim == fPeriod)  actDim = 0;
-   for (std::vector< std::pair<Double_t, const TMVA::Event*> >::iterator i=leftBound; i!=rightBound; i++) {
+   for (std::vector< std::pair<Double_t, const TMVA::Event*> >::iterator i=leftBound; i!=rightBound; ++i) {
       i->first = i->second->GetValue( actDim );
    }
 
@@ -313,11 +305,11 @@ void TMVA::BinarySearchTree::NormalizeTree ( std::vector< std::pair<Double_t, co
 
    // meet in the middle
    while (true) {
-      rightTemp--;
+      --rightTemp;
       if (rightTemp == leftTemp ) {
          break;
       }
-      leftTemp++;
+      ++leftTemp;
       if (leftTemp  == rightTemp) {
          break;
       }
@@ -326,11 +318,11 @@ void TMVA::BinarySearchTree::NormalizeTree ( std::vector< std::pair<Double_t, co
    std::vector< std::pair<Double_t, const TMVA::Event*> >::iterator mid     = leftTemp;
    std::vector< std::pair<Double_t, const TMVA::Event*> >::iterator midTemp = mid;
 
-   if (mid!=leftBound) midTemp--;
+   if (mid!=leftBound)--midTemp;
 
    while (mid != leftBound && mid->second->GetValue( actDim ) == midTemp->second->GetValue( actDim ))  {
-      mid--;
-      midTemp--;
+      --mid;
+      --midTemp;
    }
 
    Insert( mid->second );
@@ -339,7 +331,7 @@ void TMVA::BinarySearchTree::NormalizeTree ( std::vector< std::pair<Double_t, co
    //    std::cout << std::endl << std::endl;
 
    NormalizeTree( leftBound, mid, actDim+1 );
-   mid++;
+   ++mid;
    //    Print(std::cout);
    //    std::cout << std::endl << std::endl;
    NormalizeTree( mid, rightBound, actDim+1 );

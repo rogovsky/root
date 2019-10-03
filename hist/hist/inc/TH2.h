@@ -57,10 +57,19 @@ protected:
    Int_t    Fill(Double_t); //MayNotUse
    Int_t    Fill(const char*, Double_t) { return Fill(0);}  //MayNotUse
 
+   virtual Double_t Interpolate(Double_t x) const; // may not use
+
 private:
 
    TH2(const TH2&);
    TH2& operator=(const TH2&); // Not implemented
+
+   // make private methods which have a TH1 signature and should not
+   // be called for a TH2
+   using TH1::GetBinErrorLow;
+   using TH1::GetBinErrorUp;
+   using TH1::Integral;
+   using TH1::IntegralAndError;
 
 public:
    virtual ~TH2();
@@ -75,8 +84,6 @@ public:
    virtual void     FillN(Int_t ntimes, const Double_t *x, const Double_t *y, const Double_t *w, Int_t stride=1);
    virtual void     FillRandom(const char *fname, Int_t ntimes=5000);
    virtual void     FillRandom(TH1 *h, Int_t ntimes=5000);
-   virtual Int_t    FindFirstBinAbove(Double_t threshold=0, Int_t axis=1) const;
-   virtual Int_t    FindLastBinAbove (Double_t threshold=0, Int_t axis=1) const;
    virtual void     FitSlicesX(TF1 *f1=0,Int_t firstybin=0, Int_t lastybin=-1, Int_t cut=0, Option_t *option="QNR", TObjArray* arr = 0);
    virtual void     FitSlicesY(TF1 *f1=0,Int_t firstxbin=0, Int_t lastxbin=-1, Int_t cut=0, Option_t *option="QNR", TObjArray* arr = 0);
    virtual Int_t    GetBin(Int_t binx, Int_t biny, Int_t binz = 0) const;
@@ -84,8 +91,6 @@ public:
    virtual Double_t GetBinContent(Int_t bin) const { return TH1::GetBinContent(bin); }
    virtual Double_t GetBinContent(Int_t binx, Int_t biny) const { return TH1::GetBinContent( GetBin(binx, biny) ); }
    virtual Double_t GetBinContent(Int_t binx, Int_t biny, Int_t) const { return TH1::GetBinContent( GetBin(binx, biny) ); }
-   using TH1::GetBinErrorLow;
-   using TH1::GetBinErrorUp;
    virtual Double_t GetBinErrorLow(Int_t binx, Int_t biny) { return TH1::GetBinErrorLow( GetBin(binx, biny) ); }
    virtual Double_t GetBinErrorUp(Int_t binx, Int_t biny) { return TH1::GetBinErrorUp( GetBin(binx, biny) ); }
    virtual Double_t GetCorrelationFactor(Int_t axis1=1,Int_t axis2=2) const;
@@ -94,18 +99,16 @@ public:
    virtual void     GetStats(Double_t *stats) const;
    virtual Double_t Integral(Option_t *option="") const;
    //virtual Double_t Integral(Int_t, Int_t, Option_t * ="") const {return 0;}
-   using TH1::Integral;
    virtual Double_t Integral(Int_t binx1, Int_t binx2, Int_t biny1, Int_t biny2, Option_t *option="") const;
    virtual Double_t Integral(Int_t, Int_t, Int_t, Int_t, Int_t, Int_t, Option_t * ="") const {return 0;}
-   using TH1::IntegralAndError;
    virtual Double_t IntegralAndError(Int_t binx1, Int_t binx2, Int_t biny1, Int_t biny2, Double_t & err, Option_t *option="") const;
-   virtual Double_t Interpolate(Double_t x);
-   virtual Double_t Interpolate(Double_t x, Double_t y);
-   virtual Double_t Interpolate(Double_t x, Double_t y, Double_t z);
+   virtual Double_t Interpolate(Double_t x, Double_t y) const;
+   virtual Double_t Interpolate(Double_t x, Double_t y, Double_t z) const;
    virtual Double_t KolmogorovTest(const TH1 *h2, Option_t *option="") const;
-   virtual TH2     *RebinX(Int_t ngroup=2, const char *newname="");
-   virtual TH2     *RebinY(Int_t ngroup=2, const char *newname="");
-   virtual TH2     *Rebin2D(Int_t nxgroup=2, Int_t nygroup=2, const char *newname="");
+   virtual TH2     *RebinX(Int_t ngroup=2, const char *newname=""); // *MENU*
+   virtual TH2     *RebinY(Int_t ngroup=2, const char *newname=""); // *MENU*
+   virtual TH2     *Rebin(Int_t ngroup=2, const char*newname="", const Double_t *xbins=0);  // re-implementation of the TH1 function using RebinX
+   virtual TH2     *Rebin2D(Int_t nxgroup=2, Int_t nygroup=2, const char *newname=""); // *MENU*
       TProfile     *ProfileX(const char *name="_pfx", Int_t firstybin=1, Int_t lastybin=-1, Option_t *option="") const;   // *MENU*
       TProfile     *ProfileY(const char *name="_pfy", Int_t firstxbin=1, Int_t lastxbin=-1, Option_t *option="") const;   // *MENU*
          TH1D      *ProjectionX(const char *name="_px", Int_t firstybin=0, Int_t lastybin=-1, Option_t *option="") const; // *MENU*
@@ -123,7 +126,7 @@ public:
    virtual Int_t    ShowPeaks(Double_t sigma=2, Option_t *option="", Double_t threshold=0.05); // *MENU*
    virtual void     Smooth(Int_t ntimes=1, Option_t *option=""); // *MENU*
 
-   ClassDef(TH2,4)  //2-Dim histogram base class
+   ClassDef(TH2,5)  //2-Dim histogram base class
 };
 
 
@@ -162,7 +165,7 @@ protected:
    virtual Double_t RetrieveBinContent(Int_t bin) const { return Double_t (fArray[bin]); }
    virtual void     UpdateBinContent(Int_t bin, Double_t content) { fArray[bin] = Char_t (content); }
 
-   ClassDef(TH2C,3)  //2-Dim histograms (one char per channel)
+   ClassDef(TH2C,4)  //2-Dim histograms (one char per channel)
 };
 
 
@@ -201,7 +204,7 @@ protected:
    virtual Double_t RetrieveBinContent(Int_t bin) const { return Double_t (fArray[bin]); }
    virtual void     UpdateBinContent(Int_t bin, Double_t content) { fArray[bin] = Short_t (content); }
 
-   ClassDef(TH2S,3)  //2-Dim histograms (one short per channel)
+   ClassDef(TH2S,4)  //2-Dim histograms (one short per channel)
 };
 
 
@@ -240,7 +243,7 @@ protected:
    virtual Double_t RetrieveBinContent(Int_t bin) const { return Double_t (fArray[bin]); }
    virtual void     UpdateBinContent(Int_t bin, Double_t content) { fArray[bin] = Int_t (content); }
 
-   ClassDef(TH2I,3)  //2-Dim histograms (one 32 bits integer per channel)
+   ClassDef(TH2I,4)  //2-Dim histograms (one 32 bits integer per channel)
 };
 
 
@@ -281,7 +284,7 @@ protected:
    virtual Double_t RetrieveBinContent(Int_t bin) const { return Double_t (fArray[bin]); }
    virtual void     UpdateBinContent(Int_t bin, Double_t content) { fArray[bin] = Float_t (content); }
 
-   ClassDef(TH2F,3)  //2-Dim histograms (one float per channel)
+   ClassDef(TH2F,4)  //2-Dim histograms (one float per channel)
 };
 
 
@@ -322,8 +325,7 @@ protected:
    virtual Double_t RetrieveBinContent(Int_t bin) const { return fArray[bin]; }
    virtual void     UpdateBinContent(Int_t bin, Double_t content) { fArray[bin] = content; }
 
-   ClassDef(TH2D,3)  //2-Dim histograms (one double per channel)
+   ClassDef(TH2D,4)  //2-Dim histograms (one double per channel)
 };
 
 #endif
-

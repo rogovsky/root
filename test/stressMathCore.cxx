@@ -46,7 +46,6 @@
 //   root> gSystem->Load("libTree");
 //   root> gSystem->Load("libHist");
 //   root> gSystem->Load("libReflex");
-//   root> gSystem->Load("libCintex");
 //   root> gSystem->SetIncludePath("-DUSE_REFLEX");
 //   root> .x stressMathCore.cxx+
 //
@@ -85,6 +84,8 @@
 
 #include "Math/SVector.h"
 #include "Math/SMatrix.h"
+
+R__ADD_INCLUDE_PATH($ROOTSYS/test)
 
 #include "TrackMathCore.h"
 #include "Math/GenVector/RotationZ.h" // Workaround to autoload libGenVector ROOT-7056
@@ -1118,19 +1119,21 @@ int testVector(int ngen, bool testio=false) {
    s1 = a.testOperations(v1);  a.print(VecType<V1>::name()+" operations");
    scale = Dim*20;
    if (Dim==3 && VecType<V2>::name() == "RhoEtaPhiVector") scale *= 12; // for problem with RhoEtaPhi
-   if (Dim==4 && VecType<V2>::name() == "PtEtaPhiMVector") {
+   if (Dim==4 && ( VecType<V2>::name() == "PtEtaPhiMVector" || VecType<V2>::name() == "PxPyPzMVector")) {
 #if (defined(__arm__) || defined(__arm64__) || defined(__aarch64__))
-      scale *= 65;
+      scale *= 1.E7;
 #else
       scale *= 10;
 #endif
+#if defined(__FAST_MATH__) && defined(__clang__)
+      scale *= 1.E6;
+#endif
    }
-
+   // for problem with PtEtaPhiE
 #if defined (R__LINUX) && !defined(R__B64)
    // problem of precision on linux 32
    if (Dim ==4) scale = 1000000000;
 #endif
-   // for problem with PtEtaPhiE
    if (Dim==4 && VecType<V2>::name() == "PtEtaPhiEVector") scale = 0.01/(std::numeric_limits<double>::epsilon());
    s2 = a.testOperations(v2);  iret |= a.check(VecType<V2>::name()+" operations",s2,s1,scale);
 
@@ -1364,7 +1367,7 @@ int testSMatrix(int ngen, bool testio=false) {
    typeName = "ROOT::Math::"+name0+ "," + Rep::name32()  + ">";
 
 
-   estSize = ngen* 4 * Dim + 10000;
+   estSize = ngen* 4 * Dim + 60158;
    scale = 0.1 / std::numeric_limits<double>::epsilon();
    fsize32 = a.testWrite(v1,typeName);     iret |= a.check(name+" write",fsize32,estSize,scale);
    ir = a.testRead(v1);   iret |= a.check(name+" read",ir,0);
@@ -1486,17 +1489,15 @@ int testCompositeObj(int ngen) {
    std::cout << "\tTest of a Composite Object (containing Vector's and Matrices)\n";
    std::cout <<"******************************************************************************\n";
 
-
-
-#ifndef USE_REFLEX
-
    std::cout << "Test Using CINT library\n\n";
 
    // put path relative to LD_LIBRARY_PATH
 
-   const char* dynPath = gSystem->DynamicPathName("../test/libTrackMathCoreDict",
-                                                  /*quiet*/ true);
+   std::unique_ptr<const char> dynPath(gSystem->DynamicPathName("../test/libTrackMathCoreDict",
+                                                  /*quiet*/ true));
+
    int iret = -1;
+
    if (dynPath)
       iret = gSystem->Load("../test/libTrackMathCoreDict");
    if (iret < 0) {
@@ -1507,26 +1508,7 @@ int testCompositeObj(int ngen) {
          return iret;
       }
    }
-#else
 
-   std::cout << "Test Using Reflex library\n\n";
-
-#ifdef DEBUG
-   ROOT::Cintex::Cintex::SetDebug(1);
-#endif
-   ROOT::Cintex::Cintex::Enable();
-
-   iret = gSystem->Load("../test/libTrackMathCoreRflx");
-   if (iret < 0) {
-      // if not assume running from top ROOT dir (case of roottest)
-      iret = gSystem->Load("test/libTrackMathCoreRflx");
-      if (iret < 0) {
-         std::cerr <<"Error Loading libTrackMathCoreRflx" << std::endl;
-         return iret;
-      }
-   }
-
-#endif
    iret = 0;
 
    iret |= testTrack<TrackD>(ngen);
@@ -1603,6 +1585,9 @@ int stressMathCore(double nscale = 1) {
 
 
 int main(int argc,const char *argv[]) {
+   std::string inclRootSys = ("-I" + TROOT::GetRootSys() + "/test").Data();
+   TROOT::AddExtraInterpreterArgs({inclRootSys});
+
    double nscale = 1;
    if (argc > 1) {
       nscale = atof(argv[1]);

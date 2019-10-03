@@ -1,3 +1,9 @@
+# Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.
+# All rights reserved.
+#
+# For the licensing terms see $ROOTSYS/LICENSE.
+# For the list of contributors see $ROOTSYS/README/CREDITS.
+
 INCLUDE (CheckCXXSourceCompiles)
 
 #---Define a function to do not polute the top level namespace with unneeded variables-----------------------
@@ -28,7 +34,6 @@ set(ldflags ${CMAKE_CXX_LINK_FLAGS})
 
 set(winrtdebug ${value${winrtdebug}})
 set(exceptions ${value${exceptions}})
-set(explicitlink ${value${explicitlink}})
 
 if(gnuinstall)
   set(prefix ${CMAKE_INSTALL_PREFIX})
@@ -80,6 +85,16 @@ if(IS_ABSOLUTE ${CMAKE_INSTALL_FONTDIR})
 else()
   set(ttffontdir ${prefix}/${CMAKE_INSTALL_FONTDIR})
 endif()
+if(IS_ABSOLUTE ${CMAKE_INSTALL_JSROOTDIR})
+  set(jsrootdir ${CMAKE_INSTALL_JSROOTDIR})
+else()
+  set(jsrootdir ${prefix}/${CMAKE_INSTALL_JSROOTDIR})
+endif()
+if(IS_ABSOLUTE ${CMAKE_INSTALL_OPENUI5DIR})
+  set(openui5dir ${CMAKE_INSTALL_OPENUI5DIR})
+else()
+  set(openui5dir ${prefix}/${CMAKE_INSTALL_OPENUI5DIR})
+endif()
 if(IS_ABSOLUTE ${CMAKE_INSTALL_MACRODIR})
   set(macrodir ${CMAKE_INSTALL_MACRODIR})
 else()
@@ -105,31 +120,19 @@ if(IS_ABSOLUTE ${CMAKE_INSTALL_DOCDIR})
 else()
   set(docdir ${prefix}/${CMAKE_INSTALL_DOCDIR})
 endif()
-if(IS_ABSOLUTE ${CMAKE_INSTALL_TESTDIR})
-  set(testdir ${CMAKE_INSTALL_TESTDIR})
-else()
-  set(testdir ${prefix}/${CMAKE_INSTALL_TESTDIR})
-endif()
 if(IS_ABSOLUTE ${CMAKE_INSTALL_TUTDIR})
   set(tutdir ${CMAKE_INSTALL_TUTDIR})
 else()
   set(tutdir ${prefix}/${CMAKE_INSTALL_TUTDIR})
 endif()
-if(IS_ABSOLUTE ${CMAKE_INSTALL_ACLOCALDIR})
-  set(aclocaldir ${CMAKE_INSTALL_ACLOCALDIR})
-else()
-  set(aclocaldir ${prefix}/${CMAKE_INSTALL_ACLOCALDIR})
-endif()
-
-set(LibSuffix ${SOEXT})
 
 set(buildx11 ${value${x11}})
 set(x11libdir -L${X11_LIBRARY_DIR})
 set(xpmlibdir -L${X11_LIBRARY_DIR})
 set(xpmlib ${X11_Xpm_LIB})
-set(enable_xft ${value${xft}})
 
-set(enable_thread ${value${thread}})
+set(thread yes)
+set(enable_thread yes)
 set(threadflag ${CMAKE_THREAD_FLAG})
 set(threadlibdir)
 set(threadlib ${CMAKE_THREAD_LIBS_INIT})
@@ -158,11 +161,6 @@ set(gl2pslibdir ${GL2PS_LIBRARY_DIR})
 set(gl2pslib ${GL2PS_LIBRARY})
 set(gl2psincdir ${GL2PS_INCLUDE_DIR})
 
-set(buildldap ${value${ldap}})
-set(ldaplibdir ${LDAP_LIBRARY_DIR})
-set(ldaplib ${LDAP_LIBRARY})
-set(ldapincdir ${LDAP_INCLUDE_DIR})
-
 set(buildmysql ${value${mysql}})
 set(mysqllibdir ${MYSQL_LIBRARY_DIR})
 set(mysqllib ${MYSQL_LIBRARY})
@@ -183,44 +181,20 @@ set(sqlitelibdir ${SQLITE_LIBRARY_DIR})
 set(sqlitelib ${SQLITE_LIBRARY})
 set(sqliteincdir ${SQLITE_INCLUDE_DIR})
 
-set(buildsapdb ${value${sapdb}})
-set(sapdblibdir ${SAPDB_LIBRARY_DIR})
-set(sapdblib ${SAPDB_LIBRARY})
-set(sapdbincdir ${SAPDB_INCLUDE_DIR})
-
 set(buildodbc ${value${odbc}})
 set(odbclibdir ${OCDB_LIBRARY_DIR})
 set(odbclib ${OCDB_LIBRARY})
 set(odbcincdir ${OCDB_INCLUDE_DIR})
-
-set(buildqt ${value${qt}})
-set(buildqtpsi ${value${qtgsi}})
-set(qtlibdir ${QT_LIBRARY_DIR})
-set(qtlib ${QT_QT_LIBRARY})
-set(qtincdir ${QT_INCLUDE_DIR})
-set(qtvers ${QT_VERSION_MAJOR})
-set(qtmocexe ${QT_MOC_EXECUTABLE})
-
-set(buildrfio ${value${rfio}})
-set(shiftlibdir ${RFIO_LIBRARY_DIR})
-set(shiftlib ${RFIO_LIBRARY})
-set(shiftincdir ${RFIO_INCLUDE_DIR})
-set(shiftcflags)
-
-set(buildcastor ${value${castor}})
-set(castorlibdir ${CASTOR_LIBRARY_DIR})
-set(castorlib ${CASTOR_LIBRARY})
-set(castorincdir ${CASTOR_INCLUDE_DIR})
-set(castorcflags)
-
 
 set(builddavix ${value${davix}})
 set(davixlibdir ${DAVIX_LIBRARY_DIR})
 set(davixlib ${DAVIX_LIBRARY})
 set(davixincdir ${DAVIX_INCLUDE_DIR})
 if(davix)
+  set(hasdavix define)
   set(useoldwebfile no)
 else()
+  set(hasdavix undef)
   set(useoldwebfile yes)
 endif()
 
@@ -251,36 +225,17 @@ set(gfallibdir ${GFAL_LIBRARY_DIR})
 set(gfallib ${GFAL_LIBRARY})
 set(gfalincdir ${GFAL_INCLUDE_DIR})
 
-set(buildglite ${value${glite}})
-set(glitelibdir ${GLITE_LIBRARY_DIR})
-set(glitelib ${GLITE_LIBRARY})
-set(gaw_cppflags)
-
 set(buildmemstat ${value${memstat}})
-
-set(buildbonjour ${value${bonjour}})
-set(dnssdlibdir ${BONJOUR_LIBRARY_DIR})
-set(dnssdlib ${BONJOUR_LIBRARY})
-set(dnsdincdir ${BONJOUR_INCLUDE_DIR})
-
-set(buildchirp ${value${chirp}})
-set(chirplibdir ${CHIRP_LIBRARY_DIR})
-set(chirplib ${CHIRP_LIBRARY})
-set(chirpincdir ${CHIRP_INCLUDE_DIR})
-
-set(buildhdfs ${value${hdfs}})
-set(hdfslibdir ${HDFS_LIBRARY_DIR})
-set(hdfslib ${HDFS_LIBRARY})
-set(hdfsincdir ${HDFS_INCLUDE_DIR})
-
-set(jniincdir ${Java_INCLUDE_DIRS})
-set(jvmlib ${Java_LIBRARIES})
-set(jvmlibdir ${Java_LIBRARY_DIR})
 
 set(buildalien ${value${alien}})
 set(alienlibdir ${ALIEN_LIBRARY_DIR})
 set(alienlib ${ALIEN_LIBRARY})
 set(alienincdir ${ALIEN_INCLUDE_DIR})
+
+set(buildarrow ${value${arrow}})
+set(arrowlibdir ${ARROW_LIBRARY_DIR})
+set(arrowlib ${ARROW_LIBRARY})
+set(arrowincdir ${ARROW_INCLUDE_DIR})
 
 set(buildasimage ${value${asimage}})
 set(builtinafterimage ${builtin_afterimage})
@@ -325,11 +280,6 @@ set(pythonlib ${PYTHON_LIBRARY})
 set(pythonincdir ${PYTHON_INCLUDE_DIR})
 set(pythonlibflags)
 
-set(buildruby ${value${ruby}})
-set(rubylibdir ${RUBY_LIBRARY_DIR})
-set(rubylib ${RUBY_LIBRARY})
-set(rubyincdir ${RUBY_INCLUDE_DIR})
-
 set(buildxml ${value${xml}})
 set(xmllibdir ${LIBXML2_LIBRARY_DIR})
 set(xmllib ${LIBXML2_LIBRARIES})
@@ -342,41 +292,8 @@ set(xrdaddopts)
 set(extraxrdflags)
 set(xrdversion)
 
-set(srplibdir)
-set(srplib)
-set(srpincdir)
-
-set(buildsrputil)
-set(srputillibdir)
-set(srputillib)
-set(srputilincdir)
-
-set(afslib ${AFS_LIBRARY})
-set(afslibdir ${AFS_LIBRARY_DIR})
-set(afsincdir ${AFS_INCLUDE_DIR})
-set(afsextracflags)
-set(afsshared)
-
 set(alloclib)
 set(alloclibdir)
-
-set(buildkrb5 ${value${krb5}})
-set(krb5libdir ${KRB5_LIBRARY_DIR})
-set(krb5lib ${KRB5_LIBRARY})
-set(krb5incdir ${KRB5_INCLUDE_DIR})
-set(krb5init ${KRB5_INIT})
-
-set(comerrlib)
-set(comerrlibdir)
-set(resolvlib)
-set(cryptolib ${CRYPTLIBS})
-set(cryptolibdir)
-
-set(buildglobus ${value${globus}})
-set(globuslibdir ${GLOBUS_LIBRARY_DIR})
-set(globuslib ${GLOBUS_LIBRARY})
-set(globusincdir ${GLOBUS_INCLUDE_DIR})
-set(buildxrdgsi)
 
 set(buildmonalisa ${value${monalisa}})
 set(monalisalibdir ${MONALISA_LIBRARY_DIR})
@@ -394,15 +311,20 @@ set(gslincdir ${GSL_INCLUDE_DIR})
 set(gslflags)
 
 set(shadowpw ${value${shadowpw}})
-set(buildgenvector ${value${genvector}})
 set(buildmathmore ${value${mathmore}})
-set(buildcling ${value${cling}})
 set(buildroofit ${value${roofit}})
 set(buildminuit2 ${value${minuit2}})
 set(buildunuran ${value${unuran}})
 set(buildgdml ${value${gdml}})
 set(buildhttp ${value${http}})
-set(buildtable ${value${table}})
+if(fcgi AND http)
+set(usefastcgi yes)
+set(fastcgiincdir ${FASTCGI_INCLUDE_DIR})
+else()
+set(usefastcgi no)
+set(fcgiincdir)
+endif()
+
 set(buildtmva ${value${tmva}})
 
 set(cursesincdir ${CURSES_INCLUDE_DIR})
@@ -416,6 +338,21 @@ set(dicttype ${ROOT_DICTTYPE})
 
 find_program(PERL_EXECUTABLE perl)
 set(perl ${PERL_EXECUTABLE})
+
+find_program(CHROME_EXECUTABLE NAMES chrome.exe chromium chromium-browser chrome chrome-browser Google\ Chrome
+             PATHS "$ENV{PROGRAMFILES}/Google/Chrome/Application"
+             "$ENV{PROGRAMFILES\(X86\)}/Google/Chrome/Application")
+if(CHROME_EXECUTABLE)
+  set(chromeexe ${CHROME_EXECUTABLE})
+endif()
+
+find_program(FIREFOX_EXECUTABLE NAMES firefox firefox.exe
+             PATHS "$ENV{PROGRAMFILES}/Mozilla Firefox"
+             "$ENV{PROGRAMFILES\(X86\)}/Mozilla Firefox")
+if(FIREFOX_EXECUTABLE)
+  set(firefoxexe ${FIREFOX_EXECUTABLE})
+endif()
+
 
 #---RConfigure-------------------------------------------------------------------------------------------------
 # set(setresuid undef)
@@ -442,15 +379,10 @@ if(CMAKE_USE_PTHREADS_INIT)
 else()
   set(haspthread undef)
 endif()
-if(xft)
+if(x11)
   set(hasxft define)
 else()
   set(hasxft undef)
-endif()
-if(cling)
-  set(hascling define)
-else()
-  set(hascling undef)
 endif()
 if(lzma)
   set(haslzmacompression define)
@@ -472,56 +404,107 @@ if(vc)
 else()
   set(hasvc undef)
 endif()
+if(vmc)
+  set(hasvmc define)
+else()
+  set(hasvmc undef)
+endif()
+if(vdt)
+  set(hasvdt define)
+else()
+  set(hasvdt undef)
+endif()
 if(veccore)
   set(hasveccore define)
 else()
   set(hasveccore undef)
 endif()
-if(cxx11)
-  set(cxxversion cxx11)
-  set(usec++11 define)
-else()
-  set(usec++11 undef)
+
+if(compression_default STREQUAL "lz4")
+  set(uselz4 define)
+  set(usezlib undef)
+  set(uselzma undef)
+elseif(compression_default STREQUAL "zlib")
+  set(uselz4 undef)
+  set(usezlib define)
+  set(uselzma undef)
+elseif(compression_default STREQUAL "lzma")
+  set(uselz4 undef)
+  set(usezlib undef)
+  set(uselzma define)
 endif()
-if(cxx14)
-  set(cxxversion cxx14)
-  set(usec++14 define)
+# cloudflare zlib is available only on x86 and aarch64 platforms with Linux
+# for other platforms we have available builtin zlib 1.2.8
+if(ZLIB_CF)
+  set(usecloudflarezlib define)
 else()
-  set(usec++14 undef)
+  set(usecloudflarezlib undef)
 endif()
-if(cxx17)
-  set(cxxversion cxx17)
-  set(usec++17 define)
+if(runtime_cxxmodules)
+  set(usecxxmodules define)
 else()
-  set(usec++17 undef)
+  set(usecxxmodules undef)
 endif()
 if(libcxx)
   set(uselibc++ define)
 else()
   set(uselibc++ undef)
 endif()
-set(hasllvm undef)
-set(llvmdir /**/)
 if(gcctoolchain)
   set(setgcctoolchain define)
 else()
   set(setgcctoolchain undef)
 endif()
+if(memory_termination)
+  set(memory_term define)
+else()
+  set(memory_term undef)
+endif()
+if(cefweb)
+  set(hascefweb define)
+else()
+  set(hascefweb undef)
+endif()
+if(qt5web)
+  set(hasqt5webengine define)
+else()
+  set(hasqt5webengine undef)
+endif()
+if (tmva-cpu)
+  set(hastmvacpu define)
+else()
+  set(hastmvacpu undef)
+endif()
+if (tmva-gpu)
+  set(hastmvagpu define)
+else()
+  set(hastmvagpu undef)
+endif()
 
+# clear cache to allow reconfiguring
+# with a different CMAKE_CXX_STANDARD
+unset(found_stdapply CACHE)
+unset(found_stdindexsequence CACHE)
+unset(found_stdinvoke CACHE)
+unset(found_stdstringview CACHE)
+unset(found_stdexpstringview CACHE)
+unset(found_stod_stringview CACHE)
+
+set(hasstdexpstringview undef)
 CHECK_CXX_SOURCE_COMPILES("#include <string_view>
   int main() { char arr[3] = {'B', 'a', 'r'}; std::string_view strv(arr, sizeof(arr)); return 0;}" found_stdstringview)
 if(found_stdstringview)
   set(hasstdstringview define)
 else()
   set(hasstdstringview undef)
-endif()
 
-CHECK_CXX_SOURCE_COMPILES("#include <experimental/string_view>
-   int main() { std::experimental::string_view().to_string(); return 0;}" found_stdexpstringview)
-if(found_stdexpstringview)
-  set(hasstdexpstringview define)
-else()
-  set(hasstdexpstringview undef)
+  CHECK_CXX_SOURCE_COMPILES("#include <experimental/string_view>
+   int main() { char arr[3] = {'B', 'a', 'r'}; std::experimental::string_view strv(arr, sizeof(arr)); return 0;}" found_stdexpstringview)
+  if(found_stdexpstringview)
+    set(hasstdexpstringview define)
+  else()
+    set(hasstdexpstringview undef)
+  endif()
 endif()
 
 if(found_stdstringview)
@@ -556,18 +539,49 @@ else()
   set(hasstdinvoke undef)
 endif()
 
+CHECK_CXX_SOURCE_COMPILES("#include <utility>
+#include <type_traits>
+int main() {
+  static_assert(std::is_same<std::integer_sequence<std::size_t, 0, 1, 2>, std::make_index_sequence<3>>::value, \"\");
+  return 0;
+}" found_stdindexsequence)
+if(found_stdindexsequence)
+  set(hasstdindexsequence define)
+else()
+  set(hasstdindexsequence undef)
+endif()
+
+CHECK_CXX_SOURCE_COMPILES("
+inline __attribute__((always_inline)) bool TestBit(unsigned long f) { return f != 0; };
+int main() { return TestBit(0); }" found_attribute_always_inline)
+if(found_attribute_always_inline)
+   set(has_found_attribute_always_inline define)
+else()
+   set(has_found_attribute_always_inline undef)
+endif()
+
+CHECK_CXX_SOURCE_COMPILES("
+inline __attribute__((noinline)) bool TestBit(unsigned long f) { return f != 0; };
+int main() { return TestBit(0); }" has_found_attribute_noinline)
+if(has_found_attribute_noinline)
+   set(has_found_attribute_noinline define)
+else()
+   set(has_found_attribute_noinline undef)
+endif()
+
 #---root-config----------------------------------------------------------------------------------------------
-ROOT_SHOW_OPTIONS(features)
-string(REPLACE "c++11" "cxx11" features ${features}) # change the name of the c++11 feature needed for root-config.in
+ROOT_GET_OPTIONS(features ENABLED)
+set(features "cxx${CMAKE_CXX_STANDARD} ${features}")
 set(configfeatures ${features})
 set(configargs ${ROOT_CONFIGARGS})
 set(configoptions ${ROOT_CONFIGARGS})
+set(configstd ${CMAKE_CXX${CMAKE_CXX_STANDARD}_STANDARD_COMPILE_OPTION})
 get_filename_component(altcc ${CMAKE_C_COMPILER} NAME)
 get_filename_component(altcxx ${CMAKE_CXX_COMPILER} NAME)
 get_filename_component(altf77 "${CMAKE_Fortran_COMPILER}" NAME)
 get_filename_component(altld ${CMAKE_CXX_COMPILER} NAME)
 
-set(pythonvers ${PYTHON_VERSION})
+set(pythonvers ${PYTHON_VERSION_STRING})
 
 #---RConfigure.h---------------------------------------------------------------------------------------------
 configure_file(${PROJECT_SOURCE_DIR}/config/RConfigure.in include/RConfigure.h NEWLINE_STYLE UNIX)
@@ -580,29 +594,31 @@ configure_file(${CMAKE_SOURCE_DIR}/config/rootrc.in ${CMAKE_BINARY_DIR}/etc/syst
 configure_file(${CMAKE_SOURCE_DIR}/config/rootauthrc.in ${CMAKE_BINARY_DIR}/etc/system.rootauthrc @ONLY NEWLINE_STYLE UNIX)
 configure_file(${CMAKE_SOURCE_DIR}/config/rootdaemonrc.in ${CMAKE_BINARY_DIR}/etc/system.rootdaemonrc @ONLY NEWLINE_STYLE UNIX)
 
-configure_file(${CMAKE_SOURCE_DIR}/config/rootd.in ${CMAKE_BINARY_DIR}/etc/daemons/rootd.rc.d @ONLY NEWLINE_STYLE UNIX)
-configure_file(${CMAKE_SOURCE_DIR}/config/rootd.xinetd.in ${CMAKE_BINARY_DIR}/etc/daemons/rootd.xinetd @ONLY NEWLINE_STYLE UNIX)
-configure_file(${CMAKE_SOURCE_DIR}/config/proofd.in ${CMAKE_BINARY_DIR}/etc/daemons/proofd.rc.d @ONLY NEWLINE_STYLE UNIX)
-configure_file(${CMAKE_SOURCE_DIR}/config/proofd.xinetd.in ${CMAKE_BINARY_DIR}/etc/daemons/proofd.xinetd @ONLY NEWLINE_STYLE UNIX)
-
 configure_file(${CMAKE_SOURCE_DIR}/config/RConfigOptions.in include/RConfigOptions.h NEWLINE_STYLE UNIX)
-
-if(ruby)
-  file(APPEND ${CMAKE_BINARY_DIR}/include/RConfigOptions.h "\#define R__RUBY_MAJOR ${RUBY_MAJOR_VERSION}\n\#define R__RUBY_MINOR ${RUBY_MINOR_VERSION}\n")
-endif()
 
 configure_file(${CMAKE_SOURCE_DIR}/config/Makefile-comp.in config/Makefile.comp NEWLINE_STYLE UNIX)
 configure_file(${CMAKE_SOURCE_DIR}/config/Makefile.in config/Makefile.config NEWLINE_STYLE UNIX)
 configure_file(${CMAKE_SOURCE_DIR}/config/mimes.unix.in ${CMAKE_BINARY_DIR}/etc/root.mimes NEWLINE_STYLE UNIX)
 
 #---Generate the ROOTConfig files to be used by CMake projects-----------------------------------------------
-ROOT_SHOW_OPTIONS(ROOT_ENABLED_OPTIONS)
+ROOT_GET_OPTIONS(ROOT_ALL_OPTIONS)
+ROOT_GET_OPTIONS(ROOT_ENABLED_OPTIONS ENABLED)
 configure_file(${CMAKE_SOURCE_DIR}/cmake/scripts/ROOTConfig-version.cmake.in
                ${CMAKE_BINARY_DIR}/ROOTConfig-version.cmake @ONLY NEWLINE_STYLE UNIX)
 
 #---Compiler flags (because user apps are a bit dependent on them...)----------------------------------------
 string(REGEX REPLACE "(^|[ ]*)-W[^ ]*" "" __cxxflags "${CMAKE_CXX_FLAGS}")
 string(REGEX REPLACE "(^|[ ]*)-W[^ ]*" "" __cflags "${CMAKE_C_FLAGS}")
+
+if (cxxmodules)
+  # Re-add the -Wno-module-import-in-extern-c which we just filtered out.
+  # We want it because it changes the module cache hash and causes modules to be
+  # rebuilt.
+  # FIXME: We should review how we do the regex.
+  set(ROOT_CXX_FLAGS "${ROOT_CXX_FLAGS} -Wno-module-import-in-extern-c")
+  set(ROOT_C_FLAGS "${ROOT_C_FLAGS} -Wno-module-import-in-extern-c")
+endif()
+
 string(REGEX REPLACE "(^|[ ]*)-W[^ ]*" "" __fflags "${CMAKE_Fortran_FLAGS}")
 string(REGEX MATCHALL "-(D|U)[^ ]*" __defs "${CMAKE_CXX_FLAGS}")
 set(ROOT_COMPILER_FLAG_HINTS "#
@@ -611,6 +627,7 @@ set(ROOT_CXX_FLAGS \"${__cxxflags}\")
 set(ROOT_C_FLAGS \"${__cflags}\")
 set(ROOT_fortran_FLAGS \"${__fflags}\")
 set(ROOT_EXE_LINKER_FLAGS \"${CMAKE_EXE_LINKER_FLAGS}\")")
+set(ROOT_BINDIR ${CMAKE_BINARY_DIR}/bin CACHE INTERNAL "")
 
 #---To be used from the binary tree--------------------------------------------------------------------------
 set(ROOT_INCLUDE_DIR_SETUP "
@@ -621,11 +638,15 @@ set(ROOT_LIBRARY_DIR_SETUP "
 # ROOT configured for use from the build tree - absolute paths are used.
 set(ROOT_LIBRARY_DIR ${CMAKE_BINARY_DIR}/lib)
 ")
-set(ROOT_BINARY_DIR_SETUP "
+set(ROOT_BINDIR_SETUP "
 # ROOT configured for use from the build tree - absolute paths are used.
-set(ROOT_BINARY_DIR ${CMAKE_BINARY_DIR}/bin)
+set(ROOT_BINDIR ${CMAKE_BINARY_DIR}/bin)
 ")
-set(ROOT_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules")
+# Deprecated value ROOT_BINARY_DIR
+set(ROOT_BINARY_DIR_SETUP "
+# Deprecated value, please don't use it and use ROOT_BINDIR instead.
+set(ROOT_BINARY_DIR ${ROOT_BINDIR})
+")
 
 get_property(exported_targets GLOBAL PROPERTY ROOT_EXPORTED_TARGETS)
 export(TARGETS ${exported_targets} NAMESPACE ROOT:: FILE ${PROJECT_BINARY_DIR}/ROOTConfig-targets.cmake)
@@ -648,11 +669,23 @@ set(ROOT_LIBRARY_DIR_SETUP "
 # ROOT configured for the install with relative paths, so use these
 get_filename_component(ROOT_LIBRARY_DIR \"\${_thisdir}/${ROOT_CMAKE_TO_LIB_DIR}\" ABSOLUTE)
 ")
-set(ROOT_BINARY_DIR_SETUP "
+set(ROOT_BINDIR_SETUP "
 # ROOT configured for the install with relative paths, so use these
-get_filename_component(ROOT_BINARY_DIR \"\${_thisdir}/${ROOT_CMAKE_TO_BIN_DIR}\" ABSOLUTE)
+get_filename_component(ROOT_BINDIR \"\${_thisdir}/${ROOT_CMAKE_TO_BIN_DIR}\" ABSOLUTE)
 ")
-set(ROOT_MODULE_PATH "\${_thisdir}/modules")
+# Deprecated value ROOT_BINARY_DIR
+set(ROOT_BINARY_DIR_SETUP "
+# Deprecated value, please don't use it and use ROOT_BINDIR instead.
+get_filename_component(ROOT_BINARY_DIR \"\${ROOT_BINDIR}\" ABSOLUTE)
+")
+
+# used by ROOTConfig.cmake from the build directory
+configure_file(${CMAKE_SOURCE_DIR}/cmake/modules/RootMacros.cmake
+               ${CMAKE_BINARY_DIR}/RootMacros.cmake COPYONLY)
+
+# used by roottest to run tests against ROOT build
+configure_file(${CMAKE_SOURCE_DIR}/cmake/modules/RootTestDriver.cmake
+               ${CMAKE_BINARY_DIR}/RootTestDriver.cmake COPYONLY)
 
 configure_file(${CMAKE_SOURCE_DIR}/cmake/scripts/ROOTConfig.cmake.in
                ${CMAKE_BINARY_DIR}/installtree/ROOTConfig.cmake @ONLY NEWLINE_STYLE UNIX)
@@ -666,22 +699,23 @@ install(EXPORT ${CMAKE_PROJECT_NAME}Exports NAMESPACE ROOT:: FILE ROOTConfig-tar
 
 #---Especial definitions for root-config et al.--------------------------------------------------------------
 if(prefix STREQUAL "$(ROOTSYS)")
-  foreach(d prefix bindir libdir incdir etcdir mandir)
+  foreach(d prefix bindir libdir incdir etcdir tutdir mandir)
     string(REPLACE "$(ROOTSYS)" "$ROOTSYS"  ${d} ${${d}})
   endforeach()
 endif()
 
 
 #---compiledata.h--------------------------------------------------------------------------------------------
+
 if(WIN32)
   # We cannot use the compiledata.sh script for windows
   configure_file(${CMAKE_SOURCE_DIR}/cmake/scripts/compiledata.win32.in ${CMAKE_BINARY_DIR}/include/compiledata.h NEWLINE_STYLE UNIX)
 else()
-  execute_process(COMMAND ${CMAKE_SOURCE_DIR}/build/unix/compiledata.sh ${CMAKE_BINARY_DIR}/include/compiledata.h "${CXX}"
+  execute_process(COMMAND ${CMAKE_SOURCE_DIR}/build/unix/compiledata.sh
+    ${CMAKE_BINARY_DIR}/include/compiledata.h "${CMAKE_CXX_COMPILER}"
         "${CMAKE_CXX_FLAGS_RELEASE}" "${CMAKE_CXX_FLAGS_DEBUG}" "${CMAKE_CXX_FLAGS}"
-        "${CMAKE_SHARED_LIBRARY_CREATE_CXX_FLAGS}" "${CMAKE_EXE_FLAGS}"
-        "${LibSuffix}" "${SYSLIBS}"
-        "${libdir}" "-lCore" "-lRint" "${incdir}" "" "" "${ROOT_ARCHITECTURE}" "" "${explicitlink}" )
+        "${CMAKE_SHARED_LIBRARY_CREATE_CXX_FLAGS}" "${CMAKE_EXE_FLAGS}" "so"
+        "${libdir}" "-lCore" "-lRint" "${incdir}" "" "" "${ROOT_ARCHITECTURE}" "")
 endif()
 
 #---Get the value of CMAKE_CXX_FLAGS provided by the user in the command line
@@ -691,6 +725,7 @@ configure_file(${CMAKE_SOURCE_DIR}/config/root-config.in ${CMAKE_BINARY_DIR}/ins
 configure_file(${CMAKE_SOURCE_DIR}/config/memprobe.in ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/memprobe @ONLY NEWLINE_STYLE UNIX)
 configure_file(${CMAKE_SOURCE_DIR}/config/thisroot.sh ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/thisroot.sh @ONLY NEWLINE_STYLE UNIX)
 configure_file(${CMAKE_SOURCE_DIR}/config/thisroot.csh ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/thisroot.csh @ONLY NEWLINE_STYLE UNIX)
+configure_file(${CMAKE_SOURCE_DIR}/config/thisroot.fish ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/thisroot.fish @ONLY NEWLINE_STYLE UNIX)
 configure_file(${CMAKE_SOURCE_DIR}/config/setxrd.csh ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/setxrd.csh COPYONLY)
 configure_file(${CMAKE_SOURCE_DIR}/config/setxrd.sh ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/setxrd.sh COPYONLY)
 configure_file(${CMAKE_SOURCE_DIR}/config/proofserv.in ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/proofserv @ONLY NEWLINE_STYLE UNIX)
@@ -710,11 +745,13 @@ set(bindir $ROOTSYS/bin)
 set(libdir $ROOTSYS/lib)
 set(incdir $ROOTSYS/include)
 set(etcdir $ROOTSYS/etc)
+set(tutdir $ROOTSYS/tutorials)
 set(mandir $ROOTSYS/man)
 configure_file(${CMAKE_SOURCE_DIR}/config/root-config.in ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/root-config @ONLY NEWLINE_STYLE UNIX)
 
 install(FILES ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/thisroot.sh
               ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/thisroot.csh
+              ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/thisroot.fish
               ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/setxrd.csh
               ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/setxrd.sh
               ${thisrootbat}
@@ -722,10 +759,9 @@ install(FILES ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/thisroot.sh
                           GROUP_READ
                           WORLD_READ
               DESTINATION ${CMAKE_INSTALL_BINDIR})
-              
+
 install(FILES ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/memprobe
               ${CMAKE_BINARY_DIR}/installtree/root-config
-              ${CMAKE_SOURCE_DIR}/cmake/scripts/setenvwrap.csh
               ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/roots
               ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/proofserv
               PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ
@@ -750,17 +786,6 @@ install(FILES ${CMAKE_BINARY_DIR}/etc/root.mimes
               ${CMAKE_BINARY_DIR}/etc/system.rootauthrc
               ${CMAKE_BINARY_DIR}/etc/system.rootdaemonrc
               DESTINATION ${CMAKE_INSTALL_SYSCONFDIR})
-
-install(FILES ${CMAKE_BINARY_DIR}/etc/daemons/rootd.rc.d
-              ${CMAKE_BINARY_DIR}/etc/daemons/proofd.rc.d
-              PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ
-                          GROUP_EXECUTE GROUP_READ
-                          WORLD_EXECUTE WORLD_READ
-              DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/daemons)
-
-install(FILES ${CMAKE_BINARY_DIR}/etc/daemons/rootd.xinetd
-              ${CMAKE_BINARY_DIR}/etc/daemons/proofd.xinetd
-              DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/daemons)
 
 install(FILES ${CMAKE_BINARY_DIR}/root-help.el DESTINATION ${CMAKE_INSTALL_ELISPDIR})
 

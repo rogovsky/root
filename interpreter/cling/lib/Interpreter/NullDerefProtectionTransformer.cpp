@@ -18,23 +18,18 @@
 #include "clang/AST/Expr.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Basic/SourceLocation.h"
+#include "clang/Basic/SourceManager.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Sema/Lookup.h"
 
 #include <bitset>
-#include <map>
 
 using namespace clang;
 
-namespace cling {
-  NullDerefProtectionTransformer::NullDerefProtectionTransformer(Interpreter* I)
-    : ASTTransformer(&I->getCI()->getSema()), m_Interp(I) {
-  }
+namespace {
+using namespace cling;
 
-  NullDerefProtectionTransformer::~NullDerefProtectionTransformer()
-  { }
-
-  class PointerCheckInjector : public RecursiveASTVisitor<PointerCheckInjector> {
+class PointerCheckInjector : public RecursiveASTVisitor<PointerCheckInjector> {
   private:
     Interpreter& m_Interp;
     Sema& m_Sema;
@@ -48,6 +43,14 @@ namespace cling {
     ///\brief cling_runtime_internal_throwIfInvalidPointer cache.
     ///
     LookupResult* m_clingthrowIfInvalidPointerCache;
+
+    bool IsTransparentThis(Expr* E) {
+      if (llvm::isa<CXXThisExpr>(E))
+        return true;
+      if (auto ICE = dyn_cast<ImplicitCastExpr>(E))
+        return IsTransparentThis(ICE->getSubExpr());
+      return false;
+    }
 
   public:
     PointerCheckInjector(Interpreter& I)
@@ -63,7 +66,7 @@ namespace cling {
       Expr* SubExpr = UnOp->getSubExpr();
       VisitStmt(SubExpr);
       if (UnOp->getOpcode() == UO_Deref
-          && !llvm::isa<clang::CXXThisExpr>(SubExpr)
+          && !IsTransparentThis(SubExpr)
           && SubExpr->getType().getTypePtr()->isPointerType())
           UnOp->setSubExpr(SynthesizeCheck(SubExpr));
       return true;
@@ -73,7 +76,7 @@ namespace cling {
       Expr* Base = ME->getBase();
       VisitStmt(Base);
       if (ME->isArrow()
-          && !llvm::isa<clang::CXXThisExpr>(Base)
+          && !IsTransparentThis(Base)
           && ME->getMemberDecl()->isCXXInstanceMember())
         ME->setBase(SynthesizeCheck(Base));
       return true;
@@ -91,7 +94,7 @@ namespace cling {
             // Get the argument with the nonnull attribute.
             Expr* Arg = CE->getArg(index);
             if (Arg->getType().getTypePtr()->isPointerType()
-                && !llvm::isa<clang::CXXThisExpr>(Arg))
+                && !IsTransparentThis(Arg))
               CE->setArg(index, SynthesizeCheck(Arg));
           }
         }
@@ -224,11 +227,83 @@ namespace cling {
     }
   };
 
+  static bool hasPtrCheckDisabledInContext(const Decl* D) {
+    if (isa<TranslationUnitDecl>(D))
+      return false;
+    for (const auto *Ann : D->specific_attrs<AnnotateAttr>()) {
+      if (Ann->getAnnotation() == "__cling__ptrcheck(off)")
+        return true;
+      else if (Ann->getAnnotation() == "__cling__ptrcheck(on)")
+        return false;
+    }
+    const Decl* Parent = nullptr;
+    for (auto DC = D->getDeclContext(); !Parent; DC = DC->getParent())
+      Parent = dyn_cast<Decl>(DC);
+
+    assert(Parent && "Decl without context!");
+
+    return hasPtrCheckDisabledInContext(Parent);
+  }
+
+} // unnamed namespace
+
+namespace cling {
+  NullDerefProtectionTransformer::NullDerefProtectionTransformer(Interpreter* I)
+    : ASTTransformer(&I->getCI()->getSema()), m_Interp(I) {
+  }
+
+  NullDerefProtectionTransformer::~NullDerefProtectionTransformer()
+  { }
+
+  bool NullDerefProtectionTransformer::shouldTransform(const clang::Decl* D) {
+    if (D->isFromASTFile())
+      return false;
+    if (D->isTemplateDecl())
+      return false;
+
+    if (hasPtrCheckDisabledInContext(D))
+      return false;
+
+    auto Loc = D->getLocation();
+    if (Loc.isInvalid())
+      return false;
+
+    SourceManager& SM = m_Interp->getSema().getSourceManager();
+    auto Characteristic = SM.getFileCharacteristic(Loc);
+    if (Characteristic != clang::SrcMgr::C_User)
+      return false;
+
+    auto FID = SM.getFileID(Loc);
+    if (FID.isInvalid())
+      return false;
+
+    auto FE = SM.getFileEntryForID(FID);
+    if (!FE)
+      return false;
+
+    auto Dir = FE->getDir();
+    if (!Dir)
+      return false;
+
+    auto IterAndInserted = m_ShouldVisitDir.try_emplace(Dir, true);
+    if (IterAndInserted.second == false)
+      return IterAndInserted.first->second;
+
+    if (llvm::sys::fs::can_write(Dir->getName()))
+      return true; // `true` is already emplaced above.
+
+    // Remember that this dir is not writable and should not be visited.
+    IterAndInserted.first->second = false;
+    return false;
+  }
+
+
   ASTTransformer::Result
   NullDerefProtectionTransformer::Transform(clang::Decl* D) {
-
-    PointerCheckInjector injector(*m_Interp);
-    injector.TraverseDecl(D);
+    if (getCompilationOpts().CheckPointerValidity && shouldTransform(D)) {
+      PointerCheckInjector injector(*m_Interp);
+      injector.TraverseDecl(D);
+    }
     return Result(D, true);
   }
 } // end namespace cling

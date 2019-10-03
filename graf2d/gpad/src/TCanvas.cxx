@@ -71,7 +71,7 @@ An example of a Canvas layout is sketched in the picture below.
 \image html gpad_canvas.png
 
 This canvas contains two pads named P1 and P2. Both Canvas, P1 and P2 can be
-moved, grown, shrinked using the normal rules of the Display manager.
+moved, grown, shrunk using the normal rules of the Display manager.
 
 Once objects have been drawn in a canvas, they can be edited/moved by pointing
 directly to them. The cursor shape is changed to suggest the type of action that
@@ -94,7 +94,7 @@ the interactive mode, the following four lines of code should be used:
    {
       Double_t w = 600;
       Double_t h = 600;
-      TCanvas * c1 = new TCanvas("c", "c", w, h);
+      auto c = new TCanvas("c", "c", w, h);
       c->SetWindowSize(w + (w - c->GetWw()), h + (h - c->GetWh()));
    }
 ~~~
@@ -107,9 +107,11 @@ If the canvas size this exceed the window size, scroll bars will be added to the
 This allows to display very large canvases (even bigger than the screen size). The
 Following example shows how to proceed.
 ~~~ {.cpp}
-TCanvas *c1 = new TCanvas("c1","c1");
-c1->SetCanvasSize(1500, 1500);
-c1->SetWindowSize(500, 500);
+   {
+      auto c = new TCanvas("c","c");
+      c->SetCanvasSize(1500, 1500);
+      c->SetWindowSize(500, 500);
+   }
 ~~~
 */
 
@@ -153,7 +155,7 @@ TCanvas::TCanvas(Bool_t build) : TPad(), fDoubleBuffer(0)
       const char *defcanvas = gROOT->GetDefCanvasName();
       char *cdef;
 
-      TList *lc = (TList*)gROOT->GetListOfCanvases();
+      auto lc = (TList*)gROOT->GetListOfCanvases();
       if (lc->FindObject(defcanvas)) {
          Int_t n = lc->GetSize()+1;
          while (lc->FindObject(Form("%s_n%d",defcanvas,n))) n++;
@@ -290,7 +292,7 @@ void TCanvas::Constructor(const char *name, const char *title, Int_t form)
       Warning("Constructor","Deleting canvas with same name: %s",name);
       delete old;
    }
-   if (!name[0] || gROOT->IsBatch()) {   //We are in Batch mode
+   if (gROOT->IsBatch()) {   //We are in Batch mode
       fWindowTopX = fWindowTopY = 0;
       if (form == 1) {
          fWindowWidth  = gStyle->GetCanvasDefW();
@@ -389,7 +391,7 @@ void TCanvas::Constructor(const char *name, const char *title, Int_t ww, Int_t w
       Warning("Constructor","Deleting canvas with same name: %s",name);
       delete old;
    }
-   if (!name[0] || gROOT->IsBatch()) {   //We are in Batch mode
+   if (gROOT->IsBatch()) {   //We are in Batch mode
       fWindowTopX   = fWindowTopY = 0;
       fWindowWidth  = ww;
       fWindowHeight = wh;
@@ -475,7 +477,7 @@ void TCanvas::Constructor(const char *name, const char *title, Int_t wtopx,
       Warning("Constructor","Deleting canvas with same name: %s",name);
       delete old;
    }
-   if (!name[0] || gROOT->IsBatch()) {   //We are in Batch mode
+   if (gROOT->IsBatch()) {   //We are in Batch mode
       fWindowTopX   = fWindowTopY = 0;
       fWindowWidth  = ww;
       fWindowHeight = wh;
@@ -575,7 +577,15 @@ void TCanvas::Build()
    fCanvas         = this;
    fMother         = (TPad*)gPad;
 
-   if (!IsBatch()) {    //normal mode with a screen window
+   if (IsBatch()) {
+      // Make sure that batch interactive canvas sizes are the same
+      fCw -= 4;
+      fCh -= 28;
+   } else if (IsWeb()) {
+      // mark canvas as batch - avoid virtualx in many places
+      SetBatch(kTRUE);
+   } else {
+      //normal mode with a screen window
       // Set default physical canvas attributes
       //Should be done via gVirtualX, not via fPainter (at least now). No changes here.
       gVirtualX->SelectWindow(fCanvasID);
@@ -598,11 +608,8 @@ void TCanvas::Build()
       gVirtualX->GetGeometry(fCanvasID, dum1, dum2, fCw, fCh);
 
       fContextMenu = new TContextMenu("ContextMenu");
-   } else {
-      // Make sure that batch interactive canvas sizes are the same
-      fCw -= 4;
-      fCh -= 28;
    }
+
    gROOT->GetListOfCanvases()->Add(this);
 
    if (!fPrimitives) {
@@ -872,17 +879,8 @@ void TCanvas::Draw(Option_t *)
 
 TObject *TCanvas::DrawClone(Option_t *option) const
 {
-   const char *defcanvas = gROOT->GetDefCanvasName();
-   char *cdef;
-
-   TList *lc = (TList*)gROOT->GetListOfCanvases();
-   if (lc->FindObject(defcanvas))
-      cdef = Form("%s_n%d",defcanvas,lc->GetSize()+1);
-   else
-      cdef = Form("%s",defcanvas);
-
    TCanvas *newCanvas = (TCanvas*)Clone();
-   newCanvas->SetName(cdef);
+   newCanvas->SetName();
 
    newCanvas->Draw(option);
    newCanvas->Update();
@@ -1084,7 +1082,7 @@ void TCanvas::FeedbackMode(Bool_t set)
 
 void TCanvas::Flush()
 {
-   if (fCanvasID == -1) return;
+   if ((fCanvasID == -1) || IsWeb()) return;
 
    TPad *padsav = (TPad*)gPad;
    cd();
@@ -1434,7 +1432,7 @@ TCanvas *TCanvas::MakeDefCanvas()
    const char *defcanvas = gROOT->GetDefCanvasName();
    char *cdef;
 
-   TList *lc = (TList*)gROOT->GetListOfCanvases();
+   auto lc = (TList*)gROOT->GetListOfCanvases();
    if (lc->FindObject(defcanvas)) {
       Int_t n = lc->GetSize() + 1;
       cdef = new char[strlen(defcanvas)+15];
@@ -1470,7 +1468,8 @@ void TCanvas::MoveOpaque(Int_t set)
 
 void TCanvas::Paint(Option_t *option)
 {
-   if (fCanvas) TPad::Paint(option);
+   if (fCanvas)
+      TPad::Paint(option);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1526,6 +1525,38 @@ void TCanvas::Picked(TPad *pad, TObject *obj, Int_t event)
    args[2] = event;
 
    Emit("Picked(TPad*,TObject*,Int_t)", args);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Emit Highlighted() signal.
+///
+///  - pad is pointer to pad with highlighted histogram or graph
+///  - obj is pointer to highlighted histogram or graph
+///  - x is highlighted x bin for 1D histogram or highlighted x-th point for graph
+///  - y is highlighted y bin for 2D histogram (for 1D histogram or graph not in use)
+
+void TCanvas::Highlighted(TVirtualPad *pad, TObject *obj, Int_t x, Int_t y)
+{
+   Long_t args[4];
+
+   args[0] = (Long_t) pad;
+   args[1] = (Long_t) obj;
+   args[2] = x;
+   args[3] = y;
+
+   Emit("Highlighted(TVirtualPad*,TObject*,Int_t,Int_t)", args);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// This is "simplification" for function TCanvas::Connect with Highlighted
+/// signal for specific slot.
+///
+/// Slot has to be defined "UserFunction(TVirtualPad *pad, TObject *obj, Int_t x, Int_t y)"
+/// all parameters of UserFunction are taken from TCanvas::Highlighted
+
+void TCanvas::HighlightConnect(const char *slot)
+{
+   Connect("Highlighted(TVirtualPad*,TObject*,Int_t,Int_t)", 0, 0, slot);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1739,7 +1770,7 @@ void TCanvas::SaveSource(const char *filename, Option_t *option)
       }
       fname = new char[nch+3];
       strlcpy(fname,cname,nch+3);
-      strncat(fname,".C",2);
+      strncat(fname,".C",3);
       out.open(fname, std::ios::out);
    }
    if (!out.good ()) {
@@ -1861,7 +1892,7 @@ void TCanvas::SaveSource(const char *filename, Option_t *option)
 
 void TCanvas::SetBatch(Bool_t batch)
 {
-   if (gROOT->IsBatch())
+   if (gROOT->IsBatch() || IsWeb())
       fBatch = kTRUE;
    else
       fBatch = batch;
@@ -1939,6 +1970,27 @@ void TCanvas::SetFixedAspectRatio(Bool_t fixed)
 void TCanvas::SetFolder(Bool_t isfolder)
 {
    fgIsFolder = isfolder;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Set canvas name. In case `name` is an empty string, a default name is set.
+
+void TCanvas::SetName(const char *name)
+{
+   if (!name || !name[0]) {
+      const char *defcanvas = gROOT->GetDefCanvasName();
+      char *cdef;
+      auto lc = (TList*)gROOT->GetListOfCanvases();
+      if (lc->FindObject(defcanvas)) {
+         cdef = Form("%s_n%d",defcanvas,lc->GetSize()+1);
+      } else {
+         cdef = Form("%s",defcanvas);
+      }
+      fName = cdef;
+   } else {
+      fName = name;
+   }
+   if (gPad && TestBit(kMustCleanup)) gPad->Modified();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2022,10 +2074,24 @@ void TCanvas::Streamer(TBuffer &b)
                }
             }
          }
+         //restore the palette if needed
+         TObjArray *currentpalette = (TObjArray*)fPrimitives->FindObject("CurrentColorPalette");
+         if (currentpalette) {
+           TIter nextpal(currentpalette);
+           Int_t n = currentpalette->GetEntries();
+           TArrayI palcolors(n);
+           TColor *col = 0;
+           Int_t i = 0;
+           while ((col = (TColor*)nextpal())) palcolors[i++] = col->GetNumber();
+           gStyle->SetPalette(n,palcolors.GetArray());
+           fPrimitives->Remove(currentpalette);
+           delete currentpalette;
+         }
          fPrimitives->Remove(colors);
          colors->Delete();
          delete colors;
       }
+
       if (v>7) b.ClassMember("fDISPLAY","TString");
       fDISPLAY.Streamer(b);
       if (v>7) b.ClassMember("fDoubleBuffer", "Int_t");
@@ -2089,15 +2155,27 @@ void TCanvas::Streamer(TBuffer &b)
       //in the same buffer. If the list of colors has already been saved
       //in the buffer, do not add the list of colors to the list of primitives.
       TObjArray *colors = 0;
-      if (!b.CheckObject(gROOT->GetListOfColors(),TObjArray::Class())) {
-         colors = (TObjArray*)gROOT->GetListOfColors();
-         fPrimitives->Add(colors);
+      TObjArray *CurrentColorPalette = 0;
+      if (TColor::DefinedColors()) {
+         if (!b.CheckObject(gROOT->GetListOfColors(),TObjArray::Class())) {
+            colors = (TObjArray*)gROOT->GetListOfColors();
+            fPrimitives->Add(colors);
+         }
+         //save the current palette
+         TArrayI pal = TColor::GetPalette();
+         Int_t palsize = pal.GetSize();
+         CurrentColorPalette = new TObjArray();
+         CurrentColorPalette->SetName("CurrentColorPalette");
+         for (Int_t i=0; i<palsize; i++) CurrentColorPalette->Add(gROOT->GetColor(pal[i]));
+         fPrimitives->Add(CurrentColorPalette);
       }
+
       R__c = b.WriteVersion(TCanvas::IsA(), kTRUE);
       b.ClassBegin(TCanvas::IsA());
       b.ClassMember("TPad");
       TPad::Streamer(b);
-      if(colors) fPrimitives->Remove(colors);
+      if (colors) fPrimitives->Remove(colors);
+      if (CurrentColorPalette) { fPrimitives->Remove(CurrentColorPalette); delete CurrentColorPalette; }
       b.ClassMember("fDISPLAY","TString");
       fDISPLAY.Streamer(b);
       b.ClassMember("fDoubleBuffer", "Int_t");

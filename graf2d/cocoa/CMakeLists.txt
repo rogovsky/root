@@ -1,23 +1,53 @@
+# Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.
+# All rights reserved.
+#
+# For the licensing terms see $ROOTSYS/LICENSE.
+# For the list of contributors see $ROOTSYS/README/CREDITS.
+
 ############################################################################
 # CMakeLists.txt file for building ROOT graf2d/cocoa package
 # @author Pere Mato, CERN
 ############################################################################
 
-add_definitions("-ObjC++")
-
-if (cxxmodules)
-  # FIXME: Disable modules for ObjC/ObjC++. Modules for cocoa and quarts have to
-  # be treated in a special way. Eg. it seems that they cannot be nested in the
-  # ROOT top-most module, because an implicit build of this module in ObjC TU
-  # causes issues in TBonjourBrowser (when incluing dns_sd.h) on OSX.
-  string(REPLACE "${ROOT_CXXMODULES_CXXFLAGS}" "" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
-  string(REPLACE "${ROOT_CXXMODULES_CFLAGS}" "" CMAKE_C_FLAGS ${CMAKE_C_FLAGS})
-endif(cxxmodules)
-
-include_directories(${FREETYPE_INCLUDE_DIRS})
-
 ROOT_STANDARD_LIBRARY_PACKAGE(GCocoa
-                              HEADERS T*.h
-                              SOURCES *.mm
-                              DEPENDENCIES Gui GQuartz
-                              LIBRARIES  "-framework Cocoa" "-framework OpenGL" ${FREETYPE_LIBRARIES})
+  HEADERS
+    TGCocoa.h
+    TGOSXGL.h
+    TGQuartz.h
+  SOURCES
+    src/CocoaConstants.mm
+    src/CocoaGuiTypes.mm
+    src/CocoaPrivate.mm
+    src/FontCache.mm
+    src/MenuLoader.mm
+    src/QuartzPixmap.mm
+    src/QuartzWindow.mm
+    src/ROOTApplicationDelegate.mm
+    src/ROOTOpenGLView.mm
+    src/TGCocoa.mm
+    src/TGOSXGL.mm
+    src/TGQuartz.mm
+    src/X11Atoms.mm
+    src/X11Buffer.mm
+    src/X11Colors.mm
+    src/X11Events.mm
+    src/XLFDParser.mm
+  DEPENDENCIES
+    GQuartz
+    Gui
+  LIBRARIES
+    "-framework Cocoa"
+    "-framework OpenGL"
+    ${FREETYPE_LIBRARIES}
+)
+
+# We know GL is deprecated on macOS. And our answer is WebGUI/Graphics.
+target_compile_options(GCocoa PRIVATE -ObjC++ -Wno-deprecated-declarations)
+target_include_directories(GCocoa PRIVATE ${FREETYPE_INCLUDE_DIRS})
+
+if(NOT opengl) # special case when cocoa is enabled but not opengl (i.e. gminimal=ON)
+  target_include_directories(GCocoa PRIVATE
+    ${CMAKE_SOURCE_DIR}/graf3d/gl/inc
+    ${CMAKE_SOURCE_DIR}/graf3d/glew/inc
+  )
+endif()

@@ -31,8 +31,10 @@ static std::string tutname = "mp105_processEntryList: ";
 static std::string logfile = "mp105_processEntryList.log";
 static RedirectHandle_t gRH;
 
-const char *fh1[] = {"http://root.cern.ch/files/h1/dstarmb.root", "http://root.cern.ch/files/h1/dstarp1a.root",
-                     "http://root.cern.ch/files/h1/dstarp1b.root", "http://root.cern.ch/files/h1/dstarp2.root"};
+std::vector<std::string> files = {"http://root.cern.ch/files/h1/dstarmb.root",
+                                  "http://root.cern.ch/files/h1/dstarp1a.root",
+                                  "http://root.cern.ch/files/h1/dstarp1b.root",
+                                  "http://root.cern.ch/files/h1/dstarp2.root"};
 
 int mp105_processEntryList()
 {
@@ -41,12 +43,6 @@ int mp105_processEntryList()
    gROOT->SetBatch(kTRUE);
 
    TStopwatch stp;
-
-   // Prepare dataset: vector of files
-   std::vector<std::string> files;
-   for (int i = 0; i < 4; i++) {
-      files.push_back(fh1[i]);
-   }
 
 #include "mp_H1_lambdas.C"
 
@@ -75,10 +71,12 @@ int mp105_processEntryList()
    auto hListFun = pool.Process(files, doH1useList, *sumElist, "h42");
 
    // Check the output
-   if (checkH1(hListFun) < 0) return -1;
+   if (checkH1(hListFun) < 0)
+      return -1;
 
    // Do the fit
-   if (doFit(hListFun, logfile.c_str()) < 0) return -1;
+   if (doFit(hListFun, logfile.c_str()) < 0)
+      return -1;
 
    stp.Print();
    stp.Start();
@@ -87,7 +85,7 @@ int mp105_processEntryList()
    TString selectorPath = gROOT->GetTutorialDir();
    selectorPath += "/tree/h1analysisTreeReader.C+";
    std::cout << tutname << "processing the entry list with selector '" << selectorPath << "'\n";
-   TSelector *sel = TSelector::GetSelector(selectorPath);
+   auto sel = TSelector::GetSelector(selectorPath);
 
    // In a second run we use sel
    sel->SetOption("useList");
@@ -96,10 +94,12 @@ int mp105_processEntryList()
    gSystem->RedirectOutput(0, 0, &gRH);
 
    // Check the output
-   if (checkH1(hListSel) < 0) return -1;
+   if (checkH1(hListSel) < 0)
+      return -1;
 
    // Do the fit
-   if (doFit(hListSel, logfile.c_str()) < 0) return -1;
+   if (doFit(hListSel, logfile.c_str()) < 0)
+      return -1;
 
    stp.Print();
    stp.Start();

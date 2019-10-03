@@ -458,9 +458,15 @@ bool Preprocessor::HandleEndOfFile(Token &Result, bool isEndOfMacro) {
       SourceMgr.setNumCreatedFIDsForFileID(CurPPLexer->getFileID(), NumFIDs);
     }
 
+    bool ExitedFromPredefinesFile = false;
     FileID ExitedFID;
-    if (Callbacks && !isEndOfMacro && CurPPLexer)
+    if (!isEndOfMacro && CurPPLexer) {
       ExitedFID = CurPPLexer->getFileID();
+
+      assert(PredefinesFileID.isValid() &&
+             "HandleEndOfFile is called before PredefinesFileId is set");
+      ExitedFromPredefinesFile = (PredefinesFileID == ExitedFID);
+    }
 
     if (LeavingSubmodule) {
       // We're done with this submodule.
@@ -488,6 +494,11 @@ bool Preprocessor::HandleEndOfFile(Token &Result, bool isEndOfMacro) {
       Callbacks->FileChanged(CurPPLexer->getSourceLocation(),
                              PPCallbacks::ExitFile, FileType, ExitedFID);
     }
+
+    // Restore conditional stack from the preamble right after exiting from the
+    // predefines file.
+    if (ExitedFromPredefinesFile)
+      replayPreambleConditionalStack();
 
     // Client should lex another token unless we generated an EOM.
     return LeavingSubmodule;
@@ -654,6 +665,8 @@ void Preprocessor::EnterSubmodule(Module *M, SourceLocation ImportLoc,
     BuildingSubmoduleStack.push_back(
         BuildingSubmoduleInfo(M, ImportLoc, ForPragma, CurSubmoduleState,
                               PendingModuleMacroNames.size()));
+    if (Callbacks)
+      Callbacks->EnteredSubmodule(M, ImportLoc, ForPragma);
     return;
   }
 
@@ -698,6 +711,9 @@ void Preprocessor::EnterSubmodule(Module *M, SourceLocation ImportLoc,
       BuildingSubmoduleInfo(M, ImportLoc, ForPragma, CurSubmoduleState,
                             PendingModuleMacroNames.size()));
 
+  if (Callbacks)
+    Callbacks->EnteredSubmodule(M, ImportLoc, ForPragma);
+
   // Switch to this submodule as the current submodule.
   CurSubmoduleState = &State;
 
@@ -731,13 +747,17 @@ Module *Preprocessor::LeaveSubmodule(bool ForPragma) {
   Module *LeavingMod = Info.M;
   SourceLocation ImportLoc = Info.ImportLoc;
 
-  if (!needModuleMacros() || 
+  if (!needModuleMacros() ||
       (!getLangOpts().ModulesLocalVisibility &&
        LeavingMod->getTopLevelModuleName() != getLangOpts().CurrentModule)) {
     // If we don't need module macros, or this is not a module for which we
     // are tracking macro visibility, don't build any, and preserve the list
     // of pending names for the surrounding submodule.
     BuildingSubmoduleStack.pop_back();
+
+    if (Callbacks)
+      Callbacks->LeftSubmodule(LeavingMod, ImportLoc, ForPragma);
+
     makeModuleVisible(LeavingMod, ImportLoc);
     return LeavingMod;
   }
@@ -777,17 +797,6 @@ Module *Preprocessor::LeaveSubmodule(bool ForPragma) {
     for (auto *MD = Macro.getLatest(); MD != OldMD; MD = MD->getPrevious()) {
       assert(MD && "broken macro directive chain");
 
-      // Stop on macros defined in other submodules of this module that we
-      // #included along the way. There's no point doing this if we're
-      // tracking local submodule visibility, since there can be no such
-      // directives in our list.
-      if (!getLangOpts().ModulesLocalVisibility) {
-        Module *Mod = getModuleContainingLocation(MD->getLocation());
-        if (Mod != LeavingMod &&
-            Mod->getTopLevelModule() == LeavingMod->getTopLevelModule())
-          break;
-      }
-
       if (auto *VisMD = dyn_cast<VisibilityMacroDirective>(MD)) {
         // The latest visibility directive for a name in a submodule affects
         // all the directives that come before it.
@@ -809,6 +818,13 @@ Module *Preprocessor::LeaveSubmodule(bool ForPragma) {
         if (Def || !Macro.getOverriddenMacros().empty())
           addModuleMacro(LeavingMod, II, Def,
                          Macro.getOverriddenMacros(), IsNew);
+
+        if (!getLangOpts().ModulesLocalVisibility) {
+          // This macro is exposed to the rest of this compilation as a
+          // ModuleMacro; we don't need to track its MacroDirective any more.
+          Macro.setLatest(nullptr);
+          Macro.setOverriddenMacros(*this, {});
+        }
         break;
       }
     }
@@ -825,6 +841,9 @@ Module *Preprocessor::LeaveSubmodule(bool ForPragma) {
     CurSubmoduleState = Info.OuterSubmoduleState;
 
   BuildingSubmoduleStack.pop_back();
+
+  if (Callbacks)
+    Callbacks->LeftSubmodule(LeavingMod, ImportLoc, ForPragma);
 
   // A nested #include makes the included submodule visible.
   makeModuleVisible(LeavingMod, ImportLoc);

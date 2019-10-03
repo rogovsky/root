@@ -53,11 +53,11 @@ Result // CHECK: (cling::Value &) boxes [(cling::Value &) boxes [(int *) 0x12 <i
 V // CHECK: (cling::Value &) boxes [(int *) 0x12 <invalid memory address>]
 
 // Savannah #96277
-gCling->evaluate("gCling->declare(\"double sin(double);\"); double one = sin(3.141/2);", V);
-V // CHECK: (cling::Value &) boxes [(double) 1.000000]
+gCling->evaluate("gCling->declare(\"double sin(double);\"); double one = sin(3.1416/2);", V);
+V // CHECK: (cling::Value &) boxes [(double) 1.0000000]
 
-gCling->process("double one = sin(3.141/2); // expected-note {{previous definition is here}}", &V);
-V // CHECK: (cling::Value &) boxes [(double) 1.000000]
+gCling->process("double one = sin(3.1416/2); // expected-note {{previous definition is here}}", &V);
+V // CHECK: (cling::Value &) boxes [(double) 1.0000000]
 one // CHECK: (double) 1
 int one; // expected-error {{redefinition of 'one' with a different type: 'int' vs 'double'}}
 
@@ -78,6 +78,7 @@ V // CHECK-NEXT: (cling::Value &) boxes [(int [2][3][4]) { { { 1, 2, 3, 4 }, { 1
 // Check lifetime of objects in Value
 .rawInput 1
 struct WithDtor {
+   char mem = 0;
    static int fgCount;
    WithDtor() { ++fgCount; }
    WithDtor(const WithDtor&) { ++fgCount; }

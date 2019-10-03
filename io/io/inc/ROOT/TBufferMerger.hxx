@@ -12,16 +12,13 @@
 #ifndef ROOT_TBufferMerger
 #define ROOT_TBufferMerger
 
+#include "TFileMerger.h"
 #include "TMemFile.h"
 
-#include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <queue>
-#include <thread>
-
-class TArrayC;
-class TBufferFile;
 
 namespace ROOT {
 namespace Experimental {
@@ -46,10 +43,14 @@ public:
    /** Constructor
     * @param name Output file name
     * @param option Output file creation options
-    * @param ftitle Output file title
     * @param compression Output file compression level
     */
-   TBufferMerger(const char *name, Option_t *option = "RECREATE", Int_t compress = 1);
+   TBufferMerger(const char *name, Option_t *option = "RECREATE", Int_t compress = ROOT::RCompressionSetting::EDefaults::kUseGeneralPurpose);
+
+   /** Constructor
+    * @param output Output \c TFile
+    */
+   TBufferMerger(std::unique_ptr<TFile> output);
 
    /** Destructor */
    virtual ~TBufferMerger();
@@ -66,6 +67,32 @@ public:
     */
    std::shared_ptr<TBufferMergerFile> GetFile();
 
+   /** Returns the number of buffers currently in the queue. */
+   size_t GetQueueSize() const;
+
+   /** Returns the current value of the auto save setting in bytes (default = 0). */
+   size_t GetAutoSave() const;
+
+   /** Returns the current merge options. */
+   const char* GetMergeOptions();
+
+   /** By default, TBufferMerger will call TFileMerger::PartialMerge() for each
+    *  buffer pushed onto its merge queue. This function lets the user change
+    *  this behaviour by telling TBufferMerger to accumulate at least size
+    *  bytes in memory before performing a partial merge and flushing to disk.
+    *  This can be useful to avoid an excessive amount of work to happen in the
+    *  output thread, as the number of TTree headers (which require compression)
+    *  written to disk can be reduced.
+    */
+   void SetAutoSave(size_t size);
+
+   /** Sets the merge options. SetMergeOptions("fast") will disable
+    * recompression of input data into the output if they have different
+    * compression settings.
+    * @param options TFileMerger/TFileMergeInfo merge options
+    */
+   void SetMergeOptions(const TString& options);
+
    friend class TBufferMergerFile;
 
 private:
@@ -78,19 +105,18 @@ private:
    /** TBufferMerger has no copy operator */
    TBufferMerger &operator=(const TBufferMerger &);
 
+   void Init(std::unique_ptr<TFile>);
+
+   void Merge();
    void Push(TBufferFile *buffer);
-   void WriteOutputFile();
 
-   const std::string fName;
-   const std::string fOption;
-   const Int_t fCompress;
+   size_t fAutoSave{0};                                          //< AutoSave only every fAutoSave bytes
+   size_t fBuffered{0};                                          //< Number of bytes currently buffered
+   TFileMerger fMerger{false, false};                            //< TFileMerger used to merge all buffers
+   std::mutex fMergeMutex;                                       //< Mutex used to lock fMerger
    std::mutex fQueueMutex;                                       //< Mutex used to lock fQueue
-   std::condition_variable fDataAvailable;                       //< Condition variable used to wait for data
    std::queue<TBufferFile *> fQueue;                             //< Queue to which data is pushed and merged
-   std::unique_ptr<std::thread> fMergingThread;                  //< Worker thread that writes to disk
    std::vector<std::weak_ptr<TBufferMergerFile>> fAttachedFiles; //< Attached files
-
-   ClassDef(TBufferMerger, 0);
 };
 
 /**

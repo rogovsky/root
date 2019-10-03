@@ -44,12 +44,9 @@ TApplication (see TRint).
 #include "TUrl.h"
 #include "TVirtualMutex.h"
 
+#include "TApplicationCommandLineOptionsHelp.h"
+
 #include <stdlib.h>
-
-#if defined(R__MACOSX) && (TARGET_OS_IPHONE || TARGET_IPHONE_SIMULATOR)
-#include "TGIOS.h"
-#endif
-
 
 TApplication *gApplication = 0;
 Bool_t TApplication::fgGraphNeeded = kFALSE;
@@ -86,8 +83,10 @@ static void CallEndOfProcessCleanups()
    // after the function static in TSystem.cxx has been destructed.  So we
    // set gROOT in its end-of-life mode which prevents executing code, like
    // autoloading libraries (!) that is pointless ...
-   gROOT->SetBit(kInvalidObject);
-   gROOT->EndOfProcessCleanups();
+   if (gROOT) {
+      gROOT->SetBit(kInvalidObject);
+      gROOT->EndOfProcessCleanups();
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -236,11 +235,7 @@ TApplication::~TApplication()
    // end of 'main' (or more exactly before the library start being
    // unloaded).
    if (fgApplications == 0 || fgApplications->FirstLink() == 0 ) {
-      if (gROOT) {
-         gROOT->EndOfProcessCleanups();
-      } else if (gInterpreter) {
-         gInterpreter->ResetGlobals();
-      }
+      TROOT::ShutDown();
    }
 
    // Now that all the canvases and files have been closed we can
@@ -265,11 +260,6 @@ void TApplication::InitializeGraphics()
    if (fgGraphInit || !fgGraphNeeded) return;
 
    // Load the graphics related libraries
-
-#if defined(R__MACOSX) && (TARGET_OS_IPHONE || TARGET_IPHONE_SIMULATOR)
-   gVirtualX = new ROOT::iOS::TGIOS("TGIOS", "VirtualX for iOS");
-#else
-
    LoadGraphicsLibs();
 
    // Try to load TrueType font renderer. Only try to load if not in batch
@@ -326,7 +316,6 @@ void TApplication::InitializeGraphics()
          if (h > 0 && h < 1000) gStyle->SetScreenFactor(0.0011*h);
       }
    }
-#endif  // iOS
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -359,41 +348,7 @@ char *TApplication::Argv(Int_t index) const
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Get and handle command line options. Arguments handled are removed
-/// from the argument array. The following arguments are handled:
-///
-///  - b : run in batch mode without graphics
-///  - x : exit on exception
-///  - e expression: request execution of the given C++ expression.
-///  - n : do not execute logon and logoff macros as specified in .rootrc
-///  - q : exit after processing command line macro files
-///  - l : do not show splash screen
-///
-/// The last three options are only relevant in conjunction with TRint.
-/// The following help and info arguments are supported:
-///
-///  - ?       : print usage
-///  - h       : print usage
-///  - -help   : print usage
-///  - config  : print ./configure options
-///  - memstat : run with memory usage monitoring
-///
-/// In addition to the above options the arguments that are not options,
-/// i.e. they don't start with - or + are treated as follows (and also removed
-/// from the argument array):
-///
-///  - `<dir>`       is considered the desired working directory and available
-///                  via WorkingDirectory(), if more than one dir is specified the
-///                  first one will prevail
-///  - `<file>`      if the file exists its added to the InputFiles() list
-///  - `<file>.root` are considered ROOT files and added to the InputFiles() list,
-///                  the file may be a remote file url
-///  - `<macro>.C`   are considered ROOT macros and also added to the InputFiles() list
-///
-/// In TRint we set the working directory to the `<dir>`, the ROOT files are
-/// connected, and the macros are executed. If your main TApplication is not
-/// TRint you have to decide yourself what to do with these options.
-/// All specified arguments (also the ones removed) can always be retrieved
-/// via the TApplication::Argv() method.
+/// from the argument array. See CommandLineOptionsHelp.h for options.
 
 void TApplication::GetOptions(Int_t *argc, char **argv)
 {
@@ -412,22 +367,18 @@ void TApplication::GetOptions(Int_t *argc, char **argv)
    for (i = 1; i < *argc; i++) {
       if (!strcmp(argv[i], "-?") || !strncmp(argv[i], "-h", 2) ||
           !strncmp(argv[i], "--help", 6)) {
-         fprintf(stderr, "Usage: %s [-l] [-b] [-n] [-q] [dir] [[file:]data.root] [file1.C ... fileN.C]\n", argv[0]);
-         fprintf(stderr, "Options:\n");
-         fprintf(stderr, "  -b : run in batch mode without graphics\n");
-         fprintf(stderr, "  -x : exit on exception\n");
-         fprintf(stderr, "  -e expression: request execution of the given C++ expression\n");
-         fprintf(stderr, "  -n : do not execute logon and logoff macros as specified in .rootrc\n");
-         fprintf(stderr, "  -q : exit after processing command line macro files\n");
-         fprintf(stderr, "  -l : do not show splash screen\n");
-         fprintf(stderr, " dir : if dir is a valid directory cd to it before executing\n");
-         fprintf(stderr, "\n");
-         fprintf(stderr, "  -?      : print usage\n");
-         fprintf(stderr, "  -h      : print usage\n");
-         fprintf(stderr, "  --help  : print usage\n");
-         fprintf(stderr, "  -config : print ./configure options\n");
-         fprintf(stderr, "  -memstat : run with memory usage monitoring\n");
-         fprintf(stderr, "\n");
+         fprintf(stderr, kCommandLineOptionsHelp);
+         Terminate(0);
+      } else if (!strncmp(argv[i], "--version", 9)) {
+         fprintf(stderr, "ROOT Version: %s\n", gROOT->GetVersion());
+         fprintf(stderr, "Built for %s on %s\n",
+                 gSystem->GetBuildArch(),
+                 gROOT->GetGitDate());
+
+         fprintf(stderr, "From %s@%s\n",
+                gROOT->GetGitBranch(),
+                gROOT->GetGitCommit());
+
          Terminate(0);
       } else if (!strcmp(argv[i], "-config")) {
          fprintf(stderr, "ROOT ./configure options:\n%s\n", gROOT->GetConfigOptions());
@@ -440,6 +391,12 @@ void TApplication::GetOptions(Int_t *argc, char **argv)
          argv[i] = null;
       } else if (!strcmp(argv[i], "-n")) {
          fNoLog = kTRUE;
+         argv[i] = null;
+      } else if (!strcmp(argv[i], "-t")) {
+         ROOT::EnableImplicitMT();
+         // EnableImplicitMT() only enables thread safety if IMT was configured;
+         // enable thread safety even with IMT off:
+         ROOT::EnableThreadSafety();
          argv[i] = null;
       } else if (!strcmp(argv[i], "-q")) {
          fQuit = kTRUE;
@@ -455,6 +412,19 @@ void TApplication::GetOptions(Int_t *argc, char **argv)
          // used when started by front-end program to signal that
          // splash screen can be popped down (TRint::PrintLogo())
          argv[i] = null;
+      } else if (strncmp(argv[i], "--web", 5) == 0) {
+         // the web mode is requested
+         const char *opt = argv[i] + 5;
+         argv[i] = null;
+         TString argw;
+         if (gROOT->IsBatch()) argw = "batch";
+         if (*opt == '=') argw.Append(opt+1);
+         if (gSystem->Load("libROOTWebDisplay") >= 0) {
+            gROOT->SetWebDisplay(argw.Data());
+            gEnv->SetValue("Gui.Factory", "web");
+         } else {
+            Error("GetOptions", "--web option not supported, ROOT should be built with at least c++14 enabled");
+         }
       } else if (!strcmp(argv[i], "-e")) {
          argv[i] = null;
          ++i;
@@ -475,6 +445,13 @@ void TApplication::GetOptions(Int_t *argc, char **argv)
          if (fFiles) {
             for (auto f: *fFiles) {
                TObjString* file = dynamic_cast<TObjString*>(f);
+               if (!file) {
+                  if (!dynamic_cast<TNamed*>(f)) {
+                     Error("GetOptions()", "Inconsistent file entry (not a TObjString)!");
+                     f->Dump();
+                  } // else we did not find the file.
+                  continue;
+               }
 
                if (file->TestBit(kExpression))
                   continue;
@@ -515,6 +492,8 @@ void TApplication::GetOptions(Int_t *argc, char **argv)
          char *arg = strchr(argv[i], '(');
          if (arg) *arg = '\0';
          char *dir = gSystem->ExpandPathName(argv[i]);
+         // ROOT-9959: we do not continue if we could not expand the path
+         if (!dir) continue;
          TUrl udir(dir, kTRUE);
          // remove options and anchor to check the path
          TString sfx = udir.GetFileAndOptions();
@@ -563,14 +542,16 @@ void TApplication::GetOptions(Int_t *argc, char **argv)
                TString mode,fargs,io;
                TString fname = gSystem->SplitAclicMode(dir,mode,fargs,io);
                char *mac;
+               if (!fFiles) fFiles = new TObjArray;
                if ((mac = gSystem->Which(TROOT::GetMacroPath(), fname,
                                          kReadPermission))) {
                   // if file add to list of files to be processed
-                  if (!fFiles) fFiles = new TObjArray;
                   fFiles->Add(new TObjString(argv[i]));
                   argv[i] = null;
                   delete [] mac;
                } else {
+                  // if file add an invalid entry to list of files to be processed
+                  fFiles->Add(new TNamed("NOT FOUND!", argv[i]));
                   // only warn if we're plain root,
                   // other progs might have their own params
                   if (!strcmp(gROOT->GetName(), "Rint"))
@@ -624,13 +605,13 @@ void TApplication::HandleException(Int_t sig)
          gInterpreter->ClearFileBusy();
       }
       if (fExitOnException == kExit)
-         gSystem->Exit(sig);
+         gSystem->Exit(128 + sig);
       else if (fExitOnException == kAbort)
          gSystem->Abort();
       else
          Throw(sig);
    }
-   gSystem->Exit(sig);
+   gSystem->Exit(128 + sig);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -924,7 +905,7 @@ Long_t TApplication::ProcessLine(const char *line, Bool_t sync, Int_t *err)
       return 0;
    }
 
-   if (!strncmp(line, "?", 1) || !strncmp(line, ".help", 5)) {
+   if (!strncmp(line, ".?", 2) || !strncmp(line, ".help", 5)) {
       Help(line);
       return 1;
    }
@@ -968,7 +949,7 @@ Long_t TApplication::ProcessLine(const char *line, Bool_t sync, Int_t *err)
 
    if (!strncmp(line, ".which", 6)) {
       char *fn  = Strip(line+7);
-      char *s   = strtok(fn, "+(");
+      char *s = strtok(fn, "+("); // this method does not need to be reentrant
       char *mac = gSystem->Which(TROOT::GetMacroPath(), s, kReadPermission);
       if (!mac)
          Printf("No macro %s in path %s", s, TROOT::GetMacroPath());

@@ -1,6 +1,14 @@
 // @(#)root/hist:$Id$
 // Author: Filip Ilic
 
+/*************************************************************************
+ * Copyright (C) 1995-2000, Rene Brun and Fons Rademakers.               *
+ * All rights reserved.                                                  *
+ *                                                                       *
+ * For the licensing terms see $ROOTSYS/LICENSE.                         *
+ * For the list of contributors see $ROOTSYS/README/CREDITS.             *
+ *************************************************************************/
+
 #ifndef ROOT_TProfile2Poly
 #define ROOT_TProfile2Poly
 
@@ -88,7 +96,7 @@ public:
 
 
    Double_t GetOverflowContent(Int_t idx) { return fOverflowBins[idx].fSumw; }
-   void printOverflowRegions();
+   void PrintOverflowRegions();
 
 private:
    TProfile2PolyBin fOverflowBins[kNOverflow];
@@ -103,6 +111,6 @@ protected:
    Int_t OverflowIdxToArrayIdx(Int_t val) { return -val - 1; }
 
 
-   ClassDefOverride(TProfile2Poly, 1)
+   ClassDefOverride(TProfile2Poly, 2)
 };
 #endif

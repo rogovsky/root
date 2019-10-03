@@ -113,8 +113,12 @@ template <class TGen> TBenchData runTest(const char *name, int nevents, int nhit
 
 int main(int argc, char **argv)
 {
+   std::string inclRootSys = ("-I" + TROOT::GetRootSys() + "/test").Data();
+   TROOT::AddExtraInterpreterArgs({inclRootSys});
+
    bool writereferences = false;
    bool memberwise = false;
+   bool shortrun = false;
 
    TVirtualStreamerInfo::SetStreamMemberWise(kFALSE);
    // by default stream objects objectwise
@@ -126,10 +130,12 @@ int main(int argc, char **argv)
          memberwise = true;
       } else if (strstr(argv[a],"-r")) {
          writereferences = true;
+      } else if (strstr(argv[a],"-s")) {
+         shortrun = true;
       }
    }
-   int nhits       = 1000;
-   int nevents     = 400;
+   int nhits       = shortrun ? 10 : 1000;
+   int nevents     = shortrun ? 40 : 400;
 
    Double_t cptot = 0;
 

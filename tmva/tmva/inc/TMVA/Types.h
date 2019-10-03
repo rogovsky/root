@@ -98,6 +98,7 @@ namespace TMVA {
          kPlugins        ,
          kCategory       ,
          kDNN            ,
+         kDL             ,
          kPyRandomForest ,
          kPyAdaBoost     ,
          kPyGTB          ,
@@ -106,6 +107,7 @@ namespace TMVA {
          kRSNNS          ,
          kRSVM           ,
          kRXGB           ,
+         kCrossValidation,
          kMaxMethod
       };
 
@@ -168,7 +170,7 @@ namespace TMVA {
    private:
 
       Types();
-#if __cplusplus > 199711L
+#if __cplusplus > 199711L && !defined _MSC_VER
       static std::atomic<Types*> fgTypesPtr;
 #else
       static Types* fgTypesPtr;

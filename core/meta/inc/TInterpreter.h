@@ -22,9 +22,10 @@
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
+#include "TDataType.h"
 #include "TDictionary.h"
-
-#include "TVirtualMutex.h"
+#include "TInterpreterValue.h"
+#include "TVirtualRWMutex.h"
 
 #include <map>
 #include <typeinfo>
@@ -33,13 +34,28 @@
 class TClass;
 class TEnv;
 class TFunction;
-class TInterpreterValue;
 class TMethod;
 class TObjArray;
 class TEnum;
 class TListOfEnums;
 
 R__EXTERN TVirtualMutex *gInterpreterMutex;
+
+#if defined (_REENTRANT) || defined (WIN32)
+# define R__LOCKGUARD_CLING(mutex)  ::ROOT::Internal::InterpreterMutexRegistrationRAII _R__UNIQUE_(R__guard)(mutex); { }
+#else
+# define R__LOCKGUARD_CLING(mutex)  (void)(mutex); { }
+#endif
+
+namespace ROOT {
+namespace Internal {
+struct InterpreterMutexRegistrationRAII {
+   TLockGuard fLockGuard;
+   InterpreterMutexRegistrationRAII(TVirtualMutex* mutex);
+   ~InterpreterMutexRegistrationRAII();
+};
+}
+}
 
 class TInterpreter : public TNamed {
 
@@ -101,6 +117,18 @@ public:
    };
    virtual Bool_t IsAutoParsingSuspended() const = 0;
 
+   class SuspendAutoloadingRAII {
+      TInterpreter *fInterp = nullptr;
+      bool fOldValue;
+
+   public:
+      SuspendAutoloadingRAII(TInterpreter *interp) : fInterp(interp)
+      {
+         fOldValue = fInterp->SetClassAutoloading(false);
+      }
+      ~SuspendAutoloadingRAII() { fInterp->SetClassAutoloading(fOldValue); }
+   };
+
    typedef int (*AutoLoadCallBack_t)(const char*);
    typedef std::vector<std::pair<std::string, int> > FwdDeclArgsToKeepCollection_t;
 
@@ -129,13 +157,16 @@ public:
    virtual char    *GetPrompt() = 0;
    virtual const char *GetSharedLibs() = 0;
    virtual const char *GetClassSharedLibs(const char *cls) = 0;
-   virtual const char *GetSharedLibDeps(const char *lib) = 0;
+   virtual const char *GetSharedLibDeps(const char *lib, bool tryDyld = false) = 0;
    virtual const char *GetIncludePath() = 0;
    virtual const char *GetSTLIncludePath() const { return ""; }
    virtual TObjArray  *GetRootMapFiles() const = 0;
    virtual void     Initialize() = 0;
+   virtual void     ShutDown() = 0;
    virtual void     InspectMembers(TMemberInspector&, const void* obj, const TClass* cl, Bool_t isTransient) = 0;
    virtual Bool_t   IsLoaded(const char *filename) const = 0;
+   virtual Bool_t   IsLibraryLoaded(const char *libname) const = 0;
+   virtual Bool_t   HasPCMForLibrary(const char *libname) const = 0;
    virtual Int_t    Load(const char *filenam, Bool_t system = kFALSE) = 0;
    virtual void     LoadMacro(const char *filename, EErrorCode *error = 0) = 0;
    virtual Int_t    LoadLibraryMap(const char *rootmapfile = 0) = 0;
@@ -146,6 +177,8 @@ public:
    virtual Long_t   ProcessLine(const char *line, EErrorCode *error = 0) = 0;
    virtual Long_t   ProcessLineSynch(const char *line, EErrorCode *error = 0) = 0;
    virtual void     PrintIntro() = 0;
+   virtual bool     RegisterPrebuiltModulePath(const std::string& FullPath,
+                                               const std::string& ModuleMapName = "module.modulemap") const = 0;
    virtual void     RegisterModule(const char* /*modulename*/,
                                    const char** /*headers*/,
                                    const char** /*includePaths*/,
@@ -154,7 +187,8 @@ public:
                                    void (* /*triggerFunc*/)(),
                                    const FwdDeclArgsToKeepCollection_t& fwdDeclArgsToKeep,
                                    const char** classesHeaders,
-                                   Bool_t lateRegistration = false) = 0;
+                                   Bool_t lateRegistration = false,
+                                   Bool_t hasCxxModule = false) = 0;
    virtual void     RegisterTClassUpdate(TClass *oldcl,DictFuncPtr_t dict) = 0;
    virtual void     UnRegisterTClassUpdate(const TClass *oldcl) = 0;
    virtual Int_t    SetClassSharedLibs(const char *cls, const char *libs) = 0;
@@ -173,7 +207,14 @@ public:
    virtual void     UpdateListOfGlobalFunctions() = 0;
    virtual void     UpdateListOfTypes() = 0;
    virtual void     SetClassInfo(TClass *cl, Bool_t reload = kFALSE) = 0;
-   virtual Bool_t   CheckClassInfo(const char *name, Bool_t autoload, Bool_t isClassOrNamespaceOnly = kFALSE) = 0;
+
+   enum ECheckClassInfo {
+      kUnknown = 0, // backward compatible with false
+      kKnown = 1,
+      kWithClassDefInline = 2
+   };
+   virtual ECheckClassInfo CheckClassInfo(const char *name, Bool_t autoload, Bool_t isClassOrNamespaceOnly = kFALSE) = 0;
+
    virtual Bool_t   CheckClassTemplate(const char *name) = 0;
    virtual Long_t   Calc(const char *line, EErrorCode* error = 0) = 0;
    virtual void     CreateListOfBaseClasses(TClass *cl) const = 0;
@@ -196,10 +237,13 @@ public:
    virtual Bool_t   IsProcessLineLocked() const = 0;
    virtual void     SetProcessLineLock(Bool_t lock = kTRUE) = 0;
    virtual const char *TypeName(const char *s) = 0;
+   virtual std::string ToString(const char *type, void *obj) = 0;
+
+   virtual void     SnapshotMutexState(ROOT::TVirtualRWMutex* mtx) = 0;
+   virtual void     ForgetMutexState() = 0;
 
    // All the functions below must be virtual with a dummy implementation
    // These functions are redefined in TCling.
-   //The dummy implementation avoids an implementation in TGWin32InterpreterProxy
 
    // Misc
    virtual int    DisplayClass(FILE * /* fout */,const char * /* name */,int /* base */,int /* start */) const {return 0;}
@@ -220,7 +264,13 @@ public:
    virtual void   SetErrmsgcallback(void * /* p */) const {;}
    virtual void   SetTempLevel(int /* val */) const {;}
    virtual int    UnloadFile(const char * /* path */) const {return 0;}
-   virtual TInterpreterValue *CreateTemporary() { return 0; }
+
+   /// The created temporary must be deleted by the caller.
+   /// Deprecated! Please use MakeInterpreterValue().
+   TInterpreterValue *CreateTemporary() const {
+      return MakeInterpreterValue().release();
+   }
+   virtual std::unique_ptr<TInterpreterValue> MakeInterpreterValue() const { return 0; }
    virtual void   CodeComplete(const std::string&, size_t&,
                                std::vector<std::string>&) {;}
    virtual int Evaluate(const char*, TInterpreterValue&) {return 0;}
@@ -253,6 +303,7 @@ public:
    virtual DeclId_t GetFunctionTemplate(ClassInfo_t *cl, const char *funcname) = 0;
    virtual void     GetFunctionOverloads(ClassInfo_t *cl, const char *funcname, std::vector<DeclId_t>& res) const = 0;
    virtual void     LoadFunctionTemplates(TClass* cl) const = 0;
+   virtual std::vector<std::string> GetUsingNamespaces(ClassInfo_t *cl) const = 0;
 
    // CallFunc interface
    virtual void   CallFunc_Delete(CallFunc_t * /* func */) const {;}
@@ -349,6 +400,7 @@ public:
    virtual ClassInfo_t  *ClassInfo_Factory(Bool_t /*all*/ = kTRUE) const = 0;
    virtual ClassInfo_t  *ClassInfo_Factory(ClassInfo_t * /* cl */) const = 0;
    virtual ClassInfo_t  *ClassInfo_Factory(const char * /* name */) const = 0;
+   virtual ClassInfo_t  *ClassInfo_Factory(DeclId_t declid) const = 0;
    virtual Long_t   ClassInfo_GetBaseOffset(ClassInfo_t* /* fromDerived */,
                                             ClassInfo_t* /* toBase */, void* /* address */ = 0, bool /*isderived*/ = true) const {return 0;}
    virtual int    ClassInfo_GetMethodNArg(ClassInfo_t * /* info */, const char * /* method */,const char * /* proto */, Bool_t /* objectIsConst */ = false, ROOT::EFunctionMatchMode /* mode */ = ROOT::kConversionMatch) const {return 0;}
@@ -358,6 +410,8 @@ public:
    virtual void   ClassInfo_Init(ClassInfo_t * /* info */, int /* tagnum */) const {;}
    virtual Bool_t ClassInfo_IsBase(ClassInfo_t * /* info */, const char * /* name */) const {return 0;}
    virtual Bool_t ClassInfo_IsEnum(const char * /* name */) const {return 0;}
+   virtual Bool_t ClassInfo_IsScopedEnum(ClassInfo_t * /* info */) const {return 0;}
+   virtual EDataType ClassInfo_GetUnderlyingType(ClassInfo_t * /* info */) const {return kNumDataTypes;}
    virtual Bool_t ClassInfo_IsLoaded(ClassInfo_t * /* info */) const {return 0;}
    virtual Bool_t ClassInfo_IsValid(ClassInfo_t * /* info */) const {return 0;}
    virtual Bool_t ClassInfo_IsValidMethod(ClassInfo_t * /* info */, const char * /* method */,const char * /* proto */, Long_t * /* offset */, ROOT::EFunctionMatchMode /* mode */ = ROOT::kConversionMatch) const {return 0;}
@@ -419,6 +473,7 @@ public:
    virtual UInt_t FuncTempInfo_TemplateNargs(FuncTempInfo_t * /* ft_info */) const = 0;
    virtual UInt_t FuncTempInfo_TemplateMinReqArgs(FuncTempInfo_t * /* ft_info */) const = 0;
    virtual Long_t FuncTempInfo_Property(FuncTempInfo_t * /* ft_info */) const = 0;
+   virtual Long_t FuncTempInfo_ExtraProperty(FuncTempInfo_t * /* ft_info */) const = 0;
    virtual void FuncTempInfo_Name(FuncTempInfo_t * /* ft_info */, TString &name) const = 0;
    virtual void FuncTempInfo_Title(FuncTempInfo_t * /* ft_info */, TString &title) const = 0;
 
@@ -493,13 +548,24 @@ public:
 };
 
 
-typedef TInterpreter *CreateInterpreter_t(void* shlibHandle);
+typedef TInterpreter *CreateInterpreter_t(void* shlibHandle, const char* argv[]);
 typedef void *DestroyInterpreter_t(TInterpreter*);
 
 #ifndef __CINT__
 #define gInterpreter (TInterpreter::Instance())
-R__EXTERN TInterpreter* (*gPtr2Interpreter)();
 R__EXTERN TInterpreter* gCling;
 #endif
+
+inline ROOT::Internal::InterpreterMutexRegistrationRAII::InterpreterMutexRegistrationRAII(TVirtualMutex* mutex):
+   fLockGuard(mutex)
+{
+   if (gCoreMutex)
+      ::gCling->SnapshotMutexState(gCoreMutex);
+}
+inline ROOT::Internal::InterpreterMutexRegistrationRAII::~InterpreterMutexRegistrationRAII()
+{
+   if (gCoreMutex)
+      ::gCling->ForgetMutexState();
+}
 
 #endif

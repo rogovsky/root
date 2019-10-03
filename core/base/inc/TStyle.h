@@ -133,12 +133,15 @@ private:
    Int_t         fJoinLinePS;        ///< Determines the appearance of joining lines on PostScript
    Double_t      fTimeOffset;        ///< Time offset to the beginning of an axis
    Bool_t        fIsReading;         ///<! Set to FALSE when userclass::UseCurrentStyle is called by the style manager
+   Float_t       fImageScaling;      ///< Image scaling to produce high definition bitmap images
+
 public:
    enum EPaperSize { kA4, kUSLetter };
 
    TStyle();
    TStyle(const char *name, const char *title);
    TStyle(const TStyle &style);
+   TStyle& operator=(const TStyle& style);
    virtual          ~TStyle();
    inline Int_t     AxisChoice(Option_t *axis) const {
       // Return axis number (1 for X, 2 for Y, 3 for Z)
@@ -221,6 +224,7 @@ public:
    Width_t          GetHistLineWidth()   const {return fHistLineWidth;}
    Bool_t           GetHistMinimumZero() const {return fHistMinimumZero;}
    Double_t         GetHistTopMargin()   const {return fHistTopMargin;}
+   Float_t          GetImageScaling()    const {return fImageScaling;}
    Float_t          GetLegoInnerR() const {return fLegoInnerR;}
    Int_t            GetNumberContours() const {return fNumberContours;}
    Int_t            GetOptDate() const {return fOptDate;}
@@ -358,6 +362,7 @@ public:
    void             SetHistMinimumZero(Bool_t zero=kTRUE);
    void             SetHistTopMargin(Double_t hmax=0.05) {fHistTopMargin = hmax;}
    void             SetPaintTextFormat(const char *format="g") {fPaintTextFormat = format;}
+   void             SetImageScaling(Float_t s){fImageScaling = s;}
    void             SetPaperSize(EPaperSize size);
    void             SetPaperSize(Float_t xsize=20, Float_t ysize=26);
    void             SetStatColor(Color_t color=19) {fStatColor=color;}
@@ -395,7 +400,7 @@ public:
    void             SavePrimitive(std::ostream &out, Option_t * = "");
    void             SaveSource(const char *filename, Option_t *option=0);
 
-   ClassDef(TStyle, 17);  //A collection of all graphics attributes
+   ClassDef(TStyle, 18);  //A collection of all graphics attributes
 };
 
 

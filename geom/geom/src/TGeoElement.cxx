@@ -45,6 +45,8 @@ Table of elements
 #include "TGeoManager.h"
 #include "TGeoElement.h"
 #include "TMath.h"
+#include "TGeoPhysicalConstants.h"
+#include "TGeant4PhysicalConstants.h"
 
 // statics and globals
 static const Int_t gMaxElem  = 110;
@@ -86,6 +88,7 @@ ClassImp(TGeoElement);
 
 TGeoElement::TGeoElement()
 {
+   TGeoUnit::setUnitType(TGeoUnit::unitType()); // Ensure nobody changes the units afterwards
    SetDefined(kFALSE);
    SetUsed(kFALSE);
    fZ = 0;
@@ -102,6 +105,7 @@ TGeoElement::TGeoElement()
 TGeoElement::TGeoElement(const char *name, const char *title, Int_t z, Double_t a)
             :TNamed(name, title)
 {
+   TGeoUnit::setUnitType(TGeoUnit::unitType()); // Ensure nobody changes the units afterwards
    SetDefined(kFALSE);
    SetUsed(kFALSE);
    fZ = z;
@@ -110,6 +114,7 @@ TGeoElement::TGeoElement(const char *name, const char *title, Int_t z, Double_t 
    fA = a;
    fIsotopes = NULL;
    fAbundances = NULL;
+   ComputeDerivedQuantities();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -118,6 +123,7 @@ TGeoElement::TGeoElement(const char *name, const char *title, Int_t z, Double_t 
 TGeoElement::TGeoElement(const char *name, const char *title, Int_t nisotopes)
             :TNamed(name, title)
 {
+   TGeoUnit::setUnitType(TGeoUnit::unitType()); // Ensure nobody changes the units afterwards
    SetDefined(kFALSE);
    SetUsed(kFALSE);
    fZ = 0;
@@ -134,6 +140,7 @@ TGeoElement::TGeoElement(const char *name, const char *title, Int_t nisotopes)
 TGeoElement::TGeoElement(const char *name, const char *title, Int_t z, Int_t n, Double_t a)
             :TNamed(name, title)
 {
+   TGeoUnit::setUnitType(TGeoUnit::unitType()); // Ensure nobody changes the units afterwards
    SetDefined(kFALSE);
    SetUsed(kFALSE);
    fZ = z;
@@ -142,8 +149,53 @@ TGeoElement::TGeoElement(const char *name, const char *title, Int_t z, Int_t n, 
    fA = a;
    fIsotopes = NULL;
    fAbundances = NULL;
+   ComputeDerivedQuantities();
 }
+////////////////////////////////////////////////////////////////////////////////
+/// Calculate properties for an atomic number
 
+void TGeoElement::ComputeDerivedQuantities()
+{
+   // Radiation Length
+   ComputeCoulombFactor();
+   ComputeLradTsaiFactor();
+}
+////////////////////////////////////////////////////////////////////////////////
+/// Compute Coulomb correction factor (Phys Rev. D50 3-1 (1994) page 1254)
+
+void TGeoElement::ComputeCoulombFactor()
+{
+   static constexpr Double_t k1 = 0.0083 , k2 = 0.20206 ,k3 = 0.0020 , k4 = 0.0369;
+   Double_t fsc = TGeoUnit::unitType() == TGeoUnit::kTGeoUnits
+     ? TGeoUnit::fine_structure_const : TGeant4Unit::fine_structure_const;
+   Double_t az2 = (fsc*fZ)*(fsc*fZ);
+   Double_t az4 = az2 * az2;
+
+   fCoulomb = (k1*az4 + k2 + 1./(1.+az2))*az2 - (k3*az4 + k4)*az4;
+}
+////////////////////////////////////////////////////////////////////////////////
+/// Compute Tsai's Expression for the Radiation Length (Phys Rev. D50 3-1 (1994) page 1254)
+
+void TGeoElement::ComputeLradTsaiFactor()
+{
+   static constexpr Double_t Lrad_light[]  = {5.31  , 4.79  , 4.74 ,  4.71} ;
+   static constexpr Double_t Lprad_light[] = {6.144 , 5.621 , 5.805 , 5.924} ;
+
+   fRadTsai = 0.0;
+   if (fZ == 0) return;
+   const Double_t logZ3 = TMath::Log(fZ)/3.;
+
+   Double_t Lrad, Lprad;
+   Double_t alpha_rcl2 = TGeoUnit::unitType() == TGeoUnit::kTGeoUnits
+     ? TGeoUnit::alpha_rcl2 : TGeant4Unit::alpha_rcl2;
+   Int_t iz = static_cast<Int_t>(fZ+0.5) - 1 ; // The static cast comes from G4lrint
+   static const Double_t log184  = TMath::Log(184.15);
+   static const Double_t log1194 = TMath::Log(1194.);
+   if (iz <= 3) { Lrad = Lrad_light[iz] ;  Lprad = Lprad_light[iz] ; }
+   else { Lrad = log184 - logZ3 ; Lprad = log1194 - 2*logZ3;}
+
+   fRadTsai = 4*alpha_rcl2*fZ*(fZ*(Lrad-fCoulomb) + Lprad);
+}
 ////////////////////////////////////////////////////////////////////////////////
 /// Print this isotope
 
@@ -213,6 +265,7 @@ void TGeoElement::AddIsotope(TGeoIsotope *isotope, Double_t relativeAbundance)
       fN = (Int_t)neff;
       fA = aeff;
    }
+   ComputeDerivedQuantities();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

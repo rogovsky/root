@@ -147,26 +147,10 @@ minimum required.
 ClassImp(TGLVector3);
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Construct a default (0.0, 0.0, 0.0) vector
-
-TGLVector3::TGLVector3() :
-   TGLVertex3()
-{
-}
-
-////////////////////////////////////////////////////////////////////////////////
 /// Construct a vector with components (x,y,z)
 
 TGLVector3::TGLVector3(Double_t x, Double_t y, Double_t z) :
    TGLVertex3(x, y, z)
-{
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Construct a vector from components of 'other'
-
-TGLVector3::TGLVector3(const TGLVector3 & other) :
-   TGLVertex3(other.fVals[0], other.fVals[1], other.fVals[2])
 {
 }
 
@@ -178,12 +162,6 @@ TGLVector3::TGLVector3(const Double_t *src) :
 {
 }
 
-////////////////////////////////////////////////////////////////////////////////
-/// Destroy vector object
-
-TGLVector3::~TGLVector3()
-{
-}
 
 /** \class TGLLine3
 \ingroup opengl
@@ -206,13 +184,6 @@ TGLLine3::TGLLine3(const TGLVertex3 & start, const TGLVertex3 & end) :
 
 TGLLine3::TGLLine3(const TGLVertex3 & start, const TGLVector3 & vect) :
    fVertex(start), fVector(vect)
-{
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Destroy 3D line object
-
-TGLLine3::~TGLLine3()
 {
 }
 
@@ -414,10 +385,12 @@ TGLPlane::TGLPlane(const TGLVector3 & v, const TGLVertex3 & p)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Destroy plane object
+/// Assignment operator
 
-TGLPlane::~TGLPlane()
+TGLPlane &TGLPlane::operator=(const TGLPlane &src)
 {
+   Set(src);
+   return *this;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1215,10 +1188,15 @@ TGLColor::TGLColor(Color_t color_index, Char_t transparency)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Destructor.
+/// copy constructor
 
-TGLColor::~TGLColor()
+TGLColor::TGLColor(const TGLColor& c)
 {
+   fRGBA[0] = c.fRGBA[0];
+   fRGBA[1] = c.fRGBA[1];
+   fRGBA[2] = c.fRGBA[2];
+   fRGBA[3] = c.fRGBA[3];
+   fIndex   = c.fIndex;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1363,10 +1341,16 @@ TGLColorSet::TGLColorSet()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Destructor.
+/// Copy constructor
 
-TGLColorSet::~TGLColorSet()
+TGLColorSet::TGLColorSet(const TGLColorSet& s)
 {
+   fBackground = s.fBackground;
+   fForeground = s.fForeground;
+   fOutline    = s.fOutline;
+   fMarkup     = s.fMarkup;
+   for (Int_t i = 0; i < 5; ++i)
+      fSelection[i] = s.fSelection[i];
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1478,9 +1462,19 @@ public:
       if (!fTess)
          throw std::bad_alloc();
 
+#if defined(__GNUC__) && __GNUC__ >= 8
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-function-type"
+#endif
+
       gluTessCallback(fTess, (GLenum)GLU_BEGIN,  (tessfuncptr_t) glBegin);
       gluTessCallback(fTess, (GLenum)GLU_END,    (tessfuncptr_t) glEnd);
       gluTessCallback(fTess, (GLenum)GLU_VERTEX, vertex_func);
+
+#if defined(__GNUC__) && __GNUC__ >= 8
+#pragma GCC diagnostic pop
+#endif
+
    }
 
    virtual ~TGLTesselatorWrap()
@@ -1498,7 +1492,17 @@ public:
 
 GLUtesselator* TGLUtil::GetDrawTesselator3fv()
 {
+
+#if defined(__GNUC__) && __GNUC__ >= 8
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-function-type"
+#endif
+
    static TGLTesselatorWrap singleton((tessfuncptr_t) glVertex3fv);
+
+#if defined(__GNUC__) && __GNUC__ >= 8
+#pragma GCC diagnostic pop
+#endif
 
    return singleton.fTess;
 }
@@ -1509,7 +1513,17 @@ GLUtesselator* TGLUtil::GetDrawTesselator3fv()
 
 GLUtesselator* TGLUtil::GetDrawTesselator4fv()
 {
+
+#if defined(__GNUC__) && __GNUC__ >= 8
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-function-type"
+#endif
+
    static TGLTesselatorWrap singleton((tessfuncptr_t) glVertex4fv);
+
+#if defined(__GNUC__) && __GNUC__ >= 8
+#pragma GCC diagnostic pop
+#endif
 
    return singleton.fTess;
 }
@@ -1520,7 +1534,17 @@ GLUtesselator* TGLUtil::GetDrawTesselator4fv()
 
 GLUtesselator* TGLUtil::GetDrawTesselator3dv()
 {
+
+#if defined(__GNUC__) && __GNUC__ >= 8
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-function-type"
+#endif
+
    static TGLTesselatorWrap singleton((tessfuncptr_t) glVertex3dv);
+
+#if defined(__GNUC__) && __GNUC__ >= 8
+#pragma GCC diagnostic pop
+#endif
 
    return singleton.fTess;
 }
@@ -1531,7 +1555,17 @@ GLUtesselator* TGLUtil::GetDrawTesselator3dv()
 
 GLUtesselator* TGLUtil::GetDrawTesselator4dv()
 {
+
+#if defined(__GNUC__) && __GNUC__ >= 8
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-function-type"
+#endif
+
    static TGLTesselatorWrap singleton((tessfuncptr_t) glVertex4dv);
+
+#if defined(__GNUC__) && __GNUC__ >= 8
+#pragma GCC diagnostic pop
+#endif
 
    return singleton.fTess;
 }

@@ -19,8 +19,8 @@ either use:
 
   - the ProfileLikelihoodCalculator that relies on asymptotic properties of the
     Profile Likelihood Ratio
-  - the Neyman Construction classes with this class as a test statistic
-  - the Hybrid Calculator class with this class as a test statistic
+  - the NeymanConstruction class with this class as a test statistic
+  - the HybridCalculator class with this class as a test statistic
 
 
 */
@@ -89,7 +89,8 @@ Double_t RooStats::ProfileLikelihoodTestStat::EvaluateProfileLikelihood(int type
           RooStats::RemoveConstantParameters(allParams);
 
           // need to call constrain for RooSimultaneous until stripDisconnected problem fixed
-          fNll = fPdf->createNLL(data, RooFit::CloneData(kFALSE),RooFit::Constrain(*allParams),RooFit::ConditionalObservables(fConditionalObs), RooFit::Offset(fLOffset));
+          fNll = fPdf->createNLL(data, RooFit::CloneData(kFALSE),RooFit::Constrain(*allParams),
+                                 RooFit::GlobalObservables(fGlobalObs), RooFit::ConditionalObservables(fConditionalObs), RooFit::Offset(fLOffset));
 
           if (fPrintLevel > 0 && fLOffset) cout << "ProfileLikelihoodTestStat::Evaluate - Use Offset in creating NLL " << endl ;
 

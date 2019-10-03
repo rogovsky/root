@@ -47,6 +47,11 @@ inline static bool IsElementPresent(const std::vector<T> &v, const T &el){
    return std::find(v.begin(),v.end(),el) != v.end();
 }
 
+template<class T>
+inline static bool IsElementPresent(const std::vector<const T*> &v, T *el){
+   return std::find(v.begin(),v.end(),el) != v.end();
+}
+
 }
 
 using namespace ROOT;
@@ -98,6 +103,27 @@ RScanner::RScanner (SelectionRules &rules,
 
 RScanner::~RScanner ()
 {
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Whether we can actually visit this declaration, i.e. if it is reachable
+/// via name lookup.
+///
+/// RScanner shouldn't touch decls for which this method returns false as we
+/// call Sema methods on those declarations. Those will fail in strange way as
+/// they assume those decls are already visible.
+///
+/// The main problem this is supposed to prevent is when we use C++ modules and
+/// have hidden declarations in our AST. Usually they can't be found as they are
+/// hidden from name lookup until their module is actually imported, but as the
+/// RecursiveASTVisitor is not supposed to be restricted by lookup limitations,
+/// it still reaches those hidden declarations.
+bool RScanner::shouldVisitDecl(clang::NamedDecl *D)
+{
+   if (auto M = D->getOwningModule()) {
+      return fInterpreter.getSema().isModuleVisible(M);
+   }
+   return true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -302,7 +328,7 @@ void RScanner::UnimplementedDecl(clang::Decl* D, const std::string &txt)
    clang::Decl::Kind k = D->getKind();
 
    bool show = true;
-   if (k >= 0 || k <= fgDeclLast) {
+   if (k <= fgDeclLast) {
       if (fDeclTable [k])
          show = false; // already displayed
       else
@@ -455,6 +481,9 @@ bool RScanner::VisitNamespaceDecl(clang::NamespaceDecl* N)
    if (fScanType == EScanType::kOnePCM)
       return true;
 
+   if (!shouldVisitDecl(N))
+      return true;
+
    // in case it is implicit we don't create a builder
    if((N && N->isImplicit()) || !N){
       return true;
@@ -490,6 +519,9 @@ bool RScanner::VisitNamespaceDecl(clang::NamespaceDecl* N)
 
 bool RScanner::VisitRecordDecl(clang::RecordDecl* D)
 {
+   if (!shouldVisitDecl(D))
+      return true;
+
    // This method visits a class node
    return TreatRecordDeclOrTypedefNameDecl(D);
 
@@ -584,13 +616,13 @@ bool RScanner::TreatRecordDeclOrTypedefNameDecl(clang::TypeDecl* typeDecl)
    // At the end of the method, if the typedef name is matched, an AnnotatedRecordDecl
    // with the underlying RecordDecl is fed to the machinery.
 
-   clang::RecordDecl* recordDecl = clang::dyn_cast<clang::RecordDecl>(typeDecl);
-   clang::TypedefNameDecl* typedefNameDecl = clang::dyn_cast<clang::TypedefNameDecl>(typeDecl);
+   const clang::RecordDecl* recordDecl = clang::dyn_cast<clang::RecordDecl>(typeDecl);
+   const clang::TypedefNameDecl* typedefNameDecl = clang::dyn_cast<clang::TypedefNameDecl>(typeDecl);
 
    // If typeDecl is not a RecordDecl, try to fetch the RecordDecl behind the TypedefDecl
    if (!recordDecl && typedefNameDecl) {
       recordDecl = ROOT::TMetaUtils::GetUnderlyingRecordDecl(typedefNameDecl->getUnderlyingType());
-      }
+   }
 
    // If at this point recordDecl is still NULL, we have a problem
    if (!recordDecl) {
@@ -603,13 +635,17 @@ bool RScanner::TreatRecordDeclOrTypedefNameDecl(clang::TypeDecl* typeDecl)
    if (!recordDecl->getIdentifier())
       return true;
 
+   // Do not select dependent types.
+   if (recordDecl->isDependentType())
+      return true;
+
    if (fScanType == EScanType::kOnePCM && ROOT::TMetaUtils::IsStdClass(*recordDecl))
       return true;
 
 
    // At this point, recordDecl must be a RecordDecl pointer.
 
-   if (recordDecl && fRecordDeclCallback) {
+   if (fRecordDeclCallback) {
       // Pass on any declaration.   This is usually used to record dependency.
       // Since rootcint see C++ compliant header files, we can assume that
       // if a forward declaration or declaration has been inserted, the
@@ -617,13 +653,11 @@ bool RScanner::TreatRecordDeclOrTypedefNameDecl(clang::TypeDecl* typeDecl)
       // them either directly or indirectly.   Any false positive can be
       // resolved by removing the spurrious dependency in the (user) header
       // files.
-      std::string qual_name;
-      GetDeclQualName(recordDecl,qual_name);
-      fRecordDeclCallback(qual_name.c_str());
+      fRecordDeclCallback(recordDecl);
    }
 
    // in case it is implicit or a forward declaration, we are not interested.
-   if(recordDecl && (recordDecl->isImplicit() || !recordDecl->isCompleteDefinition()) ) {
+   if(recordDecl->isImplicit() || !recordDecl->isCompleteDefinition()) {
       return true;
    }
 
@@ -646,57 +680,56 @@ bool RScanner::TreatRecordDeclOrTypedefNameDecl(clang::TypeDecl* typeDecl)
    if ( selectedFromRecDecl )
       excludedFromRecDecl = selectedFromRecDecl->GetSelected() == BaseSelectionRule::kNo;
 
-   if (selected->GetSelected() == BaseSelectionRule::kYes && !excludedFromRecDecl) {
-      // The record decl will results to be selected
+   if (selected->GetSelected() != BaseSelectionRule::kYes || excludedFromRecDecl)
+      return true;
 
-      // Save the typedef
-      if (selectedFromTypedef){
-         if (!IsElementPresent(fSelectedTypedefs, typedefNameDecl))
-            fSelectedTypedefs.push_back(typedefNameDecl);
-         // Early exit here if we are not in presence of XML
-         if (!fSelectionRules.IsSelectionXMLFile()) return true;
-      }
+   // Save the typedef
+   if (selectedFromTypedef){
+      if (!IsElementPresent(fSelectedTypedefs, typedefNameDecl))
+         fSelectedTypedefs.push_back(typedefNameDecl);
+      // Early exit here if we are not in presence of XML
+      if (!fSelectionRules.IsSelectionXMLFile()) return true;
+   }
 
-      if (fSelectionRules.IsSelectionXMLFile() && selected->IsFromTypedef()) {
-         if (!IsElementPresent(fSelectedTypedefs, typedefNameDecl))
-            fSelectedTypedefs.push_back(typedefNameDecl);
+   if (fSelectionRules.IsSelectionXMLFile() && selected->IsFromTypedef()) {
+      if (!IsElementPresent(fSelectedTypedefs, typedefNameDecl))
+         fSelectedTypedefs.push_back(typedefNameDecl);
+      return true;
+   }
+
+   if (typedefNameDecl)
+      ROOT::TMetaUtils::Info("RScanner::TreatRecordDeclOrTypedefNameDecl",
+                              "Typedef is selected %s.\n", typedefNameDecl->getNameAsString().c_str());
+
+   // For the case kNo, we could (but don't) remove the node from the pcm
+   // For the case kDontCare, the rule is just a place holder and we are actually trying to exclude some of its children
+   // (this is used only in the selection xml case).
+
+   // Reject the selection of std::pair on the ground that it is trivial
+   // and can easily be recreated from the AST information.
+   if (recordDecl->getName() == "pair") {
+      const clang::NamespaceDecl *nsDecl = llvm::dyn_cast<clang::NamespaceDecl>(recordDecl->getDeclContext());
+      if (!nsDecl){
+         ROOT::TMetaUtils::Error("RScanner::TreatRecordDeclOrTypedefNameDecl",
+                                 "Cannot convert context of RecordDecl called pair into a namespace.\n");
          return true;
       }
-
-      if (typedefNameDecl)
-         ROOT::TMetaUtils::Info("RScanner::TreatRecordDeclOrTypedefNameDecl",
-                                "Typedef is selected %s.\n", typedefNameDecl->getNameAsString().c_str());
-
-      // For the case kNo, we could (but don't) remove the node from the pcm
-      // For the case kDontCare, the rule is just a place holder and we are actually trying to exclude some of its children
-      // (this is used only in the selection xml case).
-
-      // Reject the selection of std::pair on the ground that it is trivial
-      // and can easily be recreated from the AST information.
-      if (recordDecl && recordDecl->getName() == "pair") {
-         const clang::NamespaceDecl *nsDecl = llvm::dyn_cast<clang::NamespaceDecl>(recordDecl->getDeclContext());
-         if (!nsDecl){
-            ROOT::TMetaUtils::Error("RScanner::TreatRecordDeclOrTypedefNameDecl",
-                                    "Cannot convert context of RecordDecl called pair into a namespace.\n");
+      const clang::NamespaceDecl *nsCanonical = nsDecl->getCanonicalDecl();
+      if (nsCanonical && nsCanonical == fInterpreter.getCI()->getSema().getStdNamespace()) {
+         if (selected->HasAttributeFileName() || selected->HasAttributeFilePattern()) {
             return true;
          }
-         const clang::NamespaceDecl *nsCanonical = nsDecl->getCanonicalDecl();
-         if (nsCanonical && nsCanonical == fInterpreter.getCI()->getSema().getStdNamespace()) {
-            if (selected->HasAttributeFileName() || selected->HasAttributeFilePattern()) {
-               return true;
-            }
-         }
       }
+   }
 
-      // Insert in the selected classes if not already there
-      // We need this check since the same class can be selected through its name or typedef
-      bool rcrdDeclNotAlreadySelected = fselectedRecordDecls.insert((RecordDecl*)recordDecl->getCanonicalDecl()).second;
-
+   // Insert in the selected classes if not already there
+   // We need this check since the same class can be selected through its name or typedef
+   bool rcrdDeclNotAlreadySelected = fselectedRecordDecls.insert((RecordDecl*)recordDecl->getCanonicalDecl()).second;
+   if (!fFirstPass && !rcrdDeclNotAlreadySelected) {
+      // Diagnose conflicting selection rules:
       auto declSelRuleMapIt = fDeclSelRuleMap.find(recordDecl->getCanonicalDecl());
-      if (!fFirstPass &&
-          !rcrdDeclNotAlreadySelected &&
-          declSelRuleMapIt != fDeclSelRuleMap.end() &&
-          declSelRuleMapIt->second != selected){
+      if (declSelRuleMapIt != fDeclSelRuleMap.end() &&
+            declSelRuleMapIt->second != selected) {
          std::string normName;
          TMetaUtils::GetNormalizedName(normName,
                                        recordDecl->getASTContext().getTypeDeclType(recordDecl),
@@ -714,84 +747,88 @@ bool RScanner::TreatRecordDeclOrTypedefNameDecl(clang::TypeDecl* typeDecl)
             if (lineno > 1) message << "Selection file " << cleanFileName << ", lines "
                                     << lineno << " and " << previouslineno << ". ";
             message << "Attempt to select a class "<< normName << " with two rules which have incompatible attributes. "
-                    << "The attributes such as transiency might not be correctly propagated to the typesystem of ROOT.\n";
+                  << "The attributes such as transiency might not be correctly propagated to the typesystem of ROOT.\n";
             selected->Print(message);
             message << "Conflicting rule already matched:\n";
             previouslyMatchingRule->Print(message);
             ROOT::TMetaUtils::Warning(0,"%s\n", message.str().c_str());
-            }
-         }
-
-      fDeclSelRuleMap[recordDecl->getCanonicalDecl()]=selected;
-
-      if(rcrdDeclNotAlreadySelected &&
-         !fFirstPass){
-
-
-         // Before adding the decl to the selected ones, check its access.
-         // We do not yet support I/O of private or protected classes.
-         // See ROOT-7450
-         // We exclude filename selections as they can come from aclic
-         auto isFileSelection = selected->HasAttributeFileName() &&
-                                selected->HasAttributePattern() &&
-                                "*" == selected->GetAttributePattern();
-         auto canDeclAccess = recordDecl->getCanonicalDecl()->getAccess();
-         if (!isFileSelection && (AS_protected == canDeclAccess || AS_private == canDeclAccess)){
-            std::string normName;
-            TMetaUtils::GetNormalizedName(normName,
-                                          recordDecl->getASTContext().getTypeDeclType(recordDecl),
-                                          fInterpreter,
-                                          fNormCtxt);
-            auto msg = "Class or struct %s was selected but its dictionary cannot be generated: "
-                       "this is a private or protected class and this is not supported. No direct "
-                       "I/O operation of %s instances will be possible.\n";
-            ROOT::TMetaUtils::Warning(0,msg,normName.c_str(),normName.c_str());
-            return true;
-         }
-
-         // Replace on the fly the type if the type for IO is different for example
-         // in presence of unique_ptr<T> or collections thereof.
-         // The following lines are very delicate: we need to preserve the special
-         // ROOT opaque typedefs.
-         auto req_type = selected->GetRequestedType();
-         clang::QualType thisType(req_type, 0);
-         std::string attr_name = selected->GetAttributeName().c_str();
-
-         auto sc = AddAnnotatedRecordDecl(selected, req_type, recordDecl, attr_name, typedefNameDecl);
-         if (sc != 0) {
-            return false;
-         }
-
-         if (llvm::isa<clang::ClassTemplateSpecializationDecl>(recordDecl)) {
-            if (!req_type) {
-               thisType = recordDecl->getASTContext().getTypeDeclType(recordDecl);
-            }
-            auto nameTypeForIO = ROOT::TMetaUtils::GetNameTypeForIO(thisType, fInterpreter, fNormCtxt);
-            auto typeForIO = nameTypeForIO.second;
-            // It could be that we have in hands a type which is not a class, e.g.
-            // in presence of unique_ptr<T> we got a T with T=double.
-            if (!typeForIO->isRecordType()) return true;
-            if (typeForIO.getTypePtr() != thisType.getTypePtr()){
-               if (auto recordDeclForIO = typeForIO->getAsCXXRecordDecl()) {
-                  auto canRecordDeclForIO = recordDeclForIO->getCanonicalDecl();
-                  if (!fselectedRecordDecls.insert(canRecordDeclForIO).second) return true;
-                  recordDecl = canRecordDeclForIO;
-                  fDeclSelRuleMap[recordDecl]=selected;
-                  thisType = typeForIO;
-               }
-               if (!thisType.isNull()) {
-                  req_type = thisType.getTypePtr();
-               }
-
-               AddAnnotatedRecordDecl(selected, req_type, recordDecl, nameTypeForIO.first, typedefNameDecl, 1000);
-            }
          }
       }
    }
 
+   fDeclSelRuleMap[recordDecl->getCanonicalDecl()] = selected;
 
+   if (!rcrdDeclNotAlreadySelected || fFirstPass)
+      return true;
+
+   // Before adding the decl to the selected ones, check its access.
+   // We do not yet support I/O of private or protected classes.
+   // See ROOT-7450.
+   // Additionally, private declarations lead to uncompilable code, so just ignore (ROOT-9112).
+   if (recordDecl->getAccess() == AS_private || recordDecl->getAccess() == AS_protected) {
+      // Don't warn about types selected by "everything in that file".
+      auto isFileSelection = selected->HasAttributeFileName() &&
+                           selected->HasAttributePattern() &&
+                           "*" == selected->GetAttributePattern();
+      if (!isFileSelection) {
+         std::string normName;
+         TMetaUtils::GetNormalizedName(normName,
+                                       recordDecl->getASTContext().getTypeDeclType(recordDecl),
+                                       fInterpreter,
+                                       fNormCtxt);
+         auto msg = "Class or struct %s was selected but its dictionary cannot be generated: "
+                  "this is a private or protected class and this is not supported. No direct "
+                  "I/O operation of %s instances will be possible.\n";
+         ROOT::TMetaUtils::Warning(0,msg,normName.c_str(),normName.c_str());
+      }
+      return true;
+   }
+
+   // Replace on the fly the type if the type for IO is different for example
+   // in presence of unique_ptr<T> or collections thereof.
+   // The following lines are very delicate: we need to preserve the special
+   // ROOT opaque typedefs.
+   auto req_type = selected->GetRequestedType();
+   clang::QualType thisType(req_type, 0);
+   std::string attr_name = selected->GetAttributeName().c_str();
+
+   auto sc = AddAnnotatedRecordDecl(selected, req_type, recordDecl, attr_name, typedefNameDecl);
+   if (sc != 0) {
+      return false;
+   }
+
+   if (auto CTSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(recordDecl)) {
+      fDelayedAnnotatedRecordDecls.emplace_back(DelayedAnnotatedRecordDeclInfo{selected, CTSD, typedefNameDecl});
+   }
 
    return true;
+}
+
+void RScanner::AddDelayedAnnotatedRecordDecls()
+{
+   for (auto &&info: fDelayedAnnotatedRecordDecls) {
+      const clang::Type *thisType = info.fSelected->GetRequestedType();
+      if (!thisType)
+         thisType = info.fDecl->getTypeForDecl();
+      const clang::CXXRecordDecl *recordDecl = info.fDecl;
+      auto nameTypeForIO = ROOT::TMetaUtils::GetNameTypeForIO(clang::QualType(thisType, 0), fInterpreter, fNormCtxt);
+      auto typeForIO = nameTypeForIO.second;
+      // It could be that we have in hands a type which is not a class, e.g.
+      // in presence of unique_ptr<T> we got a T with T=double.
+      if (typeForIO.getTypePtr() == thisType)
+         continue;
+      if (auto recordDeclForIO = typeForIO->getAsCXXRecordDecl()) {
+         const auto canRecordDeclForIO = recordDeclForIO->getCanonicalDecl();
+         if (!fselectedRecordDecls.insert(canRecordDeclForIO).second)
+            continue;
+         recordDecl = canRecordDeclForIO;
+         fDeclSelRuleMap[recordDecl] = info.fSelected;
+         thisType = typeForIO.getTypePtr();
+      }
+
+      AddAnnotatedRecordDecl(info.fSelected, thisType, recordDecl,
+                             nameTypeForIO.first, info.fTypedefNameDecl, 1000);
+   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -804,6 +841,9 @@ bool RScanner::TreatRecordDeclOrTypedefNameDecl(clang::TypeDecl* typeDecl)
 bool RScanner::VisitTypedefNameDecl(clang::TypedefNameDecl* D)
 {
    if (fScanType == EScanType::kOnePCM)
+      return true;
+
+   if (!shouldVisitDecl(D))
       return true;
 
    const clang::DeclContext *ctx = D->getDeclContext();
@@ -829,6 +869,9 @@ bool RScanner::VisitEnumDecl(clang::EnumDecl* D)
    if (fScanType == EScanType::kOnePCM)
       return true;
 
+   if (!shouldVisitDecl(D))
+      return true;
+
    if(fSelectionRules.IsDeclSelected(D) &&
       !IsElementPresent(fSelectedEnums, D)){ // Removal of duplicates.
       fSelectedEnums.push_back(D);
@@ -843,6 +886,9 @@ bool RScanner::VisitVarDecl(clang::VarDecl* D)
 {
    if (!D->hasGlobalStorage() ||
        fScanType == EScanType::kOnePCM)
+      return true;
+
+   if (!shouldVisitDecl(D))
       return true;
 
    if(fSelectionRules.IsDeclSelected(D)){
@@ -880,6 +926,9 @@ bool RScanner::VisitFieldDecl(clang::FieldDecl* D)
 bool RScanner::VisitFunctionDecl(clang::FunctionDecl* D)
 {
    if (fScanType == EScanType::kOnePCM)
+      return true;
+
+   if (!shouldVisitDecl(D))
       return true;
 
    if(clang::FunctionDecl::TemplatedKind::TK_FunctionTemplate == D->getTemplatedKind())
@@ -940,7 +989,7 @@ bool RScanner::GetDeclName(clang::Decl* D, std::string& name) const
 
 ////////////////////////////////////////////////////////////////////////////////
 
-bool RScanner::GetDeclQualName(const clang::Decl* D, std::string& qual_name) const
+bool RScanner::GetDeclQualName(const clang::Decl* D, std::string& qual_name)
 {
    auto N = dyn_cast<const clang::NamedDecl> (D);
 
@@ -1012,6 +1061,11 @@ void RScanner::Scan(const clang::ASTContext &C)
    fSelectedVariables.clear();
    fSelectedFunctions.clear();
    TraverseDecl(C.getTranslationUnitDecl());
+
+   // The RecursiveASTVisitor uses range-based for; we must not modify the AST
+   // during iteration / visitation. Instead, buffer the lookups that could
+   // potentially create new template specializations, and handle them here:
+   AddDelayedAnnotatedRecordDecls();
 }
 
 

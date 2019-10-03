@@ -143,7 +143,7 @@ ClassImp(TRint);
 TRint::TRint(const char *appClassName, Int_t *argc, char **argv, void *options,
              Int_t numOptions, Bool_t noLogo):
    TApplication(appClassName, argc, argv, options, numOptions),
-   fCaughtSignal(0)
+   fCaughtSignal(-1)
 {
    fNcmd          = 0;
    fDefaultPrompt = "root [%d] ";
@@ -156,34 +156,36 @@ TRint::TRint(const char *appClassName, Int_t *argc, char **argv, void *options,
       PrintLogo(lite);
    }
 
-   // Explicitly load libMathCore as CINT will not auto load it when using one
-   // of its globals. Once moved to Cling, which should work correctly, we
-   // can remove this statement.
+   // Explicitly load libMathCore it cannot be auto-loaded it when using one
+   // of its freestanding functions. Once functions can trigger autoloading we
+   // can get rid of this.
    if (!gClassTable->GetDict("TRandom"))
       gSystem->Load("libMathCore");
 
-   // Load some frequently used includes
-   Int_t includes = gEnv->GetValue("Rint.Includes", 1);
-   // When the interactive ROOT starts, it can automatically load some frequently
-   // used includes. However, this introduces several overheads
-   //   -The initialisation takes more time
-   //   -Memory overhead when including <vector>
-   // In $ROOTSYS/etc/system.rootrc, you can set the variable Rint.Includes to 0
-   // to disable the loading of these includes at startup.
-   // You can set the variable to 1 (default) to load only <iostream>, <string> and <DllImport.h>
-   // You can set it to 2 to load in addition <vector> and <utility>
-   // We strongly recommend setting the variable to 2 if your scripts include <vector>
-   // and you execute your scripts multiple times.
-   if (includes > 0) {
-      TString code;
-      code = "#include <iostream>\n"
-             "#include <string>\n" // for std::string std::iostream.
-             "#include <DllImport.h>\n";// Defined R__EXTERN
-      if (includes > 1) {
-         code += "#include <vector>\n"
-                 "#include <utility>";
+   if (!gInterpreter->HasPCMForLibrary("std")) {
+      // Load some frequently used includes
+      Int_t includes = gEnv->GetValue("Rint.Includes", 1);
+      // When the interactive ROOT starts, it can automatically load some frequently
+      // used includes. However, this introduces several overheads
+      //   -The initialisation takes more time
+      //   -Memory overhead when including <vector>
+      // In $ROOTSYS/etc/system.rootrc, you can set the variable Rint.Includes to 0
+      // to disable the loading of these includes at startup.
+      // You can set the variable to 1 (default) to load only <iostream>, <string> and <DllImport.h>
+      // You can set it to 2 to load in addition <vector> and <utility>
+      // We strongly recommend setting the variable to 2 if your scripts include <vector>
+      // and you execute your scripts multiple times.
+      if (includes > 0) {
+         TString code;
+         code = "#include <iostream>\n"
+            "#include <string>\n" // for std::string std::iostream.
+            "#include <DllImport.h>\n";// Defined R__EXTERN
+         if (includes > 1) {
+            code += "#include <vector>\n"
+               "#include <utility>";
+         }
+         ProcessLine(code, kTRUE);
       }
-      ProcessLine(code, kTRUE);
    }
 
    // Load user functions
@@ -333,10 +335,10 @@ void TRint::ExecLogon()
 ////////////////////////////////////////////////////////////////////////////////
 /// Main application eventloop. First process files given on the command
 /// line and then go into the main application event loop, unless the -q
-/// command line option was specfied in which case the program terminates.
-/// When retrun is true this method returns even when -q was specified.
+/// command line option was specified in which case the program terminates.
+/// When return is true this method returns even when -q was specified.
 ///
-/// When QuitOpt is true and retrn is false, terminate the application with
+/// When QuitOpt is true and return is false, terminate the application with
 /// an error code equal to either the ProcessLine error (if any) or the
 /// return value of the command casted to a long.
 
@@ -377,8 +379,13 @@ void TRint::Run(Bool_t retrn)
       RETRY {
          retval = 0; error = 0;
          Int_t nfile = 0;
-         TObjString *file;
-         while ((file = (TObjString *)next())) {
+         while (TObject *fileObj = next()) {
+            if (dynamic_cast<TNamed*>(fileObj)) {
+               // A file that TApplication did not find. Note the error.
+               retval = 1;
+               continue;
+            }
+            TObjString *file = (TObjString *)fileObj;
             char cmd[kMAXPATHLEN+50];
             if (!fNcmd)
                printf("\n");
@@ -420,7 +427,7 @@ void TRint::Run(Bool_t retrn)
             // to call Getlinem(kInit, GetPrompt());
             needGetlinemInit = kTRUE;
 
-            if (error != 0 || fCaughtSignal) break;
+            if (error != 0 || fCaughtSignal != -1) break;
          }
       } ENDTRY;
 
@@ -428,7 +435,7 @@ void TRint::Run(Bool_t retrn)
          if (retrn) return;
          if (error) {
             retval = error;
-         } else if (fCaughtSignal) {
+         } else if (fCaughtSignal != -1) {
             retval = fCaughtSignal + 128;
          }
          // Bring retval into sensible range, 0..255.
@@ -449,13 +456,13 @@ void TRint::Run(Bool_t retrn)
    if (QuitOpt()) {
       printf("\n");
       if (retrn) return;
-      Terminate(fCaughtSignal ? fCaughtSignal + 128 : 0);
+      Terminate(fCaughtSignal != -1 ? fCaughtSignal + 128 : 0);
    }
 
    TApplication::Run(retrn);
 
    // Reset to happiness.
-   fCaughtSignal = 0;
+   fCaughtSignal = -1;
 
    Getlinem(kCleanUp, 0);
 }
@@ -470,10 +477,10 @@ void TRint::PrintLogo(Bool_t lite)
       // replaced by spaces needed to make all lines as long as the longest line.
       std::vector<TString> lines;
       // Here, %%s results in %s after TString::Format():
-      lines.emplace_back(TString::Format("Welcome to ROOT %s%%shttp://root.cern.ch",
+      lines.emplace_back(TString::Format("Welcome to ROOT %s%%shttps://root.cern",
                                          gROOT->GetVersion()));
-      lines.emplace_back(TString::Format("%%s(c) 1995-2017, The ROOT Team"));
-      lines.emplace_back(TString::Format("Built for %s%%s", gSystem->GetBuildArch()));
+      lines.emplace_back(TString::Format("(c) 1995-2019, The ROOT Team; conception: R. Brun, F. Rademakers%%s"));
+      lines.emplace_back(TString::Format("Built for %s on %s%%s", gSystem->GetBuildArch(), gROOT->GetGitDate()));
       if (!strcmp(gROOT->GetGitBranch(), gROOT->GetGitCommit())) {
          static const char *months[] = {"January","February","March","April","May",
                                         "June","July","August","September","October",
@@ -489,9 +496,9 @@ void TRint::PrintLogo(Bool_t lite)
       } else {
          // If branch and commit are identical - e.g. "v5-34-18" - then we have
          // a release build. Else specify the git hash this build was made from.
-         lines.emplace_back(TString::Format("From %s@%s, %s%%s",
+         lines.emplace_back(TString::Format("From %s@%s %%s",
                                             gROOT->GetGitBranch(),
-                                            gROOT->GetGitCommit(), gROOT->GetGitDate()));
+                                            gROOT->GetGitCommit()));
       }
       lines.emplace_back(TString("Try '.help', '.demo', '.license', '.credits', '.quit'/'.q'%s"));
 

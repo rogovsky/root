@@ -219,9 +219,13 @@ public:
    Double_t          GetAspectRatio() const { return fAspectRatio; }
    Double_t          GetPhi() const   {return fPhi;}
    Double_t          GetTheta() const {return fTheta;}
+   ///Returns the minimum x-coordinate value visible on the pad. If log axis the returned value is in decades.
    Double_t          GetUxmin() const {return fUxmin;}
+   ///Returns the minimum y-coordinate value visible on the pad. If log axis the returned value is in decades.
    Double_t          GetUymin() const {return fUymin;}
+   ///Returns the maximum x-coordinate value visible on the pad. If log axis the returned value is in decades.
    Double_t          GetUxmax() const {return fUxmax;}
+   ///Returns the maximum y-coordinate value visible on the pad. If log axis the returned value is in decades.
    Double_t          GetUymax() const {return fUymax;}
    Bool_t            GetGridx() const {return fGridx;}
    Bool_t            GetGridy() const {return fGridy;}
@@ -275,6 +279,7 @@ public:
    void              PaintBox(Double_t x1, Double_t y1, Double_t x2, Double_t y2, Option_t *option="");
    void              PaintFillArea(Int_t n, Float_t *x, Float_t *y, Option_t *option=""); // Obsolete
    void              PaintFillArea(Int_t n, Double_t *x, Double_t *y, Option_t *option="");
+   void              PaintFillAreaNDC(Int_t n, Double_t *x, Double_t *y, Option_t *option="");
    void              PaintFillAreaHatches(Int_t n, Double_t *x, Double_t *y, Int_t FillStyle);
    void              PaintHatches(Double_t dy, Double_t angle, Int_t nn, Double_t *xx, Double_t *yy);
    void              PaintPadFrame(Double_t xmin, Double_t ymin, Double_t xmax, Double_t ymax);

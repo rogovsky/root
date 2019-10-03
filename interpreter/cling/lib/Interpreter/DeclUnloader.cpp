@@ -29,6 +29,20 @@
 namespace cling {
 using namespace clang;
 
+///\brief Return whether `D' is a template that was first instantiated non-
+/// locally, i.e. in a PCH/module. If `D' is not an instantiation, return false.
+bool DeclUnloader::isInstantiatedInPCH(const Decl *D) {
+  SourceManager &SM = D->getASTContext().getSourceManager();
+  if (const auto FD = dyn_cast<FunctionDecl>(D))
+    return FD->isTemplateInstantiation() &&
+           !SM.isLocalSourceLocation(FD->getPointOfInstantiation());
+  else if (const auto CTSD = dyn_cast<ClassTemplateSpecializationDecl>(D))
+    return !SM.isLocalSourceLocation(CTSD->getPointOfInstantiation());
+  else if (const auto VTSD = dyn_cast<VarTemplateSpecializationDecl>(D))
+    return !SM.isLocalSourceLocation(VTSD->getPointOfInstantiation());
+  return false;
+}
+
 bool DeclUnloader::isDefinition(TagDecl* R) {
   return R->isCompleteDefinition() && isa<CXXRecordDecl>(R);
 }
@@ -438,7 +452,7 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
     bool Successful = VisitDecl(ND);
 
     DeclContext* DC = ND->getDeclContext();
-    while (DC->isTransparentContext())
+    while (DC->isTransparentContext() || DC->isInlineNamespace())
       DC = DC->getLookupParent();
 
     // if the decl was anonymous we are done.
@@ -590,7 +604,7 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
 
         FunctionTemplateDeclExt* This = (FunctionTemplateDeclExt*) self;
         Specializations specializations;
-        const Set& specs = This->getSpecializations();
+        const Set& specs = This->getCommonPtr()->Specializations;
 
         if (!specs.size()) // nothing to remove
           return;
@@ -602,7 +616,7 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
             specializations.push_back(I->Function);
         }
 
-        This->getSpecializations().clear();
+        This->getCommonPtr()->Specializations.clear();
 
         //Readd the collected specializations.
         void* InsertPos = 0;
@@ -867,7 +881,7 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
         }
       }
 
-      llvm::Module* M = m_CurTransaction->getModule();
+      auto M = m_CurTransaction->getModule();
       GlobalValue* GV = M->getNamedValue(mangledName);
       if (GV) { // May be deferred decl and thus 0
         GlobalValueEraser GVEraser(m_CodeGen);
@@ -965,7 +979,7 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
 
       ClassTemplateDeclExt* This = (ClassTemplateDeclExt*) self;
       Specializations specializations;
-      Set& specs = This->getSpecializations();
+      Set& specs = This->getCommonPtr()->Specializations;
 
       if (!specs.size()) // nothing to remove
         return;
@@ -976,7 +990,7 @@ bool DeclUnloader::VisitRedeclarable(clang::Redeclarable<T>* R, DeclContext* DC)
           specializations.push_back(&*I);
       }
 
-      This->getSpecializations().clear();
+      This->getCommonPtr()->Specializations.clear();
 
       //Readd the collected specializations.
       void* InsertPos = 0;

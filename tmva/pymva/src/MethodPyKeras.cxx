@@ -13,8 +13,22 @@
 #include "TMVA/Results.h"
 #include "TMVA/TransformationHandler.h"
 #include "TMVA/VariableTransformBase.h"
+#include "TMVA/Tools.h"
+#include "TMVA/Timer.h"
 
 using namespace TMVA;
+
+namespace TMVA {
+namespace Internal {
+class PyGILRAII {
+   PyGILState_STATE m_GILState;
+
+public:
+   PyGILRAII() : m_GILState(PyGILState_Ensure()) {}
+   ~PyGILRAII() { PyGILState_Release(m_GILState); }
+};
+} // namespace Internal
+} // namespace TMVA
 
 REGISTER_METHOD(PyKeras)
 
@@ -30,11 +44,13 @@ MethodPyKeras::MethodPyKeras(const TString &jobName, const TString &methodTitle,
    fTriesEarlyStopping = -1;
    fLearningRateSchedule = ""; // empty string deactivates learning rate scheduler
    fFilenameTrainedModel = ""; // empty string sets output model filename to default (in weights/)
+   fTensorBoard = "";          // empty string deactivates TensorBoard callback
 }
 
 MethodPyKeras::MethodPyKeras(DataSetInfo &theData, const TString &theWeightFile)
     : PyMethodBase(Types::kPyKeras, theData, theWeightFile) {
    fNumEpochs = 10;
+   fNumThreads = 0;
    fBatchSize = 100;
    fVerbose = 1;
    fContinueTraining = false;
@@ -42,6 +58,7 @@ MethodPyKeras::MethodPyKeras(DataSetInfo &theData, const TString &theWeightFile)
    fTriesEarlyStopping = -1;
    fLearningRateSchedule = ""; // empty string deactivates learning rate scheduler
    fFilenameTrainedModel = ""; // empty string sets output model filename to default (in weights/)
+   fTensorBoard = "";          // empty string deactivates TensorBoard callback
 }
 
 MethodPyKeras::~MethodPyKeras() {
@@ -61,11 +78,82 @@ void MethodPyKeras::DeclareOptions() {
    DeclareOptionRef(fFilenameTrainedModel, "FilenameTrainedModel", "Filename of the trained output Keras model");
    DeclareOptionRef(fBatchSize, "BatchSize", "Training batch size");
    DeclareOptionRef(fNumEpochs, "NumEpochs", "Number of training epochs");
+   DeclareOptionRef(fNumThreads, "NumThreads", "Number of CPU threads (only for Tensorflow backend)");
+   DeclareOptionRef(fGpuOptions, "GpuOptions", "GPU options for tensorflow, such as allow_growth");
    DeclareOptionRef(fVerbose, "Verbose", "Keras verbosity during training");
    DeclareOptionRef(fContinueTraining, "ContinueTraining", "Load weights from previous training");
    DeclareOptionRef(fSaveBestOnly, "SaveBestOnly", "Store only weights with smallest validation loss");
    DeclareOptionRef(fTriesEarlyStopping, "TriesEarlyStopping", "Number of epochs with no improvement in validation loss after which training will be stopped. The default or a negative number deactivates this option.");
    DeclareOptionRef(fLearningRateSchedule, "LearningRateSchedule", "Set new learning rate during training at specific epochs, e.g., \"50,0.01;70,0.005\"");
+   DeclareOptionRef(fTensorBoard, "TensorBoard",
+                    "Write a log during training to visualize and monitor the training performance with TensorBoard");
+   DeclareOptionRef(fTensorBoard, "TensorBoard",
+                    "Write a log during training to visualize and monitor the training performance with TensorBoard");
+
+   DeclareOptionRef(fNumValidationString = "20%", "ValidationSize", "Part of the training data to use for validation. "
+                    "Specify as 0.2 or 20% to use a fifth of the data set as validation set. "
+                    "Specify as 100 to use exactly 100 events. (Default: 20%)");
+
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// Validation of the ValidationSize option. Allowed formats are 20%, 0.2 and
+/// 100 etc.
+///    - 20% and 0.2 selects 20% of the training set as validation data.
+///    - 100 selects 100 events as the validation data.
+///
+/// @return number of samples in validation set
+///
+UInt_t TMVA::MethodPyKeras::GetNumValidationSamples()
+{
+   Int_t nValidationSamples = 0;
+   UInt_t trainingSetSize = GetEventCollection(Types::kTraining).size();
+
+   // Parsing + Validation
+   // --------------------
+   if (fNumValidationString.EndsWith("%")) {
+      // Relative spec. format 20%
+      TString intValStr = TString(fNumValidationString.Strip(TString::kTrailing, '%'));
+
+      if (intValStr.IsFloat()) {
+         Double_t valSizeAsDouble = fNumValidationString.Atof() / 100.0;
+         nValidationSamples = GetEventCollection(Types::kTraining).size() * valSizeAsDouble;
+      } else {
+         Log() << kFATAL << "Cannot parse number \"" << fNumValidationString
+               << "\". Expected string like \"20%\" or \"20.0%\"." << Endl;
+      }
+   } else if (fNumValidationString.IsFloat()) {
+      Double_t valSizeAsDouble = fNumValidationString.Atof();
+
+      if (valSizeAsDouble < 1.0) {
+         // Relative spec. format 0.2
+         nValidationSamples = GetEventCollection(Types::kTraining).size() * valSizeAsDouble;
+      } else {
+         // Absolute spec format 100 or 100.0
+         nValidationSamples = valSizeAsDouble;
+      }
+   } else {
+      Log() << kFATAL << "Cannot parse number \"" << fNumValidationString << "\". Expected string like \"0.2\" or \"100\"."
+            << Endl;
+   }
+
+   // Value validation
+   // ----------------
+   if (nValidationSamples < 0) {
+      Log() << kFATAL << "Validation size \"" << fNumValidationString << "\" is negative." << Endl;
+   }
+
+   if (nValidationSamples == 0) {
+      Log() << kFATAL << "Validation size \"" << fNumValidationString << "\" is zero." << Endl;
+   }
+
+   if (nValidationSamples >= (Int_t)trainingSetSize) {
+      Log() << kFATAL << "Validation size \"" << fNumValidationString
+            << "\" is larger than or equal in size to training set (size=\"" << trainingSetSize << "\")." << Endl;
+   }
+
+   return nValidationSamples;
 }
 
 void MethodPyKeras::ProcessOptions() {
@@ -73,6 +161,47 @@ void MethodPyKeras::ProcessOptions() {
    if (fFilenameTrainedModel.IsNull()) {
       fFilenameTrainedModel = GetWeightFileDir() + "/TrainedModel_" + GetName() + ".h5";
    }
+
+   // set here some specific options for Tensorflow backend
+   //  -  when using tensorflow gpu set option to allow memory growth to avoid allocating all memory
+   //  -  set up number of threads for CPU if NumThreads option was specified
+
+   // check first if using tensorflow backend
+   if (GetKerasBackend() == kTensorFlow) {
+      Log() << kINFO << "Using TensorFlow backend - setting special configuration options "  << Endl;
+      PyRunString("import tensorflow as tf");
+      PyRunString("from keras.backend import tensorflow_backend as K");
+      // in case specify number of threads
+      int num_threads = fNumThreads;
+      if (num_threads > 0) {
+         Log() << kINFO << "Setting the CPU number of threads =  "  << num_threads << Endl;
+         PyRunString(TString::Format("session_conf = tf.ConfigProto(intra_op_parallelism_threads=%d,inter_op_parallelism_threads=%d)",
+                                     num_threads,num_threads));
+      }
+      else
+         PyRunString("session_conf = tf.ConfigProto()");
+
+      // applying GPU options such as allow_growth=True to avoid allocating all memory on GPU
+      // that prevents running later TMVA-GPU
+      // Also new Nvidia RTX cards (e.g. RTX 2070)  require this option
+      if (!fGpuOptions.IsNull() ) {
+         TObjArray * optlist = fGpuOptions.Tokenize(",");
+         for (int item = 0; item < optlist->GetEntries(); ++item) {
+            Log() << kINFO << "Applying GPU option:  gpu_options." << optlist->At(item)->GetName() << Endl;
+            PyRunString(TString::Format("session_conf.gpu_options.%s", optlist->At(item)->GetName()));
+         }
+      }
+      PyRunString("sess = tf.Session(config=session_conf)");
+      PyRunString("K.set_session(sess)");
+   }
+   else {
+      if (fNumThreads > 0)
+         Log() << kWARNING << "Cannot set the given " << fNumThreads << " threads when not using tensorflow as  backend"  << Endl;
+      if (!fGpuOptions.IsNull() ) {
+         Log() << kWARNING << "Cannot set the given GPU option " << fGpuOptions << " when not using tensorflow as  backend"  << Endl;
+      }
+   }
+
    // Setup model, either the initial model from `fFilenameModel` or
    // the trained model from `fFilenameTrainedModel`
    if (fContinueTraining) Log() << kINFO << "Continue training with trained model" << Endl;
@@ -122,6 +251,9 @@ void MethodPyKeras::SetupKerasModel(bool loadTrainedModel) {
 }
 
 void MethodPyKeras::Init() {
+
+   TMVA::Internal::PyGILRAII raii;
+
    if (!PyIsInitialized()) {
       Log() << kFATAL << "Python is not initialized" << Endl;
    }
@@ -143,7 +275,12 @@ void MethodPyKeras::Train() {
     * Load training data to numpy array
     */
 
-   UInt_t nTrainingEvents = Data()->GetNTrainingEvents();
+   UInt_t nAllEvents = Data()->GetNTrainingEvents();
+   UInt_t nValEvents = GetNumValidationSamples();
+   UInt_t nTrainingEvents = nAllEvents - nValEvents;
+   
+   Log() << kINFO << "Split TMVA training data in " << nTrainingEvents << " training events and "
+         << nValEvents << " validation events" << Endl;
 
    float* trainDataX = new float[nTrainingEvents*fNVars];
    float* trainDataY = new float[nTrainingEvents*fNOutputs];
@@ -188,15 +325,17 @@ void MethodPyKeras::Train() {
     * Load validation data to numpy array
     */
 
-   // NOTE: In TMVA, test data is actually validation data
+   // NOTE: from TMVA,  we get the validation data as a subset of all the training data
+   // we will not use test data for validation. They will be used for the real testing
 
-   UInt_t nValEvents = Data()->GetNTestEvents();
 
    float* valDataX = new float[nValEvents*fNVars];
    float* valDataY = new float[nValEvents*fNOutputs];
    float* valDataWeights = new float[nValEvents];
-   for (UInt_t i=0; i<nValEvents; i++) {
-      const TMVA::Event* e = GetTestingEvent(i);
+   //validation events follows the trainig one in the TMVA training vector
+   for (UInt_t i=0; i< nValEvents ; i++) {
+      UInt_t ievt = nTrainingEvents + i; // TMVA event index 
+      const TMVA::Event* e = GetTrainingEvent(ievt);
       // Fill variables
       for (UInt_t j=0; j<fNVars; j++) {
          valDataX[j + i*fNVars] = e->GetValue(j);
@@ -280,8 +419,18 @@ void MethodPyKeras::Train() {
       Log() << kINFO << "Option LearningRateSchedule: Set learning rate during training: " << fLearningRateSchedule << Endl;
    }
 
+   // Callback: TensorBoard
+   if (fTensorBoard != "") {
+      TString logdir = TString("'") + fTensorBoard + TString("'");
+      PyRunString(
+         "callbacks.append(keras.callbacks.TensorBoard(log_dir=" + logdir +
+            ", histogram_freq=0, batch_size=batchSize, write_graph=True, write_grads=False, write_images=False))",
+         "Failed to setup training callback: TensorBoard");
+      Log() << kINFO << "Option TensorBoard: Log files for training monitoring are stored in: " << logdir << Endl;
+   }
+
    // Train model
-   PyRunString("history = model.fit(trainX, trainY, sample_weight=trainWeights, batch_size=batchSize, nb_epoch=numEpochs, verbose=verbose, validation_data=(valX, valY, valWeights), callbacks=callbacks)",
+   PyRunString("history = model.fit(trainX, trainY, sample_weight=trainWeights, batch_size=batchSize, epochs=numEpochs, verbose=verbose, validation_data=(valX, valY, valWeights), callbacks=callbacks)",
                "Failed to train model");
 
    /*
@@ -331,7 +480,7 @@ Double_t MethodPyKeras::GetMvaValue(Double_t *errLower, Double_t *errUpper) {
    return fOutput[TMVA::Types::kSignal];
 }
 
-std::vector<Double_t> MethodPyKeras::GetMvaValues(Long64_t firstEvt, Long64_t lastEvt, Bool_t) {
+std::vector<Double_t> MethodPyKeras::GetMvaValues(Long64_t firstEvt, Long64_t lastEvt, Bool_t logProgress) {
    // Check whether the model is setup
    // NOTE: Unfortunately this is needed because during evaluation ProcessOptions is not called again
    if (!fModelIsSetup) {
@@ -344,6 +493,15 @@ std::vector<Double_t> MethodPyKeras::GetMvaValues(Long64_t firstEvt, Long64_t la
    if (firstEvt > lastEvt || lastEvt > nEvents) lastEvt = nEvents;
    if (firstEvt < 0) firstEvt = 0;
    nEvents = lastEvt-firstEvt;
+
+   // use timer
+   Timer timer( nEvents, GetName(), kTRUE );
+
+   if (logProgress)
+      Log() << kHEADER << Form("[%s] : ",DataInfo().GetName())
+            << "Evaluation of " << GetMethodName() << " on "
+            << (Data()->GetCurrentType() == Types::kTraining ? "training" : "testing")
+            << " sample (" << nEvents << " events)" << Endl;
 
    float* data = new float[nEvents*fNVars];
    for (UInt_t i=0; i<nEvents; i++) {
@@ -372,6 +530,13 @@ std::vector<Double_t> MethodPyKeras::GetMvaValues(Long64_t firstEvt, Long64_t la
    for (UInt_t i=0; i<nEvents; i++) {
       mvaValues[i] = (double) predictionsData[i*fNOutputs + TMVA::Types::kSignal];
    }
+
+   if (logProgress) {
+      Log() << kINFO
+            << "Elapsed time for evaluation of " << nEvents <<  " events: "
+            << timer.GetElapsedTime() << "       " << Endl;
+   }
+
 
    return mvaValues;
 }
@@ -435,4 +600,34 @@ void MethodPyKeras::GetHelpMessage() const {
    Log() << "interface, you have to generate a model with Keras first. Then," << Endl;
    Log() << "this model can be loaded and trained in TMVA." << Endl;
    Log() << Endl;
+}
+
+MethodPyKeras::EBackendType MethodPyKeras::GetKerasBackend()  {
+   // get the keras backend
+   // check first if using tensorflow backend
+   PyRunString("keras_backend_is_set =  keras.backend.backend() == \"tensorflow\"");
+   PyObject * keras_backend = PyDict_GetItemString(fLocalNS,"keras_backend_is_set");
+   if (keras_backend  != nullptr && keras_backend == Py_True)
+      return kTensorFlow;
+
+   PyRunString("keras_backend_is_set =  keras.backend.backend() == \"theano\"");
+   keras_backend = PyDict_GetItemString(fLocalNS,"keras_backend_is_set");
+   if (keras_backend != nullptr && keras_backend == Py_True)
+      return kTheano;
+
+   PyRunString("keras_backend_is_set =  keras.backend.backend() == \"cntk\"");
+   keras_backend = PyDict_GetItemString(fLocalNS,"keras_backend_is_set");
+   if (keras_backend != nullptr && keras_backend == Py_True)
+      return kCNTK;
+
+   return kUndefined;
+}
+
+TString MethodPyKeras::GetKerasBackendName()  {
+   // get the keras backend name
+   EBackendType type = GetKerasBackend();
+   if (type == kTensorFlow) return "TensorFlow";
+   if (type == kTheano) return "Theano";
+   if (type == kCNTK) return "CNTK";
+   return "Undefined";
 }

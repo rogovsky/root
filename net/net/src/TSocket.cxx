@@ -56,7 +56,6 @@ ULong64_t TSocket::fgBytesRecv = 0;
 // 14: support for SSH authentication via SSH tunnel
 // 15: cope with fixes in TUrl::GetFile
 // 16: add env setup message exchange
-// 17: optmized Globus/GSI protocol exchange
 //
 Int_t TSocket::fgClientProtocol = 17;  // increase when client protocol changes
 
@@ -75,7 +74,7 @@ ClassImp(TSocket);
 /// closed on program termination.
 
 TSocket::TSocket(TInetAddress addr, const char *service, Int_t tcpwindowsize)
-         : TNamed(addr.GetHostName(), service)
+         : TNamed(addr.GetHostName(), service), fCompress(ROOT::RCompressionSetting::EAlgorithm::kUseGlobal)
 {
    R__ASSERT(gROOT);
    R__ASSERT(gSystem);
@@ -92,7 +91,6 @@ TSocket::TSocket(TInetAddress addr, const char *service, Int_t tcpwindowsize)
    fAddress.fPort = gSystem->GetServiceByName(service);
    fBytesSent = 0;
    fBytesRecv = 0;
-   fCompress = 0;
    fTcpWindowSize = tcpwindowsize;
    fUUIDs = 0;
    fLastUsageMtx = 0;
@@ -102,12 +100,11 @@ TSocket::TSocket(TInetAddress addr, const char *service, Int_t tcpwindowsize)
       fSocket = gSystem->OpenConnection(addr.GetHostName(), fAddress.GetPort(),
                                         tcpwindowsize);
 
-      if (fSocket != -1) {
-         R__LOCKGUARD(gROOTMutex);
+      if (fSocket != kInvalid) {
          gROOT->GetListOfSockets()->Add(this);
       }
    } else
-      fSocket = -1;
+      fSocket = kInvalid;
 
 }
 
@@ -122,7 +119,7 @@ TSocket::TSocket(TInetAddress addr, const char *service, Int_t tcpwindowsize)
 /// closed on program termination.
 
 TSocket::TSocket(TInetAddress addr, Int_t port, Int_t tcpwindowsize)
-         : TNamed(addr.GetHostName(), "")
+         : TNamed(addr.GetHostName(), ""), fCompress(ROOT::RCompressionSetting::EAlgorithm::kUseGlobal)
 {
    R__ASSERT(gROOT);
    R__ASSERT(gSystem);
@@ -140,7 +137,6 @@ TSocket::TSocket(TInetAddress addr, Int_t port, Int_t tcpwindowsize)
    SetTitle(fService);
    fBytesSent = 0;
    fBytesRecv = 0;
-   fCompress = 0;
    fTcpWindowSize = tcpwindowsize;
    fUUIDs = 0;
    fLastUsageMtx = 0;
@@ -148,10 +144,9 @@ TSocket::TSocket(TInetAddress addr, Int_t port, Int_t tcpwindowsize)
 
    fSocket = gSystem->OpenConnection(addr.GetHostName(), fAddress.GetPort(),
                                      tcpwindowsize);
-   if (fSocket == -1)
+   if (fSocket == kInvalid)
       fAddress.fPort = -1;
    else {
-      R__LOCKGUARD(gROOTMutex);
       gROOT->GetListOfSockets()->Add(this);
    }
 }
@@ -167,7 +162,7 @@ TSocket::TSocket(TInetAddress addr, Int_t port, Int_t tcpwindowsize)
 /// closed on program termination.
 
 TSocket::TSocket(const char *host, const char *service, Int_t tcpwindowsize)
-         : TNamed(host, service)
+         : TNamed(host, service), fCompress(ROOT::RCompressionSetting::EAlgorithm::kUseGlobal)
 {
    R__ASSERT(gROOT);
    R__ASSERT(gSystem);
@@ -185,7 +180,6 @@ TSocket::TSocket(const char *host, const char *service, Int_t tcpwindowsize)
    SetName(fAddress.GetHostName());
    fBytesSent = 0;
    fBytesRecv = 0;
-   fCompress = 0;
    fTcpWindowSize = tcpwindowsize;
    fUUIDs = 0;
    fLastUsageMtx = 0;
@@ -193,12 +187,11 @@ TSocket::TSocket(const char *host, const char *service, Int_t tcpwindowsize)
 
    if (fAddress.GetPort() != -1) {
       fSocket = gSystem->OpenConnection(host, fAddress.GetPort(), tcpwindowsize);
-      if (fSocket != -1) {
-         R__LOCKGUARD(gROOTMutex);
+      if (fSocket != kInvalid) {
          gROOT->GetListOfSockets()->Add(this);
       }
    } else
-      fSocket = -1;
+      fSocket = kInvalid;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -214,7 +207,7 @@ TSocket::TSocket(const char *host, const char *service, Int_t tcpwindowsize)
 /// closed on program termination.
 
 TSocket::TSocket(const char *url, Int_t port, Int_t tcpwindowsize)
-         : TNamed(TUrl(url).GetHost(), "")
+         : TNamed(TUrl(url).GetHost(), ""), fCompress(ROOT::RCompressionSetting::EAlgorithm::kUseGlobal)
 {
    R__ASSERT(gROOT);
    R__ASSERT(gSystem);
@@ -236,17 +229,15 @@ TSocket::TSocket(const char *url, Int_t port, Int_t tcpwindowsize)
    SetTitle(fService);
    fBytesSent = 0;
    fBytesRecv = 0;
-   fCompress = 0;
    fTcpWindowSize = tcpwindowsize;
    fUUIDs = 0;
    fLastUsageMtx = 0;
    ResetBit(TSocket::kBrokenConn);
 
    fSocket = gSystem->OpenConnection(host, fAddress.GetPort(), tcpwindowsize);
-   if (fSocket == -1) {
-      fAddress.fPort = -1;
+   if (fSocket == kInvalid) {
+      fAddress.fPort = kInvalid;
    } else {
-      R__LOCKGUARD(gROOTMutex);
       gROOT->GetListOfSockets()->Add(this);
    }
 }
@@ -258,7 +249,8 @@ TSocket::TSocket(const char *url, Int_t port, Int_t tcpwindowsize)
 /// sockets list which will make sure that any open sockets are properly
 /// closed on program termination.
 
-TSocket::TSocket(const char *sockpath) : TNamed(sockpath, "")
+TSocket::TSocket(const char *sockpath) : TNamed(sockpath, ""),
+                                         fCompress(ROOT::RCompressionSetting::EAlgorithm::kUseGlobal)
 {
    R__ASSERT(gROOT);
    R__ASSERT(gSystem);
@@ -274,7 +266,6 @@ TSocket::TSocket(const char *sockpath) : TNamed(sockpath, "")
    SetTitle(fService);
    fBytesSent = 0;
    fBytesRecv = 0;
-   fCompress  = 0;
    fTcpWindowSize = -1;
    fUUIDs = 0;
    fLastUsageMtx  = 0;
@@ -282,7 +273,6 @@ TSocket::TSocket(const char *sockpath) : TNamed(sockpath, "")
 
    fSocket = gSystem->OpenConnection(sockpath, -1, -1);
    if (fSocket > 0) {
-      R__LOCKGUARD(gROOTMutex);
       gROOT->GetListOfSockets()->Add(this);
    }
 }
@@ -291,7 +281,7 @@ TSocket::TSocket(const char *sockpath) : TNamed(sockpath, "")
 /// Create a socket. The socket will adopt previously opened TCP socket with
 /// descriptor desc.
 
-TSocket::TSocket(Int_t desc) : TNamed("", "")
+TSocket::TSocket(Int_t desc) : TNamed("", ""), fCompress(ROOT::RCompressionSetting::EAlgorithm::kUseGlobal)
 {
    R__ASSERT(gROOT);
    R__ASSERT(gSystem);
@@ -302,7 +292,6 @@ TSocket::TSocket(Int_t desc) : TNamed("", "")
    fServType       = kSOCKD;
    fBytesSent      = 0;
    fBytesRecv      = 0;
-   fCompress       = 0;
    fTcpWindowSize = -1;
    fUUIDs          = 0;
    fLastUsageMtx   = 0;
@@ -311,10 +300,9 @@ TSocket::TSocket(Int_t desc) : TNamed("", "")
    if (desc >= 0) {
       fSocket  = desc;
       fAddress = gSystem->GetPeerName(fSocket);
-      R__LOCKGUARD(gROOTMutex);
       gROOT->GetListOfSockets()->Add(this);
    } else
-      fSocket = -1;
+      fSocket = kInvalid;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -322,7 +310,8 @@ TSocket::TSocket(Int_t desc) : TNamed("", "")
 /// descriptor desc. The sockpath arg is for info purposes only. Use
 /// this method to adopt e.g. a socket created via socketpair().
 
-TSocket::TSocket(Int_t desc, const char *sockpath) : TNamed(sockpath, "")
+TSocket::TSocket(Int_t desc, const char *sockpath) : TNamed(sockpath, ""),
+                                                     fCompress(ROOT::RCompressionSetting::EAlgorithm::kUseGlobal)
 {
    R__ASSERT(gROOT);
    R__ASSERT(gSystem);
@@ -338,7 +327,6 @@ TSocket::TSocket(Int_t desc, const char *sockpath) : TNamed(sockpath, "")
    SetTitle(fService);
    fBytesSent = 0;
    fBytesRecv = 0;
-   fCompress  = 0;
    fTcpWindowSize = -1;
    fUUIDs = 0;
    fLastUsageMtx  = 0;
@@ -346,10 +334,9 @@ TSocket::TSocket(Int_t desc, const char *sockpath) : TNamed(sockpath, "")
 
    if (desc >= 0) {
       fSocket  = desc;
-      R__LOCKGUARD(gROOTMutex);
       gROOT->GetListOfSockets()->Add(this);
    } else
-      fSocket = -1;
+      fSocket = kInvalid;
 }
 
 
@@ -373,10 +360,23 @@ TSocket::TSocket(const TSocket &s) : TNamed(s)
    fLastUsageMtx   = 0;
    ResetBit(TSocket::kBrokenConn);
 
-   if (fSocket != -1) {
-      R__LOCKGUARD(gROOTMutex);
+   if (fSocket != kInvalid) {
       gROOT->GetListOfSockets()->Add(this);
    }
+}
+////////////////////////////////////////////////////////////////////////////////
+/// Close the socket and mark as due to a broken connection.
+
+void TSocket::MarkBrokenConnection()
+{
+   SetBit(TSocket::kBrokenConn);
+   if (IsValid()) {
+      gSystem->CloseConnection(fSocket, kFALSE);
+      fSocket = kInvalidStillInList;
+   }
+
+   SafeDelete(fUUIDs);
+   SafeDelete(fLastUsageMtx);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -389,12 +389,13 @@ void TSocket::Close(Option_t *option)
 {
    Bool_t force = option ? (!strcmp(option, "force") ? kTRUE : kFALSE) : kFALSE;
 
-   if (fSocket != -1) {
-      gSystem->CloseConnection(fSocket, force);
-      R__LOCKGUARD(gROOTMutex);
+   if (fSocket != kInvalid) {
+      if (IsValid()) { // Filter out kInvalidStillInList case (disconnected but not removed from list)
+         gSystem->CloseConnection(fSocket, force);
+      }
       gROOT->GetListOfSockets()->Remove(this);
    }
-   fSocket = -1;
+   fSocket = kInvalid;
 
    SafeDelete(fUUIDs);
    SafeDelete(fLastUsageMtx);
@@ -521,7 +522,7 @@ Int_t TSocket::Send(const TMessage &mess)
 {
    TSystem::ResetErrno();
 
-   if (fSocket == -1) return -1;
+   if (!IsValid()) return -1;
 
    if (mess.IsReading()) {
       Error("Send", "cannot send a message used for reading");
@@ -554,8 +555,7 @@ Int_t TSocket::Send(const TMessage &mess)
    if ((nsent = gSystem->SendRaw(fSocket, mbuf, mlen, 0)) <= 0) {
       if (nsent == -5) {
          // Connection reset by peer or broken
-         SetBit(TSocket::kBrokenConn);
-         Close();
+         MarkBrokenConnection();
       }
       return nsent;
    }
@@ -572,8 +572,7 @@ Int_t TSocket::Send(const TMessage &mess)
       if ((n = gSystem->RecvRaw(fSocket, buf, sizeof(buf), 0)) < 0) {
          if (n == -5) {
             // Connection reset by peer or broken
-            SetBit(TSocket::kBrokenConn);
-            Close();
+            MarkBrokenConnection();
          } else
             n = -1;
          return n;
@@ -621,15 +620,14 @@ Int_t TSocket::SendRaw(const void *buffer, Int_t length, ESendRecvOptions opt)
 {
    TSystem::ResetErrno();
 
-   if (fSocket == -1) return -1;
+   if (!IsValid()) return -1;
 
    ResetBit(TSocket::kBrokenConn);
    Int_t nsent;
    if ((nsent = gSystem->SendRaw(fSocket, buffer, length, (int) opt)) <= 0) {
       if (nsent == -5) {
          // Connection reset or broken: close
-         SetBit(TSocket::kBrokenConn);
-         Close();
+         MarkBrokenConnection();
       }
       return nsent;
    }
@@ -819,7 +817,7 @@ Int_t TSocket::Recv(TMessage *&mess)
 {
    TSystem::ResetErrno();
 
-   if (fSocket == -1) {
+   if (!IsValid()) {
       mess = 0;
       return -1;
    }
@@ -831,8 +829,7 @@ oncemore:
    if ((n = gSystem->RecvRaw(fSocket, &len, sizeof(UInt_t), 0)) <= 0) {
       if (n == 0 || n == -5) {
          // Connection closed, reset or broken
-         SetBit(TSocket::kBrokenConn);
-         Close();
+         MarkBrokenConnection();
       }
       mess = 0;
       return n;
@@ -844,8 +841,7 @@ oncemore:
    if ((n = gSystem->RecvRaw(fSocket, buf+sizeof(UInt_t), len, 0)) <= 0) {
       if (n == 0 || n == -5) {
          // Connection closed, reset or broken
-         SetBit(TSocket::kBrokenConn);
-         Close();
+         MarkBrokenConnection();
       }
       delete [] buf;
       mess = 0;
@@ -872,8 +868,7 @@ oncemore:
       if ((n2 = gSystem->SendRaw(fSocket, ok, sizeof(ok), 0)) < 0) {
          if (n2 == -5) {
             // Connection reset or broken
-            SetBit(TSocket::kBrokenConn);
-            Close();
+            MarkBrokenConnection();
          }
          delete mess;
          mess = 0;
@@ -902,7 +897,7 @@ Int_t TSocket::RecvRaw(void *buffer, Int_t length, ESendRecvOptions opt)
 {
    TSystem::ResetErrno();
 
-   if (fSocket == -1) return -1;
+   if (!IsValid()) return -1;
    if (length == 0) return 0;
 
    ResetBit(TSocket::kBrokenConn);
@@ -910,8 +905,7 @@ Int_t TSocket::RecvRaw(void *buffer, Int_t length, ESendRecvOptions opt)
    if ((n = gSystem->RecvRaw(fSocket, buffer, length, (int) opt)) <= 0) {
       if (n == 0 || n == -5) {
          // Connection closed, reset or broken
-         SetBit(TSocket::kBrokenConn);
-         Close();
+         MarkBrokenConnection();
       }
       return n;
    }
@@ -1016,7 +1010,7 @@ Bool_t TSocket::RecvProcessIDs(TMessage *mess)
 
 Int_t TSocket::SetOption(ESockOptions opt, Int_t val)
 {
-   if (fSocket == -1) return -1;
+   if (!IsValid()) return -1;
 
    return gSystem->SetSockOpt(fSocket, opt, val);
 }
@@ -1026,7 +1020,7 @@ Int_t TSocket::SetOption(ESockOptions opt, Int_t val)
 
 Int_t TSocket::GetOption(ESockOptions opt, Int_t &val)
 {
-   if (fSocket == -1) return -1;
+   if (!IsValid()) return -1;
 
    return gSystem->GetSockOpt(fSocket, opt, &val);
 }
@@ -1049,10 +1043,9 @@ Int_t TSocket::GetErrorCode() const
 
 void TSocket::SetCompressionAlgorithm(Int_t algorithm)
 {
-   if (algorithm < 0 || algorithm >= ROOT::kUndefinedCompressionAlgorithm) algorithm = 0;
+   if (algorithm < 0 || algorithm >= ROOT::RCompressionSetting::EAlgorithm::kUndefined) algorithm = 0;
    if (fCompress < 0) {
-      // if the level is not defined yet use 1 as a default
-      fCompress = 100 * algorithm + 1;
+      fCompress = 100 * algorithm + ROOT::RCompressionSetting::ELevel::kUseMin;
    } else {
       int level = fCompress % 100;
       fCompress = 100 * algorithm + level;
@@ -1071,7 +1064,7 @@ void TSocket::SetCompressionLevel(Int_t level)
       fCompress = level;
    } else {
       int algorithm = fCompress / 100;
-      if (algorithm >= ROOT::kUndefinedCompressionAlgorithm) algorithm = 0;
+      if (algorithm >= ROOT::RCompressionSetting::EAlgorithm::kUndefined) algorithm = 0;
       fCompress = 100 * algorithm + level;
    }
 }
@@ -1087,7 +1080,7 @@ void TSocket::SetCompressionLevel(Int_t level)
 /// (For the currently supported algorithms, the maximum level is 9)
 /// If compress is negative it indicates the compression level is not set yet.
 ///
-/// The enumeration ROOT::ECompressionAlgorithm associates each
+/// The enumeration ROOT::RCompressionSetting::EAlgorithm associates each
 /// algorithm with a number. There is a utility function to help
 /// to set the value of the argument. For example,
 ///   ROOT::CompressionSettings(ROOT::kLZMA, 1)
@@ -1262,8 +1255,7 @@ Bool_t TSocket::Authenticate(const char *user)
 ///                any remote server session using TServerSocket)
 ///          [p] = for parallel sockets (forced internally for
 ///                rootd; ignored for proofd)
-///       [auth] = "up", "s", "k", "g", "h", "ug" to force UsrPwd,
-///                SRP, Krb5, Globus, SSH or UidGid authentication
+///       [auth] = "up" or "k" to force UsrPwd or Krb5 authentication
 ///       [port] = is the remote port number
 ///    [service] = service name used to determine the port
 ///                (for backward compatibility, specification of
@@ -1279,15 +1271,6 @@ Bool_t TSocket::Authenticate(const char *user)
 /// code (see NetErrors.h).
 ///
 /// Example:
-///
-///   TSocket::CreateAuthSocket("rootds://qwerty@machine.fq.dn:5051")
-///
-///   creates an authenticated socket to a rootd server running
-///   on remote machine machine.fq.dn on port 5051; "parallel" sockets
-///   are forced internally because rootd expects
-///   parallel sockets; however a simple socket will be created
-///   in this case because the size is 0 (the default);
-///   authentication will attempt protocol SRP first.
 ///
 ///   TSocket::CreateAuthSocket("pk://qwerty@machine.fq.dn:5052",3)
 ///
@@ -1419,8 +1402,7 @@ TSocket *TSocket::CreateAuthSocket(const char *url, Int_t size, Int_t tcpwindows
 ///                any remote server session using TServerSocket)
 ///          [p] = for parallel sockets (forced internally for
 ///                rootd)
-///       [auth] = "up", "s", "k", "g", "h", "ug" to force UsrPwd,
-///                SRP, Krb5, Globus, SSH or UidGid authentication
+///       [auth] = "up" or "k" to force UsrPwd or Krb5 authentication
 ///    [options] = "m" or "s", when proto=proofd indicates whether
 ///                we are master or slave (used internally by TSlave)
 ///
@@ -1431,15 +1413,6 @@ TSocket *TSocket::CreateAuthSocket(const char *url, Int_t size, Int_t tcpwindows
 /// code (see NetErrors.h).
 ///
 /// Example:
-///
-///   TSocket::CreateAuthSocket("qwerty","rootdps://machine.fq.dn",5051)
-///
-///   creates an authenticated socket to a rootd server running
-///   on remote machine machine.fq.dn on port 5051; "parallel"
-///   sockets are forced internally because rootd expects
-///   parallel sockets; however a simple socket will be created
-///   in this case because the size is 0 (the default);
-///   authentication will attempt protocol SRP first.
 ///
 ///   TSocket::CreateAuthSocket("qwerty","pk://machine.fq.dn:5052",3)
 ///

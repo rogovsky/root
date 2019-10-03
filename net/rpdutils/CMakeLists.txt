@@ -1,30 +1,20 @@
+# Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.
+# All rights reserved.
+#
+# For the licensing terms see $ROOTSYS/LICENSE.
+# For the list of contributors see $ROOTSYS/README/CREDITS.
+
 ############################################################################
 # CMakeLists.txt file for building ROOT net/rpdutils package
 # @author Pere Mato, CERN
 ############################################################################
 
-ROOT_GLOB_SOURCES(rpdutilsrcs RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}  ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cxx)
-list(REMOVE_ITEM rpdutilsrcs src/rpdpriv.cxx src/rpdconn.cxx)
-
-include_directories(
-  ${CMAKE_CURRENT_SOURCE_DIR}/res
-  ${CMAKE_CURRENT_SOURCE_DIR}/../auth/res)
-
-if(globus)
-  add_definitions(-DR__GLBS)
-  include_directories(${GLOBUS_INCLUDE_DIRS})
-  if(GLOBUS_gsi_credential_FOUND)
-    add_definitions(-DR__GLBS22)
-  endif()
-else()
-  list(REMOVE_ITEM rpdutilsrcs src/globus.cxx)
-endif()
+include_directories(res ../auth/res)
 
 if(MACOSX_SSL_DEPRECATED)
-  set_source_files_properties(src/rpdutils.cxx COMPILE_FLAGS "-Wno-deprecated-declarations" )
+  set_source_files_properties(src/rpdutils.cxx COMPILE_FLAGS "-Wno-deprecated-declarations")
 endif()
 
-#---Authentication methods-----------------------------------------------------------------
 if(shadowpw)
   add_definitions(-DR__SHADOWPW)
 endif()
@@ -33,9 +23,26 @@ if(ssl)
   include_directories(${OPENSSL_INCLUDE_DIR})
 endif()
 
-#---static library needed for rootd and proofd --------------------------------------------
-add_library(rpdutil STATIC ${rpdutilsrcs})
+add_library(rpdutil STATIC
+  src/daemon.cxx
+  src/error.cxx
+  src/net.cxx
+  src/netpar.cxx
+  src/rpdutils.cxx
+)
+
+target_include_directories(rpdutil PRIVATE ${CMAKE_BINARY_DIR}/include)
+target_link_libraries(rpdutil INTERFACE $<$<PLATFORM_ID:Linux>:crypt>)
+set_property(TARGET rpdutil PROPERTY POSITION_INDEPENDENT_CODE ON)
 add_dependencies(rpdutil move_headers)
 
-ROOT_LINKER_LIBRARY(SrvAuth rpdutils.cxx ssh.cxx LIBRARIES rpdutil rsa ${CRYPTLIBS} ${GLOBUS_LIBRARIES} ${OPENSSL_LIBRARIES} DEPENDENCIES Net BUILTINS OPENSSL)
-
+ROOT_LINKER_LIBRARY(SrvAuth rpdutils.cxx
+  LIBRARIES
+    ${OPENSSL_LIBRARIES}
+    rpdutil
+    rsa
+  DEPENDENCIES
+    Net
+  BUILTINS
+    OPENSSL
+)

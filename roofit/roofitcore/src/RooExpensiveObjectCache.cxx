@@ -23,28 +23,23 @@ RooExpensiveObjectCache is a singleton class that serves as repository
 for objects that are expensive to calculate. Owners of such objects
 can registers these here with associated parameter values for which
 the object is valid, so that other instances can, at a later moment
-retrieve these precalculated objects
+retrieve these precalculated objects.
 **/
 
 
 #include "TClass.h"
 #include "RooFit.h"
-#include "RooSentinel.h"
 #include "RooAbsReal.h"
 #include "RooAbsCategory.h"
 #include "RooArgSet.h"
 #include "RooMsgService.h"
 #include <iostream>
-#include <math.h>
 using namespace std ;
 
 #include "RooExpensiveObjectCache.h"
 
 ClassImp(RooExpensiveObjectCache);
 ClassImp(RooExpensiveObjectCache::ExpensiveObject);
-  ;
-
-RooExpensiveObjectCache* RooExpensiveObjectCache::_instance = 0 ;
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -74,10 +69,6 @@ RooExpensiveObjectCache::~RooExpensiveObjectCache()
   for (std::map<TString,ExpensiveObject*>::iterator iter = _map.begin() ; iter!=_map.end() ; ++iter) {
     delete iter->second ;
   }
-
-  if (_instance == this) {
-    _instance = 0 ;
-  }
 }
 
  
@@ -88,25 +79,9 @@ RooExpensiveObjectCache::~RooExpensiveObjectCache()
 
 RooExpensiveObjectCache& RooExpensiveObjectCache::instance() 
 {
-  if (!_instance) {
-    _instance = new RooExpensiveObjectCache() ;    
-    RooSentinel::activate() ;    
-  }
-  return *_instance ;
+  static RooExpensiveObjectCache instance;
+  return instance;
 }
-
-
-
-
-////////////////////////////////////////////////////////////////////////////////
-/// Static function called by RooSentinel atexit() handler to cleanup at end of program
-
-void RooExpensiveObjectCache::cleanup() 
-{
-  delete _instance ;
-}
-
-
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -178,7 +153,7 @@ const TObject* RooExpensiveObjectCache::retrieveObject(const char* name, TClass*
 
 const TObject* RooExpensiveObjectCache::getObj(Int_t uid) 
 {
-  for (std::map<TString,ExpensiveObject*>::iterator iter = _map.begin() ; iter !=_map.end() ; iter++) {
+  for (std::map<TString,ExpensiveObject*>::iterator iter = _map.begin() ; iter !=_map.end() ; ++iter) {
     if (iter->second->uid() == uid) {
       return iter->second->payload() ;
     }
@@ -194,7 +169,7 @@ const TObject* RooExpensiveObjectCache::getObj(Int_t uid)
 
 Bool_t RooExpensiveObjectCache::clearObj(Int_t uid) 
 {
-  for (std::map<TString,ExpensiveObject*>::iterator iter = _map.begin() ; iter !=_map.end() ; iter++) {
+  for (std::map<TString,ExpensiveObject*>::iterator iter = _map.begin() ; iter !=_map.end() ; ++iter) {
     if (iter->second->uid() == uid) {
       _map.erase(iter->first) ;
       return kFALSE ;
@@ -211,7 +186,7 @@ Bool_t RooExpensiveObjectCache::clearObj(Int_t uid)
 
 Bool_t RooExpensiveObjectCache::setObj(Int_t uid, TObject* obj) 
 {
-  for (std::map<TString,ExpensiveObject*>::iterator iter = _map.begin() ; iter !=_map.end() ; iter++) {
+  for (std::map<TString,ExpensiveObject*>::iterator iter = _map.begin() ; iter !=_map.end() ; ++iter) {
     if (iter->second->uid() == uid) {
       iter->second->setPayload(obj) ;
       return kFALSE ;
@@ -344,17 +319,17 @@ void RooExpensiveObjectCache::print() const
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void RooExpensiveObjectCache::ExpensiveObject::print() 
+void RooExpensiveObjectCache::ExpensiveObject::print() const
 {
   cout << _payload->IsA()->GetName() << "::" << _payload->GetName() ;
   if (_realRefParams.size()>0 || _catRefParams.size()>0) {
     cout << " parameters=( " ;
-    map<TString,Double_t>::iterator iter = _realRefParams.begin() ;
+    auto iter = _realRefParams.begin() ;
     while(iter!=_realRefParams.end()) {
       cout << iter->first << "=" << iter->second << " " ;
       ++iter ;
     }  
-    map<TString,Int_t>::iterator iter2 = _catRefParams.begin() ;
+    auto iter2 = _catRefParams.begin() ;
     while(iter2!=_catRefParams.end()) {
       cout << iter2->first << "=" << iter2->second << " " ;
       ++iter2 ;

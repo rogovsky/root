@@ -25,6 +25,21 @@
 
 using namespace clang;
 
+namespace {
+  template<typename D>
+  static D* LookupResult2Decl(clang::LookupResult& R)
+  {
+    if (R.empty())
+      return 0;
+
+    R.resolveKind();
+
+    if (R.isSingleResult())
+      return dyn_cast<D>(R.getFoundDecl());
+    return (D*)-1;
+  }
+}
+
 namespace cling {
 namespace utils {
 
@@ -52,9 +67,10 @@ namespace utils {
   bool Analyze::IsWrapper(const FunctionDecl* ND) {
     if (!ND)
       return false;
+    if (!ND->getDeclName().isIdentifier())
+      return false;
 
-    return StringRef(ND->getNameAsString())
-      .startswith(Synthesize::UniquePrefix);
+    return ND->getName().startswith(Synthesize::UniquePrefix);
   }
 
   void Analyze::maybeMangleDeclName(const GlobalDecl& GD,
@@ -622,23 +638,7 @@ namespace utils {
     // Return true if the class or template is declared directly in the
     // std namespace (modulo inline namespace).
 
-    const clang::DeclContext *ctx = cl.getDeclContext();
-
-    while (ctx && ctx->isInlineNamespace()) {
-      ctx = ctx->getParent();
-    }
-
-    if (ctx && ctx->isNamespace())
-    {
-      const clang::NamedDecl *parent = llvm::dyn_cast<clang::NamedDecl> (ctx);
-      if (parent) {
-        if (parent->getDeclContext()->isTranslationUnit()
-            && parent->getQualifiedNameAsString()=="std") {
-          return true;
-        }
-      }
-    }
-    return false;
+    return cl.getDeclContext()->isStdNamespace();
   }
 
   // See Sema::PushOnScopeChains
@@ -1449,14 +1449,37 @@ namespace utils {
 
   NamedDecl* Lookup::Named(Sema* S, const char* Name,
                            const DeclContext* Within) {
-    DeclarationName DName = &S->Context.Idents.get(Name);
-    return Lookup::Named(S, DName, Within);
+    return Lookup::Named(S, llvm::StringRef(Name), Within);
   }
 
-  NamedDecl* Lookup::Named(Sema* S, const DeclarationName& Name,
+  NamedDecl* Lookup::Named(Sema* S, const clang::DeclarationName& Name,
                            const DeclContext* Within) {
     LookupResult R(*S, Name, SourceLocation(), Sema::LookupOrdinaryName,
                    Sema::ForRedeclaration);
+    Lookup::Named(S, R, Within);
+    return LookupResult2Decl<clang::NamedDecl>(R);
+  }
+
+  TagDecl* Lookup::Tag(Sema* S, llvm::StringRef Name,
+                       const DeclContext* Within) {
+    DeclarationName DName = &S->Context.Idents.get(Name);
+    return Lookup::Tag(S, DName, Within);
+  }
+
+  TagDecl* Lookup::Tag(Sema* S, const char* Name,
+                       const DeclContext* Within) {
+    return Lookup::Tag(S, llvm::StringRef(Name), Within);
+  }
+
+  TagDecl* Lookup::Tag(Sema* S, const clang::DeclarationName& Name,
+                       const DeclContext* Within) {
+    LookupResult R(*S, Name, SourceLocation(), Sema::LookupTagName,
+                   Sema::ForRedeclaration);
+    Lookup::Named(S, R, Within);
+    return LookupResult2Decl<clang::TagDecl>(R);
+  }
+
+  void Lookup::Named(Sema* S, LookupResult& R, const DeclContext* Within) {
     R.suppressDiagnostics();
     if (!Within)
       S->LookupName(R, S->TUScope);
@@ -1469,19 +1492,10 @@ namespace utils {
       }
       if (!primaryWithin) {
         // No definition, no lookup result.
-        return 0;
+        return;
       }
       S->LookupQualifiedName(R, const_cast<DeclContext*>(primaryWithin));
     }
-
-    if (R.empty())
-      return 0;
-
-    R.resolveKind();
-
-    if (R.isSingleResult())
-      return R.getFoundDecl();
-    return (clang::NamedDecl*)-1;
   }
 
   static NestedNameSpecifier*
@@ -1511,6 +1525,10 @@ namespace utils {
           //    vector<_Tp,_Alloc>::size_type
           // Make the situation is 'useable' but looking a bit odd by
           // picking a random instance as the declaring context.
+          // FIXME: We should not use the iterators here to check if we are in
+          // a template specialization. clTempl != cxxdecl already tell us that
+          // is the case. It seems that we rely on a side-effect from triggering
+          // deserializations to support 'some' use-case. See ROOT-9709.
           if (clTempl->spec_begin() != clTempl->spec_end()) {
             decl = *(clTempl->spec_begin());
             outer  = llvm::dyn_cast<NamedDecl>(decl);
@@ -1626,6 +1644,12 @@ namespace utils {
       // Add back the qualifiers.
       QT = Ctx.getQualifiedType(QT, quals);
       return QT;
+    }
+
+    // Strip deduced types.
+    if (const AutoType* AutoTy = dyn_cast<AutoType>(QT.getTypePtr())) {
+      if (!AutoTy->getDeducedType().isNull())
+        return GetFullyQualifiedType(AutoTy->getDeducedType(), Ctx);
     }
 
     // Remove the part of the type related to the type being a template

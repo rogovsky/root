@@ -1,3 +1,9 @@
+# Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.
+# All rights reserved.
+#
+# For the licensing terms see $ROOTSYS/LICENSE.
+# For the list of contributors see $ROOTSYS/README/CREDITS.
+
 # Find the Pythia8 includes and library.
 #
 # This module defines
@@ -44,6 +50,11 @@ foreach(_lib PYTHIA8_LIBRARY PYTHIA8_hepmcinterface_LIBRARY PYTHIA8_lhapdfdummy_
   endif()
 endforeach()
 set(PYTHIA8_INCLUDE_DIRS ${PYTHIA8_INCLUDE_DIR} ${PYTHIA8_INCLUDE_DIR}/Pythia8 )
+
+find_path(PYTHIA8_DATA 
+          NAMES MainProgramSettings.xml
+          HINTS ${_pythia8dirs}
+          PATH_SUFFIXES xmldoc)
 
 # handle the QUIETLY and REQUIRED arguments and set PYTHIA8_FOUND to TRUE if
 # all listed variables are TRUE

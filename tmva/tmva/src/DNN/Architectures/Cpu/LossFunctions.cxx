@@ -29,7 +29,7 @@ AFloat TCpu<AFloat>::MeanSquaredError(const TCpuMatrix<AFloat> &Y, const TCpuMat
    const AFloat *dataY = Y.GetRawDataPointer();
    const AFloat *dataOutput = output.GetRawDataPointer();
    const AFloat *dataWeights = weights.GetRawDataPointer();
-   std::vector<AFloat> temp(Y.GetNElements());
+   std::vector<AFloat> temp(Y.GetNoElements());
    size_t m = Y.GetNrows();
    AFloat norm = 1.0 / ((AFloat) Y.GetNrows() * Y.GetNcols());
 
@@ -44,7 +44,7 @@ AFloat TCpu<AFloat>::MeanSquaredError(const TCpuMatrix<AFloat> &Y, const TCpuMat
       return std::accumulate(v.begin(),v.end(),AFloat{});
    };
 
-   Y.GetThreadExecutor().Map(f, ROOT::TSeqI(Y.GetNElements()));
+   Y.GetThreadExecutor().Map(f, ROOT::TSeqI(Y.GetNoElements()));
    return norm * Y.GetThreadExecutor().Reduce(temp, reduction);
 }
 
@@ -68,7 +68,7 @@ void TCpu<AFloat>::MeanSquaredErrorGradients(TCpuMatrix<AFloat> &dY, const TCpuM
       return 0;
    };
 
-   Y.GetThreadExecutor().Map(f, ROOT::TSeqI(Y.GetNElements()));
+   Y.GetThreadExecutor().Map(f, ROOT::TSeqI(Y.GetNoElements()));
 }
 
 //______________________________________________________________________________
@@ -79,7 +79,7 @@ AFloat TCpu<AFloat>::CrossEntropy(const TCpuMatrix<AFloat> &Y, const TCpuMatrix<
    const AFloat *dataY = Y.GetRawDataPointer();
    const AFloat *dataOutput = output.GetRawDataPointer();
    const AFloat *dataWeights = weights.GetRawDataPointer();
-   std::vector<AFloat> temp(Y.GetNElements());
+   std::vector<AFloat> temp(Y.GetNoElements());
 
    size_t m = Y.GetNrows();
    AFloat norm = 1.0 / ((AFloat) Y.GetNrows() * Y.GetNcols());
@@ -87,7 +87,13 @@ AFloat TCpu<AFloat>::CrossEntropy(const TCpuMatrix<AFloat> &Y, const TCpuMatrix<
    auto f = [&dataY, &dataOutput, &dataWeights, &temp, m](UInt_t workerID) {
       AFloat y   = dataY[workerID];
       AFloat sig = 1.0 / (1.0 + exp(- dataOutput[workerID]));
-      temp[workerID] = - (y * log(sig) + (1.0 - y) * log(1.0 - sig));
+      if (y == 0) 
+         temp[workerID] = - log(1.0 - sig);
+      else if ( y == 1.)
+         temp[workerID] = - log(sig); 
+      else 
+         temp[workerID] = - (y * log(sig) + (1.0 - y) * log(1.0 - sig));
+
       temp[workerID] *= dataWeights[workerID % m];
       return 0;
    };
@@ -97,7 +103,7 @@ AFloat TCpu<AFloat>::CrossEntropy(const TCpuMatrix<AFloat> &Y, const TCpuMatrix<
       return std::accumulate(v.begin(),v.end(),AFloat{});
    };
 
-   Y.GetThreadExecutor().Map(f, ROOT::TSeqI(Y.GetNElements()));
+   Y.GetThreadExecutor().Map(f, ROOT::TSeqI(Y.GetNoElements()));
    return norm * Y.GetThreadExecutor().Reduce(temp, reduction);
 }
 
@@ -122,7 +128,7 @@ void TCpu<AFloat>::CrossEntropyGradients(TCpuMatrix<AFloat> &dY, const TCpuMatri
       return 0;
    };
 
-   Y.GetThreadExecutor().Map(f, ROOT::TSeqI(Y.GetNElements()));
+   Y.GetThreadExecutor().Map(f, ROOT::TSeqI(Y.GetNoElements()));
 }
 
 //______________________________________________________________________________

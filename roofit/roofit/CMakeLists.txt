@@ -1,10 +1,162 @@
+# Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.
+# All rights reserved.
+#
+# For the licensing terms see $ROOTSYS/LICENSE.
+# For the list of contributors see $ROOTSYS/README/CREDITS.
+
 ############################################################################
 # CMakeLists.txt file for building ROOT rootfit package
 # @author Pere Mato, CERN
 ############################################################################
 
+if(mathmore OR ROOT_mathmore_FOUND)
+  set(ROOT_MATHMORE_LIBRARY MathMore)
+endif()
+
 ROOT_STANDARD_LIBRARY_PACKAGE(RooFit
-                              DICTIONARY_OPTIONS "-writeEmptyRootPCM"
-                              LINKDEF LinkDef1.h
-                              LIBRARIES ${ROOT_MATHMORE_LIBRARY}
-                              DEPENDENCIES Core RooFitCore Tree RIO Matrix MathCore)
+  HEADERS
+    Roo2DKeysPdf.h
+    RooArgusBG.h
+    RooBCPEffDecay.h
+    RooBCPGenDecay.h
+    RooBDecay.h
+    RooBernstein.h
+    RooBifurGauss.h
+    RooBlindTools.h
+    RooBMixDecay.h
+    RooBreitWigner.h
+    RooBukinPdf.h
+    RooCBShape.h
+    RooCFunction1Binding.h
+    RooCFunction2Binding.h
+    RooCFunction3Binding.h
+    RooCFunction4Binding.h
+    RooChebychev.h
+    RooChi2MCSModule.h
+    RooChiSquarePdf.h
+    RooDecay.h
+    RooDstD0BG.h
+    RooExponential.h
+    RooFunctor1DBinding.h
+    RooFunctorBinding.h
+    RooGamma.h
+    RooGaussian.h
+    RooGaussModel.h
+    RooGExpModel.h
+    RooHistConstraint.h
+    RooIntegralMorph.h
+    RooJeffreysPrior.h
+    RooKeysPdf.h
+    RooLandau.h
+    RooLegendre.h
+    RooLognormal.h
+    RooMathCoreReg.h
+    RooMathMoreReg.h
+    RooMomentMorphFunc.h
+    RooMomentMorphFuncND.h
+    RooMomentMorph.h
+    RooMomentMorphND.h
+    RooMultiBinomial.h
+    RooNDKeysPdf.h
+    RooNonCentralChiSquare.h
+    RooNonCPEigenDecay.h
+    RooNovosibirsk.h
+    RooParametricStepFunction.h
+    RooParamHistFunc.h
+    RooPoisson.h
+    RooPolynomial.h
+    RooSpHarmonic.h
+    RooStepFunction.h
+    RooTFnBinding.h
+    RooTFnPdfBinding.h
+    RooTMathReg.h
+    RooUnblindCPAsymVar.h
+    RooUnblindOffset.h
+    RooUnblindPrecision.h
+    RooUnblindUniform.h
+    RooUniform.h
+    RooVoigtian.h
+    RooJohnson.h
+  SOURCES
+    src/Roo2DKeysPdf.cxx
+    src/RooArgusBG.cxx
+    src/RooBCPEffDecay.cxx
+    src/RooBCPGenDecay.cxx
+    src/RooBDecay.cxx
+    src/RooBernstein.cxx
+    src/RooBifurGauss.cxx
+    src/RooBlindTools.cxx
+    src/RooBMixDecay.cxx
+    src/RooBreitWigner.cxx
+    src/RooBukinPdf.cxx
+    src/RooCBShape.cxx
+    src/RooCFunction1Binding.cxx
+    src/RooCFunction2Binding.cxx
+    src/RooCFunction3Binding.cxx
+    src/RooCFunction4Binding.cxx
+    src/RooChebychev.cxx
+    src/RooChi2MCSModule.cxx
+    src/RooChiSquarePdf.cxx
+    src/RooDecay.cxx
+    src/RooDstD0BG.cxx
+    src/RooExponential.cxx
+    src/RooFunctor1DBinding.cxx
+    src/RooFunctorBinding.cxx
+    src/RooGamma.cxx
+    src/RooGaussian.cxx
+    src/RooGaussModel.cxx
+    src/RooGExpModel.cxx
+    src/RooHistConstraint.cxx
+    src/RooIntegralMorph.cxx
+    src/RooJeffreysPrior.cxx
+    src/RooKeysPdf.cxx
+    src/RooLandau.cxx
+    src/RooLegendre.cxx
+    src/RooLognormal.cxx
+    src/RooMathCoreReg.cxx
+    src/RooMathMoreReg.cxx
+    src/RooMomentMorph.cxx
+    src/RooMomentMorphFunc.cxx
+    src/RooMomentMorphFuncND.cxx
+    src/RooMomentMorphND.cxx
+    src/RooMultiBinomial.cxx
+    src/RooNDKeysPdf.cxx
+    src/RooNonCentralChiSquare.cxx
+    src/RooNonCPEigenDecay.cxx
+    src/RooNovosibirsk.cxx
+    src/RooParametricStepFunction.cxx
+    src/RooParamHistFunc.cxx
+    src/RooPoisson.cxx
+    src/RooPolynomial.cxx
+    src/RooSpHarmonic.cxx
+    src/RooStepFunction.cxx
+    src/RooTFnBinding.cxx
+    src/RooTFnPdfBinding.cxx
+    src/RooTMathReg.cxx
+    src/RooUnblindCPAsymVar.cxx
+    src/RooUnblindOffset.cxx
+    src/RooUnblindPrecision.cxx
+    src/RooUnblindUniform.cxx
+    src/RooUniform.cxx
+    src/RooVoigtian.cxx
+    src/RooJohnson.cxx
+    src/BatchHelpers.cxx
+  DICTIONARY_OPTIONS
+    "-writeEmptyRootPCM"
+  LINKDEF
+    LinkDef1.h
+  DEPENDENCIES
+    ${ROOT_MATHMORE_LIBRARY}
+    Core
+    RooFitCore
+    Tree
+    RIO
+    Matrix
+    MathCore
+)
+
+if(vdt AND NOT builtin_vdt)
+  target_include_directories(RooFit PRIVATE ${VDT_INCLUDE_DIR})
+endif()
+
+ROOT_ADD_TEST_SUBDIRECTORY(test)

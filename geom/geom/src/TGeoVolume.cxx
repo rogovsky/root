@@ -496,59 +496,6 @@ TGeoVolume::TGeoVolume(const char *name, const TGeoShape *shape, const TGeoMediu
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-///copy constructor
-
-TGeoVolume::TGeoVolume(const TGeoVolume& gv) :
-  TNamed(gv),
-  TGeoAtt(gv),
-  TAttLine(gv),
-  TAttFill(gv),
-  TAtt3D(gv),
-  fNodes(gv.fNodes),
-  fShape(gv.fShape),
-  fMedium(gv.fMedium),
-  fFinder(gv.fFinder),
-  fVoxels(gv.fVoxels),
-  fGeoManager(gv.fGeoManager),
-  fField(gv.fField),
-  fOption(gv.fOption),
-  fNumber(gv.fNumber),
-  fNtotal(gv.fNtotal),
-  fRefCount(0),
-  fUserExtension(gv.fUserExtension->Grab()),
-  fFWExtension(gv.fFWExtension->Grab())
-{
-}
-
-////////////////////////////////////////////////////////////////////////////////
-///assignment operator
-
-TGeoVolume& TGeoVolume::operator=(const TGeoVolume& gv)
-{
-   if(this!=&gv) {
-      TNamed::operator=(gv);
-      TGeoAtt::operator=(gv);
-      TAttLine::operator=(gv);
-      TAttFill::operator=(gv);
-      TAtt3D::operator=(gv);
-      fNodes=gv.fNodes;
-      fShape=gv.fShape;
-      fMedium=gv.fMedium;
-      fFinder=gv.fFinder;
-      fVoxels=gv.fVoxels;
-      fGeoManager=gv.fGeoManager;
-      fField=gv.fField;
-      fOption=gv.fOption;
-      fNumber=gv.fNumber;
-      fRefCount = 0;
-      fNtotal=gv.fNtotal;
-      fUserExtension=gv.fUserExtension->Grab();
-      fFWExtension=gv.fFWExtension->Grab();
-   }
-   return *this;
-}
-
-////////////////////////////////////////////////////////////////////////////////
 /// Destructor
 
 TGeoVolume::~TGeoVolume()
@@ -1082,7 +1029,7 @@ void TGeoVolume::AddNodeOverlap(TGeoVolume *vol, Int_t copy_no, TGeoMatrix *mat,
    node->SetNumber(copy_no);
    node->SetOverlapping();
    if (vol->GetMedium() == fMedium)
-   node->SetVirtual();
+      node->SetVirtual();
    vol->Grab();
 }
 
@@ -1431,6 +1378,8 @@ void TGeoVolume::SaveAs(const char *filename, Option_t *option) const
    if (ind>0) fname.Remove(ind);
    out << "void "<<fname<<"() {" << std::endl;
    out << "   gSystem->Load(\"libGeom\");" << std::endl;
+   const UInt_t prec = TGeoManager::GetExportPrecision();
+   out << std::setprecision(prec);
    ((TGeoVolume*)this)->SavePrimitive(out,option);
    out << "}" << std::endl;
 }
@@ -1492,8 +1441,6 @@ TGeoExtension *TGeoVolume::GrabFWExtension() const
 
 void TGeoVolume::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
 {
-   out.precision(6);
-   out.setf(std::ios::fixed);
    Int_t i,icopy;
    Int_t nd = GetNdaughters();
    TGeoVolume *dvol;
@@ -2454,41 +2401,6 @@ TGeoVolumeMulti::TGeoVolumeMulti(const char *name, TGeoMedium *med)
    SetMedium(med);
    fGeoManager->AddVolume(this);
 //   printf("--- volume multi %s created\n", name);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-///copy constructor
-
-TGeoVolumeMulti::TGeoVolumeMulti(const TGeoVolumeMulti& vm) :
-  TGeoVolume(vm),
-  fVolumes(vm.fVolumes),
-  fDivision(vm.fDivision),
-  fNumed(vm.fNumed),
-  fNdiv(vm.fNdiv),
-  fAxis(vm.fAxis),
-  fStart(vm.fStart),
-  fStep(vm.fStep),
-  fAttSet(vm.fAttSet)
-{
-}
-
-////////////////////////////////////////////////////////////////////////////////
-///assignment operator
-
-TGeoVolumeMulti& TGeoVolumeMulti::operator=(const TGeoVolumeMulti& vm)
-{
-   if(this!=&vm) {
-      TGeoVolume::operator=(vm);
-      fVolumes=vm.fVolumes;
-      fDivision=vm.fDivision;
-      fNumed=vm.fNumed;
-      fNdiv=vm.fNdiv;
-      fAxis=vm.fAxis;
-      fStart=vm.fStart;
-      fStep=vm.fStep;
-      fAttSet=vm.fAttSet;
-   }
-   return *this;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

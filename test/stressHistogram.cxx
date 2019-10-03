@@ -3226,6 +3226,38 @@ bool testMerge1D()
    return ret;
 }
 
+
+bool testMerge1DMixedWeights()
+{
+   // Tests the merge method for 1D Histograms
+   // simpel merge but histogram to merge is not weighted
+
+   TH1D* h1 = new TH1D("h1", "h1-Title", numberOfBins, minRange, maxRange);
+   TH1D* h2 = new TH1D("h2", "h2-Title", numberOfBins, minRange, maxRange);
+   TH1D* h3 = new TH1D("h3", "h3-Title", numberOfBins, minRange, maxRange);
+   TH1D* h4 = new TH1D("h4", "h4-Title", numberOfBins, minRange, maxRange);
+
+   h1->Sumw2(false);
+   h2->Sumw2();h3->Sumw2();
+   h4->Sumw2();
+
+   FillHistograms(h1, h4, 1, 1);
+   FillHistograms(h2, h4, 2, 2);
+   FillHistograms(h3, h4);
+
+   TList *list = new TList;
+   list->Add(h2);
+   list->Add(h3);
+
+   h1->Merge(list);
+
+   bool ret = equals("Merge1D", h1, h4, cmpOptStats, 1E-10);
+   if (cleanHistos) delete h1;
+   if (cleanHistos) delete h2;
+   if (cleanHistos) delete h3;
+   return ret;
+}
+
 bool testMergeVar1D()
 {
    // Tests the merge method for 1D Histograms with variable bin size
@@ -3646,6 +3678,7 @@ bool testMerge1DLabelSame()
       h4->Fill(labels[i], 1.0);
    }
 
+
    TList *list = new TList;
    list->Add(h2);
    list->Add(h3);
@@ -3659,6 +3692,65 @@ bool testMerge1DLabelSame()
    if (cleanHistos) delete h1;
    if (cleanHistos) delete h2;
    if (cleanHistos) delete h3;
+   return ret;
+}
+
+bool testMerge1DLabelSameStatsBug()
+{
+   // Tests the merge with some equal labels method for 1D Histograms
+   // number of labels used = number of bins
+   //  This test uses SetBinCOntent instead of Fill and ResetStats after to
+   //   test th ebug in TH1::Merge reported in ROOT-9336
+
+   // since we do not set bin errors
+   // make sure we have not stored Sumw2 otherwise all bin errors
+   // will be zero. This needs to be done before constructing the histograms
+   bool globalSumw2 = TH1::GetDefaultSumw2();
+   if (globalSumw2) TH1::SetDefaultSumw2(false);
+
+
+   TH1D* h1 = new TH1D("h1", "h1-Title", numberOfBins, minRange, maxRange);
+   TH1D* h2 = new TH1D("h2", "h2-Title", numberOfBins, minRange, maxRange);
+   TH1D* h3 = new TH1D("h3", "h3-Title", numberOfBins, minRange, maxRange);
+   TH1D* h4 = new TH1D("h4", "h4-Title", numberOfBins, minRange, maxRange);
+
+   const char labels[10][5] = {"aaa","bbb","ccc","ddd","eee","fff","ggg","hhh","iii","lll"};
+
+   for (Int_t i = 0; i < numberOfBins; ++i) {
+      h1->GetXaxis()->SetBinLabel(i+1, labels[i]);
+      h2->GetXaxis()->SetBinLabel(i+1, labels[i]);
+      h3->GetXaxis()->SetBinLabel(i+1, labels[i]);
+      h4->GetXaxis()->SetBinLabel(i+1, labels[i]);
+      double val1 = r.Uniform(0,10);
+      double val2 = r.Uniform(0,10);
+      h2->SetBinContent(i, val1);
+      h3->SetBinContent(i, val2);
+      h4->SetBinContent(i, val1+val2);
+   }
+
+
+   TList *list = new TList;
+   list->Add(h2);
+   list->Add(h3);
+
+   h1->SetCanExtend(TH1::kAllAxes);
+
+   // reset the stats to get correct entries
+   // the reset was causing the histogram to be flagged as empty
+   // see bug ROOT-9336
+   h2->ResetStats();
+   h3->ResetStats();
+   h4->ResetStats();
+
+   h1->Merge(list);
+
+   bool ret = equals("MergeLabelSame1DStatsBug", h1, h4, cmpOptStats, 1E-10);
+   if (cleanHistos) delete h1;
+   if (cleanHistos) delete h2;
+   if (cleanHistos) delete h3;
+
+   if (globalSumw2) TH1::SetDefaultSumw2(true);
+
    return ret;
 }
 
@@ -6402,7 +6494,7 @@ bool testH3Integral()
 // test histogram buffer
 bool testH1Buffer() {
 
-   int iret = 0;
+   bool iret = false;
 
    TH1D * h1 = new TH1D("h1","h1",30,-3,3);
    TH1D * h2 = new TH1D("h2","h2",30,-3,3);
@@ -6506,8 +6598,8 @@ bool testH1Buffer() {
    }
    iret |= itest;
 
-
-   iret |= equals("testh1buffer",h1,h2,cmpOptStats,eps);
+   itest = equals("testh1buffer",h1,h2,cmpOptStats,eps);
+   iret |= itest;
 
    std::cout.precision(pr);
 
@@ -6523,7 +6615,7 @@ bool testH1Buffer() {
 // test histogram buffer with weights
 bool testH1BufferWeights() {
 
-   int iret = 0;
+   bool iret = false;
 
    TH1D * h1 = new TH1D("h1","h1",30,-5,5);
    TH1D * h2 = new TH1D("h2","h2",30,-5,5);
@@ -6541,16 +6633,9 @@ bool testH1BufferWeights() {
       h2->Fill(x,w);
    }
 
-   int pr = std::cout.precision(15);
-   double eps = TMath::Limits<double>::Epsilon();
-
-   // Adjust the threshold on ARM64 bits. On this RISC architecture,
-   // there is a difference when incrementing the sumwx with variables
-   // saved in memory (in the histogram buffer) and passed as function
-   // arguments (Fill(x,w)).
-#ifdef __aarch64__
-   eps*=28;
-#endif
+   // We use 30 epsilon below because some platforms (ARM64, x86_64)
+   // have rounding errors exceeding a few ulps and make the test fail.
+   double eps = 30 * std::numeric_limits<double>::epsilon();
 
    bool itest = false;
 
@@ -6560,11 +6645,11 @@ bool testH1BufferWeights() {
    h2->GetStats(s2);
    std::vector<std::string> snames = {"sumw","sumw2","sumwx","sumwx2"};
    for (unsigned int i  =0; i < snames.size(); ++i) {
-     itest = equals(s1[i],s2[i],eps );
-     if (defaultEqualOptions & cmpOptDebug ) {
-       std::cout << "Statistics " << snames[i] << "  = " << s1[i] << "  " << s2[i] << " -  " << itest << std::endl;
-     }
-     iret |= itest;
+      itest = equals(s1[i],s2[i],eps );
+      if (defaultEqualOptions & cmpOptDebug ) {
+         std::cout << "Statistics " << snames[i] << "  = " << s1[i] << "  " << s2[i] << " -  " << itest << std::endl;
+      }
+      iret |= itest;
    }
 
    // another fill will reset the histogram
@@ -6579,23 +6664,22 @@ bool testH1BufferWeights() {
    iret |= itest;
 
 
-   iret |= equals("testh1bufferweight",h1,h2,cmpOptStats,eps);
+   itest = equals("testh1bufferweight",h1,h2,cmpOptStats,eps);
+   iret |= itest;
 
-   std::cout.precision(pr);
+   std::cout.precision(15);
 
    if (cleanHistos) delete h1;
 
    if ( defaultEqualOptions & cmpOptPrint )
       std::cout << "Buffer Weighted H1:\t" << (iret?"FAILED":"OK") << std::endl;
 
-
-
    return iret;
 }
 
 bool testH2Buffer() {
 
-   int iret = 0;
+   bool iret = false;
 
    TH2D * h1 = new TH2D("h1","h1",10,-5,5,10,-5,5);
    TH2D * h2 = new TH2D("h2","h2",10,-5,5,10,-5,5);
@@ -6626,7 +6710,8 @@ bool testH2Buffer() {
    h1->Fill(x,y,w);
    h2->Fill(x,y,w);
 
-   iret |= equals("testh2buffer",h1,h2,cmpOptStats,1.E-15);
+   itest = equals("testh2buffer",h1,h2,cmpOptStats,1.E-15);
+   iret |= itest;
 
    if ( defaultEqualOptions & cmpOptPrint )
       std::cout << "Buffer H2:\t" << (iret?"FAILED":"OK") << std::endl;
@@ -6635,9 +6720,10 @@ bool testH2Buffer() {
 
    return iret;
 }
+
 bool testH3Buffer() {
 
-   int iret = 0;
+   bool iret = false;
 
    TH3D * h1 = new TH3D("h1","h1",4,-5,5,4,-5,5,4,-5,5);
    TH3D * h2 = new TH3D("h2","h2",4,-5,5,4,-5,5,4,-5,5);
@@ -6672,7 +6758,8 @@ bool testH3Buffer() {
       h2->Fill(x,y,z,w);
    }
 
-   iret |= equals("testh2buffer",h1,h2,cmpOptStats,1.E-15);
+   itest = equals("testh2buffer",h1,h2,cmpOptStats,1.E-15);
+   iret |= itest;
 
    if ( defaultEqualOptions & cmpOptPrint )
       std::cout << "Buffer H3:\t" << (iret?"FAILED":"OK") << std::endl;
@@ -10009,8 +10096,9 @@ int stressHistogram()
 
    // Test 10
    // Merge Tests
-   std::vector<pointer2Test> mergeSameTestPointer = { testMerge1D,                 testMergeProf1D,
-                                                      testMergeVar1D,              testMergeProfVar1D,
+   std::vector<pointer2Test> mergeSameTestPointer = { testMerge1D,                 testMerge1DMixedWeights,
+                                                      testMergeVar1D,
+                                                      testMergeProf1D,             testMergeProfVar1D,
                                                       testMerge2D,                 testMergeProf2D,
                                                       testMerge3D,                 testMergeProf3D,
                                                       testMergeHn<THnD>,           testMergeHn<THnSparseD>
@@ -10028,7 +10116,8 @@ int stressHistogram()
                                                         testMerge3DLabelAll,         testMergeProf3DLabelAll,
                                                         testMerge1DLabelAllDiff,     testMergeProf1DLabelAllDiff,
                                                         testMerge2DLabelAllDiff,     testMergeProf2DLabelAllDiff,
-                                                        testMerge3DLabelAllDiff,     testMergeProf3DLabelAllDiff
+                                                        testMerge3DLabelAllDiff,     testMergeProf3DLabelAllDiff,
+                                                        testMerge1DLabelSameStatsBug
    };
    std::vector<pointer2Test> mergeDiffTestPointer = {   testMerge1DDiff,             testMergeProf1DDiff,
                                                         testMerge2DDiff,             testMergeProf2DDiff,

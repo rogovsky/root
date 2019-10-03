@@ -73,15 +73,31 @@ public:
       kSTLbitset            = ROOT::kSTLbitset
    };
    // TStreamerElement status bits
-   enum {
+   enum EStatusBits {
       kHasRange     = BIT(6),
       kCache        = BIT(9),
       kRepeat       = BIT(10),
       kRead         = BIT(11),
       kWrite        = BIT(12),
       kDoNotDelete  = BIT(13),
-      kWholeObject  = BIT(14)
+      kWholeObject  = BIT(14),
+      kWarned       = BIT(21)
    };
+
+   enum class EStatusBitsDupExceptions {
+      // This bit duplicates TObject::kInvalidObject. As the semantic of kDoNotDelete is a persistent,
+      // we can not change its value without breaking forward compatibility.
+      // Furthermore, TObject::kInvalidObject and its semantic is not (and should not be)
+      // used in TStreamerElement
+      kDoNotDelete = TStreamerElement::kDoNotDelete,
+
+      // This bit duplicates TObject::kCannotPick. As the semantic of kHasRange is a persistent,
+      // we can not change its value without breaking forward compatibility.
+      // Furthermore, TObject::kCannotPick and its semantic is not (and should not be)
+      // used in TStreamerElement
+      kHasRange = TStreamerElement::kHasRange
+   };
+
 
    TStreamerElement();
    TStreamerElement(const char *name, const char *title, Int_t offset, Int_t dtype, const char *typeName);
@@ -373,10 +389,6 @@ public:
 
 //________________________________________________________________________
 class TStreamerSTL : public TStreamerElement {
-
-   enum {
-      kWarned       = BIT(21)
-   };
 
 private:
    TStreamerSTL(const TStreamerSTL&);          // Not implemented

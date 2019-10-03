@@ -400,7 +400,7 @@ private:
   Preprocessor &PP;
 
   /// \brief The AST context into which we'll read the AST files.
-  ASTContext &Context;
+  ASTContext *ContextObj = nullptr;
 
   /// \brief The AST consumer.
   ASTConsumer *Consumer = nullptr;
@@ -446,7 +446,8 @@ private:
   ///
   /// When the pointer at index I is non-NULL, the type with
   /// ID = (I + 1) << FastQual::Width has already been loaded
-  std::vector<QualType> TypesLoaded;
+  llvm::DenseMap<unsigned, QualType> TypesLoaded;
+  unsigned NumTypesLoaded = 0;
 
   typedef ContinuousRangeMap<serialization::TypeID, ModuleFile *, 4>
     GlobalTypeMapType;
@@ -460,7 +461,8 @@ private:
   ///
   /// When the pointer at index I is non-NULL, the declaration with ID
   /// = I + 1 has already been loaded.
-  std::vector<Decl *> DeclsLoaded;
+  llvm::DenseMap<unsigned, Decl *> DeclsLoaded;
+  unsigned NumDeclsLoaded = 0;
 
   typedef ContinuousRangeMap<serialization::DeclID, ModuleFile *, 4>
     GlobalDeclMapType;
@@ -478,10 +480,18 @@ private:
   /// in the chain.
   DeclUpdateOffsetsMap DeclUpdateOffsets;
 
+  struct PendingUpdateRecord {
+    Decl *D;
+    serialization::GlobalDeclID ID;
+    // Whether the declaration was just deserialized.
+    bool JustLoaded;
+    PendingUpdateRecord(serialization::GlobalDeclID ID, Decl *D,
+                        bool JustLoaded)
+        : D(D), ID(ID), JustLoaded(JustLoaded) {}
+  };
   /// \brief Declaration updates for already-loaded declarations that we need
   /// to apply once we finish processing an import.
-  llvm::SmallVector<std::pair<serialization::GlobalDeclID, Decl*>, 16>
-      PendingUpdateRecords;
+  llvm::SmallVector<PendingUpdateRecord, 16> PendingUpdateRecords;
 
   enum class PendingFakeDefinitionKind { NotFake, Fake, FakeLoaded };
 
@@ -594,7 +604,8 @@ private:
   /// If the pointer at index I is non-NULL, then it refers to the
   /// MacroInfo for the identifier with ID=I+1 that has already
   /// been loaded.
-  std::vector<MacroInfo *> MacrosLoaded;
+  llvm::DenseMap<unsigned, MacroInfo *> MacrosLoaded;
+  unsigned NumMacrosLoaded = 0;
 
   typedef std::pair<IdentifierInfo *, serialization::SubmoduleID>
       LoadedMacroInfo;
@@ -708,9 +719,6 @@ private:
   /// which the preprocessed entity resides along with the offset that should be
   /// added to the global preprocessing entity ID to produce a local ID.
   GlobalPreprocessedEntityMapType GlobalPreprocessedEntityMap;
-
-  /// \brief Known stem mapping for resolveFileThroughHeaderSearch.
-  llvm::StringMap<std::string> HSStemMap;
 
   /// \name CodeGen-relevant special data
   /// \brief Fields containing data that is relevant to CodeGen.
@@ -1144,6 +1152,7 @@ private:
     time_t StoredTime;
     bool Overridden;
     bool Transient;
+    bool TopLevelModuleMap;
   };
 
   /// \brief Reads the stored information about an input file.
@@ -1203,6 +1212,12 @@ private:
                    SourceLocation ImportLoc)
       : Mod(Mod), ImportedBy(ImportedBy), ImportLoc(ImportLoc) { }
   };
+
+  uint32_t getGenerationOrNull() const {
+    if (ContextObj)
+      return getGeneration(*ContextObj);
+    return 0u;
+  }
 
   ASTReadResult ReadASTCore(StringRef FileName, ModuleKind Type,
                             SourceLocation ImportLoc, ModuleFile *ImportedBy,
@@ -1285,7 +1300,7 @@ private:
 
   RecordLocation DeclCursorForID(serialization::DeclID ID,
                                  SourceLocation &Location);
-  void loadDeclUpdateRecords(serialization::DeclID ID, Decl *D);
+  void loadDeclUpdateRecords(PendingUpdateRecord &Record);
   void loadPendingDeclChain(Decl *D, uint64_t LocalOffset);
   void loadObjCCategories(serialization::GlobalDeclID ID, ObjCInterfaceDecl *D,
                           unsigned PreviousGeneration = 0);
@@ -1384,7 +1399,7 @@ public:
   /// precompiled header will be loaded.
   ///
   /// \param Context the AST context that this precompiled header will be
-  /// loaded into.
+  /// loaded into, if any.
   ///
   /// \param PCHContainerRdr the PCHContainerOperations to use for loading and
   /// creating modules.
@@ -1416,7 +1431,7 @@ public:
   ///
   /// \param ReadTimer If non-null, a timer used to track the time spent
   /// deserializing.
-  ASTReader(Preprocessor &PP, ASTContext &Context,
+  ASTReader(Preprocessor &PP, ASTContext *Context,
             const PCHContainerReader &PCHContainerRdr,
             ArrayRef<std::shared_ptr<ModuleFileExtension>> Extensions,
             StringRef isysroot = "", bool DisableValidation = false,
@@ -1656,17 +1671,17 @@ public:
 
   /// \brief Returns the number of macros found in the chain.
   unsigned getTotalNumMacros() const {
-    return static_cast<unsigned>(MacrosLoaded.size());
+    return NumMacrosLoaded;
   }
 
   /// \brief Returns the number of types found in the chain.
   unsigned getTotalNumTypes() const {
-    return static_cast<unsigned>(TypesLoaded.size());
+    return NumTypesLoaded;
   }
 
   /// \brief Returns the number of declarations found in the chain.
   unsigned getTotalNumDecls() const {
-    return static_cast<unsigned>(DeclsLoaded.size());
+    return NumDeclsLoaded;
   }
 
   /// \brief Returns the number of submodules known.
@@ -2205,7 +2220,10 @@ public:
   void completeVisibleDeclsMap(const DeclContext *DC) override;
 
   /// \brief Retrieve the AST context that this AST reader supplements.
-  ASTContext &getContext() { return Context; }
+  ASTContext &getContext() {
+    assert(ContextObj && "requested AST context when not loading AST");
+    return *ContextObj;
+  }
 
   // \brief Contains the IDs for declarations that were requested before we have
   // access to a Sema object.
@@ -2246,6 +2264,12 @@ public:
                        bool IncludeSystem, bool Complain,
           llvm::function_ref<void(const serialization::InputFile &IF,
                                   bool isSystem)> Visitor);
+
+  /// Visit all the top-level module maps loaded when building the given module
+  /// file.
+  void visitTopLevelModuleMaps(serialization::ModuleFile &MF,
+                               llvm::function_ref<
+                                   void(const FileEntry *)> Visitor);
 
   bool isProcessingUpdateRecords() { return ProcessingUpdateRecords; }
 };

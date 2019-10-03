@@ -18,7 +18,7 @@
 // TROOT                                                                //
 //                                                                      //
 // The TROOT object is the entry point to the system.                   //
-// The single instance of TROOT is accessable via the global gROOT.     //
+// The single instance of TROOT is accessible via the global gROOT.     //
 // Using the gROOT pointer one has access to basically every object     //
 // created in a ROOT based program. The TROOT object is essentially a   //
 // "dispatcher" with several lists pointing to the ROOT main objects.   //
@@ -30,6 +30,8 @@
 #include "RConfigure.h"
 
 #include <atomic>
+#include <string>
+#include <vector>
 
 class TClass;
 class TCanvas;
@@ -73,7 +75,7 @@ namespace Internal {
       TParBranchProcessingRAII()  { EnableParBranchProcessing();  }
       ~TParBranchProcessingRAII() { DisableParBranchProcessing(); }
    };
-      
+
    // Manage parallel tree processing
    void EnableParTreeProcessing();
    void DisableParTreeProcessing();
@@ -131,6 +133,9 @@ protected:
    std::atomic<TApplication*> fApplication;  //Pointer to current application
    TInterpreter    *fInterpreter;         //Command interpreter
    Bool_t          fBatch;                //True if session without graphics
+   TString         fWebDisplay;           //If not empty it defines where web graphics should be rendered (cef, qt5, browser...)
+   Bool_t          fIsWebDisplay;         //True if session with graphics on web
+   Bool_t          fIsWebDisplayBatch;    //True if session with graphics on web and batch mode
    Bool_t          fEditHistograms;       //True if histograms can be edited with the mouse
    Bool_t          fFromPopUp;            //True if command executed from a popup menu
    Bool_t          fMustClean;            //True if object destructor scans canvases
@@ -165,7 +170,7 @@ protected:
    TCollection     *fClassGenerators;     //List of user defined class generators;
    TSeqCollection  *fSecContexts;         //List of security contexts (TSecContext)
    TSeqCollection  *fProofs;              //List of proof sessions
-   TSeqCollection  *fClipboard;           //List of clipbard objects
+   TSeqCollection  *fClipboard;           //List of clipboard objects
    TSeqCollection  *fDataSets;            //List of data sets (TDSet or TChain)
    AListOfEnums_t   fEnums;               //List of enum types
    TProcessUUID    *fUUIDs;               //Pointer to TProcessID managing TUUIDs
@@ -278,6 +283,7 @@ public:
    Int_t             GetNtypes() const { return fTypes->GetSize(); }
    TFolder          *GetRootFolder() const { return fRootFolder; }
    TProcessUUID     *GetUUIDs() const { return fUUIDs; }
+   const TString    &GetWebDisplay() const { return fWebDisplay; }
    void              Idle(UInt_t idleTimeInSec, const char *command = 0);
    Int_t             IgnoreInclude(const char *fname, const char *expandedfname);
    Bool_t            IsBatch() const { return fBatch; }
@@ -288,6 +294,8 @@ public:
    Bool_t            IsLineProcessing() const { return fLineIsProcessing ? kTRUE : kFALSE; }
    Bool_t            IsProofServ() const { return fName == "proofserv" ? kTRUE : kFALSE; }
    Bool_t            IsRootFile(const char *filename) const;
+   Bool_t            IsWebDisplay() const { return fIsWebDisplay; }
+   Bool_t            IsWebDisplayBatch() const { return fIsWebDisplayBatch; }
    void              ls(Option_t *option = "") const;
    Int_t             LoadClass(const char *classname, const char *libname, Bool_t check = kFALSE);
    TClass           *LoadClass(const char *name, Bool_t silent = kFALSE) const;
@@ -300,6 +308,7 @@ public:
    Long_t            ProcessLineSync(const char *line, Int_t *error = 0);
    Long_t            ProcessLineFast(const char *line, Int_t *error = 0);
    Bool_t            ReadingObject() const;
+   void              RecursiveRemove(TObject *obj);
    void              RefreshBrowsers();
    static void       RegisterModule(const char* modulename,
                                     const char** headers,
@@ -308,13 +317,15 @@ public:
                                     const char* fwdDeclCode,
                                     void (*triggerFunc)(),
                                     const FwdDeclArgsToKeepCollection_t& fwdDeclsArgToSkip,
-                                    const char** classesHeaders);
+                                    const char** classesHeaders,
+                                    bool hasCxxModule = false);
    TObject          *Remove(TObject*);
    void              RemoveClass(TClass *);
    void              Reset(Option_t *option="");
    void              SaveContext();
    void              SetApplication(TApplication *app) { fApplication = app; }
    void              SetBatch(Bool_t batch = kTRUE) { fBatch = batch; }
+   void              SetWebDisplay(const char *webdisplay);
    void              SetCutClassName(const char *name = "TCutG");
    void              SetDefCanvasName(const char *name = "c1") { fDefCanvasName = name; }
    void              SetEditHistograms(Bool_t flag = kTRUE) { fEditHistograms = flag; }
@@ -346,6 +357,7 @@ public:
    static Int_t       ConvertVersionCode2Int(Int_t code);
    static Int_t       ConvertVersionInt2Code(Int_t v);
    static Int_t       RootVersionCode();
+   static const std::vector<std::string> &AddExtraInterpreterArgs(const std::vector<std::string> &args);
    static const char**&GetExtraInterpreterArgs();
 
    static const TString& GetRootSys();
@@ -363,6 +375,7 @@ public:
 
    // Backward compatibility function - do not use for new code
    static const char *GetTutorialsDir();
+   static void ShutDown();
 
    ClassDef(TROOT,0)  //Top level (or root) structure for all classes
 };
@@ -372,6 +385,30 @@ namespace ROOT {
    TROOT *GetROOT();
    namespace Internal {
       R__EXTERN TROOT *gROOTLocal;
+
+      inline void SetRequireCleanup(TObject &obj) {
+         obj.SetBit(kIsReferenced);
+         obj.SetUniqueID(0);
+      }
+
+      inline Bool_t RequiresCleanup(TObject &obj) {
+         return obj.TestBit(kIsReferenced) && obj.GetUniqueID() == 0;
+      }
+   }
+
+   /// \brief call RecursiveRemove for obj if gROOT is valid
+   /// and obj.TestBit(kMustCleanup) is true.
+   /// Note: this reset the kMustCleanup bit to allow
+   /// harmless multiple call to this function.
+   inline void CallRecursiveRemoveIfNeeded(TObject &obj)
+   {
+      if (obj.TestBit(kMustCleanup)) {
+         TROOT *root = ROOT::Internal::gROOTLocal;
+         if (root && root != &obj && (root->MustClean() || Internal::RequiresCleanup(obj))) {
+            root->RecursiveRemove(&obj);
+            obj.ResetBit(kMustCleanup);
+         }
+      }
    }
 }
 #define gROOT (ROOT::GetROOT())

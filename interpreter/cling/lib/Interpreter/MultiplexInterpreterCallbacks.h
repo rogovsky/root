@@ -41,6 +41,12 @@ namespace cling {
                                Imported);
     }
 
+    void EnteredSubmodule(clang::Module* M, clang::SourceLocation ImportLoc,
+                          bool ForPragma) override {
+      for (auto&& cb : m_Callbacks)
+        cb->EnteredSubmodule(M, ImportLoc, ForPragma);
+    }
+
     bool FileNotFound(llvm::StringRef FileName,
                       llvm::SmallVectorImpl<char>& RecoveryPath) override {
       bool result = false;
@@ -77,6 +83,15 @@ namespace cling {
        }
      }
 
+     bool LibraryLoadingFailed(const std::string& errmessage, const std::string& libStem, bool permanent,
+         bool resolved) override {
+       for (auto&& cb : m_Callbacks) {
+         if (bool res = cb->LibraryLoadingFailed(errmessage, libStem, permanent, resolved))
+           return res;
+       }
+       return 0;
+     }
+
      void TransactionUnloaded(const Transaction& T) override {
        for (auto&& cb : m_Callbacks) {
          cb->TransactionUnloaded(T);
@@ -87,6 +102,12 @@ namespace cling {
         for (auto&& cb : m_Callbacks) {
            cb->TransactionRollback(T);
         }
+     }
+
+     void DefinitionShadowed(const clang::NamedDecl* D) override {
+       for (auto&& cb : m_Callbacks) {
+         cb->DefinitionShadowed(D);
+       }
      }
 
      void DeclDeserialized(const clang::Decl* D) override {
@@ -122,6 +143,41 @@ namespace cling {
     void PrintStackTrace() override {
       for (auto&& cb : m_Callbacks)
         cb->PrintStackTrace();
+    }
+
+    void* EnteringUserCode() override {
+      void* ret = nullptr;
+      for (auto&& cb : m_Callbacks) {
+        if (void* myret = cb->EnteringUserCode()) {
+          assert(!ret && "Multiple state infos are not supported!");
+          ret = myret;
+        }
+      }
+      return ret;
+    }
+
+    void ReturnedFromUserCode(void* StateInfo) override {
+      for (auto&& cb : m_Callbacks)
+        cb->ReturnedFromUserCode(StateInfo);
+    }
+
+    void* LockCompilationDuringUserCodeExecution() override {
+      void* ret = nullptr;
+      for (auto&& cb : m_Callbacks) {
+        if (void* myret = cb->LockCompilationDuringUserCodeExecution()) {
+          // FIXME: it'd be better to introduce a new Callback interface type
+          // that does not allow multiplexing, and thus enforces that there
+          // is only one single listener.
+          assert(!ret && "Multiple state infos are not supported!");
+          ret = myret;
+        }
+      }
+      return ret;
+    }
+
+    void UnlockCompilationDuringUserCodeExecution(void* StateInfo) override {
+      for (auto&& cb : m_Callbacks)
+        cb->UnlockCompilationDuringUserCodeExecution(StateInfo);
     }
   };
 } // end namespace cling

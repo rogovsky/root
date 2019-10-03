@@ -77,9 +77,13 @@ public:
 
   virtual RooAbsReal* createIntegral(const RooArgSet& iset, const RooArgSet* nset=0, const RooNumIntConfig* cfg=0, const char* rangeName=0) const ;  
 
+  void setAllowComponentSelection(Bool_t allow);
+  Bool_t getAllowComponentSelection() const;
+  
 protected:
 
   mutable Bool_t _valid;
+  Bool_t _respectCompSelect;
 
   const RooArgSet& parameters() const ;
 
@@ -110,8 +114,6 @@ protected:
   mutable RooSetProxy _facList ; // Set of observables on which function does not depends, which are integrated nevertheless
 
   mutable RooArgSet   _facListOwned ;  // Owned components in _facList
-  TIterator*          _facListIter ; //! Iterator over factorizing observables
-  TIterator*          _jacListIter ; //! Iterator over lvalue observables with Jacobian
   RooRealProxy       _function ;     // Function being integration
   RooArgSet*      _funcNormSet ;     // Optional normalization set passed to function
 
@@ -140,7 +142,7 @@ protected:
 
   virtual void operModeHook() ; // cache operation mode
 
-  ClassDef(RooRealIntegral,2) // Real-valued function representing an integral over a RooAbsReal object
+  ClassDef(RooRealIntegral,3) // Real-valued function representing an integral over a RooAbsReal object
 };
 
 #endif

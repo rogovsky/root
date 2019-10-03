@@ -2,7 +2,7 @@
 // Author: Fons Rademakers   15/09/95
 
 /*************************************************************************
- * Copyright (C) 1995-2000, Rene Brun and Fons Rademakers.               *
+ * Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.               *
  * All rights reserved.                                                  *
  *                                                                       *
  * For the licensing terms see $ROOTSYS/LICENSE.                         *
@@ -21,14 +21,7 @@ that the method should be overridden in a derived class), which
 allows a simple partial implementation for new OS'es.
 */
 
-#ifdef WIN32
-#include <io.h>
-#endif
-#include <stdlib.h>
-#include <errno.h>
-#include <algorithm>
-#include <sys/stat.h>
-
+#include <ROOT/FoundationUtils.hxx>
 #include "Riostream.h"
 #include "TSystem.h"
 #include "TApplication.h"
@@ -52,6 +45,15 @@ allows a simple partial implementation for new OS'es.
 #include "TVersionCheck.h"
 #include "compiledata.h"
 #include "RConfigure.h"
+#include "THashList.h"
+
+#include <sstream>
+#include <string>
+#include <sys/stat.h>
+
+#ifdef WIN32
+#include <io.h>
+#endif
 
 const char *gRootDir;
 const char *gProgName;
@@ -64,7 +66,8 @@ static Int_t *gLibraryVersion    = 0;   // Set in TVersionCheck, used in Load()
 static Int_t  gLibraryVersionIdx = 0;   // Set in TVersionCheck, used in Load()
 static Int_t  gLibraryVersionMax = 256;
 
-
+// Pin vtable
+ProcInfo_t::~ProcInfo_t() {}
 ClassImp(TProcessEventTimer);
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -256,8 +259,8 @@ void TSystem::SetErrorStr(const char *errstr)
 
 const char *TSystem::GetError()
 {
-   if (GetErrno() == 0 && GetLastErrorString() != "")
-      return GetLastErrorString();
+   if (GetErrno() == 0 && !GetLastErrorString().IsNull())
+      return GetLastErrorString().Data();
    return Form("errno: %d", GetErrno());
 }
 
@@ -746,7 +749,7 @@ void TSystem::StackTrace()
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Create helper TSystem to handle file and directory operations that
-/// might be special for remote file access, like via rfiod or rootd.
+/// might be special for remote file access.
 
 TSystem *TSystem::FindHelper(const char *path, void *dirptr)
 {
@@ -1081,7 +1084,7 @@ const char *TSystem::ExpandFileName(const char *fname)
    TTHREAD_TLS_ARRAY(char, kBufSize, xname);
 
    Bool_t res = ExpandFileName(fname, xname, kBufSize);
-   if (res) 
+   if (res)
       return nullptr;
    else
       return xname;
@@ -1111,11 +1114,12 @@ Bool_t TSystem::ExpandFileName(TString &fname)
 
 Bool_t TSystem::ExpandFileName(const char *fname, char *xname, const int kBufSize)
 {
-   int         n, ier, iter, lx, ncopy;
-   char       *inp, *out, *x, *t, buff[kBufSize*4];
+   int n, ier, iter, lx, ncopy;
+   char *inp, *out, *x, *t, *buff;
    const char *b, *c, *e;
    const char *p;
-   
+   buff = new char[kBufSize * 4];
+
    iter = 0; xname[0] = 0; inp = buff + kBufSize; out = inp + kBufSize;
    inp[-1] = ' '; inp[0] = 0; out[-1] = ' ';
    c = fname + strspn(fname, " \t\f\r");
@@ -1142,8 +1146,9 @@ again:
       }
    } else if (c[0] == '~' && c[1] != '/') { // ~user case
       n = strcspn(c+1, "/ ");
-      buff[0] = 0;
-      strncat(buff, c+1, n);
+      assert((n+1) < kBufSize && "This should have been prevented by the truncation 'strlcat(inp, c, kBufSize)'");
+      // There is no overlap here as the buffer is segment in 4 strings of at most kBufSize
+      (void)strlcpy(buff, c+1, n+1); // strlcpy copy 'size-1' characters.
       std::string hd = GetHomeDirectory(buff);
       e = c+1+n;
       if (!hd.empty()) {                   // we have smth to copy
@@ -1231,6 +1236,8 @@ again:
    if (ier && iter < 3) { strlcpy(inp, out, kBufSize); goto again; }
    ncopy = (lx >= kBufSize) ? kBufSize-1 : lx;
    xname[0] = 0; strncat(xname, out, ncopy);
+
+   delete[] buff;
 
    if (ier || ncopy != lx) {
       ::Error("TSystem::ExpandFileName", "input: %s, output: %s", fname, xname);
@@ -1349,6 +1356,10 @@ int TSystem::Symlink(const char *, const char *)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Unlink, i.e. remove, a file.
+///
+/// If the file is currently open by the current or another process, the behavior of this function is
+/// implementation-defined (in particular, POSIX systems unlink the file name, while Windows does not allow the
+/// file to be deleted and the operation is a no-op).
 
 int TSystem::Unlink(const char *)
 {
@@ -1945,6 +1956,55 @@ int TSystem::Load(const char *module, const char *entry, Bool_t system)
    return -1;
 }
 
+///////////////////////////////////////////////////////////////////////////////
+/// Load all libraries known to ROOT via the rootmap system.
+/// Returns the number of top level libraries successfully loaded.
+
+UInt_t TSystem::LoadAllLibraries()
+{
+   UInt_t nlibs = 0;
+
+   TEnv* mapfile = gInterpreter->GetMapfile();
+   if (!mapfile || !mapfile->GetTable()) return 0;
+
+   std::set<std::string> loadedlibs;
+   std::set<std::string> failedlibs;
+
+   TEnvRec* rec = 0;
+   TIter iEnvRec(mapfile->GetTable());
+   while ((rec = (TEnvRec*) iEnvRec())) {
+      TString libs = rec->GetValue();
+      TString lib;
+      Ssiz_t pos = 0;
+      while (libs.Tokenize(lib, pos)) {
+         // check that none of the libs failed to load
+         if (failedlibs.find(lib.Data()) != failedlibs.end()) {
+            // don't load it or any of its dependencies
+            libs = "";
+            break;
+         }
+      }
+      pos = 0;
+      while (libs.Tokenize(lib, pos)) {
+         // ignore libCore - it's already loaded
+         if (lib.BeginsWith("libCore"))
+            continue;
+
+         if (loadedlibs.find(lib.Data()) == loadedlibs.end()) {
+            // just load the first library - TSystem will do the rest.
+            auto res = gSystem->Load(lib);
+            if (res >=0) {
+               if (res == 0) ++nlibs;
+               loadedlibs.insert(lib.Data());
+            } else {
+               failedlibs.insert(lib.Data());
+            }
+         }
+      }
+   }
+   return nlibs;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Find a dynamic library called lib using the system search paths.
 /// Appends known extensions if needed. Returned string must be deleted
@@ -2060,7 +2120,7 @@ const TString &TSystem::GetLastErrorString() const
 
 const char *TSystem::GetLinkedLibraries()
 {
-   return 0;
+   return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2256,7 +2316,7 @@ const char *TSystem::GetLibraries(const char *regexp, const char *options,
    }
 #endif
 
-   return fListLibs;
+   return fListLibs.Data();
 }
 
 //---- RPC ---------------------------------------------------------------------
@@ -2528,11 +2588,7 @@ static void R__FixLink(TString &cmd)
 }
 #endif
 
-#ifndef WIN32
-static void R__AddPath(TString &target, const TString &path) {
-   target += path;
-}
-#else
+#if defined(__CYGWIN__)
 static void R__AddPath(TString &target, const TString &path) {
    if (path.Length() > 2 && path[1]==':') {
       target += TString::Format("/cygdrive/%c",path[0]) + path(2,path.Length()-2);
@@ -2540,15 +2596,14 @@ static void R__AddPath(TString &target, const TString &path) {
       target += path;
    }
 }
+#else
+static void R__AddPath(TString &target, const TString &path) {
+   target += path;
+}
 #endif
 
-#ifndef WIN32
 static void R__WriteDependencyFile(const TString & build_loc, const TString &depfilename, const TString &filename, const TString &library, const TString &libname,
                                    const TString &extension, const char *version_var_prefix, const TString &includes, const TString &defines, const TString &incPath)
-#else
-static void R__WriteDependencyFile(const TString &build_loc, const TString &depfilename, const TString &filename, const TString &library, const TString &libname,
-                                   const TString &extension, const char *version_var_prefix, const TString &includes, const TString &defines, const TString &incPath)
-#endif
 {
    // Generate the dependency via standard output, not searching the
    // standard include directories,
@@ -2645,11 +2700,11 @@ static void R__WriteDependencyFile(const TString &build_loc, const TString &depf
          char *rootVersion = gSystem->Which(incPath,dictHeaders[h]);
          if (rootVersion) {
             R__AddPath(adddictdep,rootVersion);
-            adddictdep += " ";
             delete [] rootVersion;
          } else {
             R__AddPath(adddictdep,rootsysInclude + "/" + dictHeaders[h]);
          }
+         adddictdep += " ";
       }
    }
    {
@@ -2869,6 +2924,16 @@ int TSystem::CompileMacro(const char *filename, Option_t *opt,
       incPath.Append(fromConfig);
    }
    incPath.ReplaceAll(" -I",":");       // of form :dir1 :dir2:dir3
+   auto posISysRoot = incPath.Index(" -isysroot \"");
+   if (posISysRoot != kNPOS) {
+      auto posISysRootEnd = incPath.Index('"', posISysRoot + 12);
+      if (posISysRootEnd != kNPOS) {
+         // NOTE: should probably just skip isysroot for dependency analysis.
+         // (And will, in the future - once we rely on compiler-generated .d files.)
+         incPath.Insert(posISysRootEnd - 1, "/usr/include/");
+         incPath.Replace(posISysRoot, 12, ":\"");
+      }
+   }
    while ( incPath.Index(" :") != -1 ) {
       incPath.ReplaceAll(" :",":");
    }
@@ -2878,6 +2943,7 @@ int TSystem::CompileMacro(const char *filename, Option_t *opt,
    // ======= Get the right file names for the dictionary and the shared library
    TString expFileName(filename);
    ExpandPathName( expFileName );
+   expFileName = gSystem->UnixPathName(expFileName);
    TString library = expFileName;
    if (! IsAbsoluteFileName(library) )
    {
@@ -2901,6 +2967,7 @@ int TSystem::CompileMacro(const char *filename, Option_t *opt,
          library.Remove(pos, 1);
       }
    }
+   library = gSystem->UnixPathName(library);
    TString filename_fullpath = library;
 
    TString file_dirname = DirName( filename_fullpath );
@@ -2937,6 +3004,7 @@ int TSystem::CompileMacro(const char *filename, Option_t *opt,
       }
       library = TString(library) + "." + fSoExt;
    }
+   library = gSystem->UnixPathName(library);
 
    TString libname_ext ( libname );
    libname_ext +=  "." + fSoExt;
@@ -2993,10 +3061,10 @@ int TSystem::CompileMacro(const char *filename, Option_t *opt,
          }
       }
    }
+   library = gSystem->UnixPathName(library);
 
    // ======= Check if the library need to loaded or compiled
-   if ( gInterpreter->IsLoaded(expFileName) &&
-       !gInterpreter->IsLoaded(library) ) {
+   if (!gInterpreter->IsLibraryLoaded(library) && gInterpreter->IsLoaded(expFileName)) {
       // the script has already been loaded in interpreted mode
       // Let's warn the user and unload it.
 
@@ -3179,7 +3247,7 @@ int TSystem::CompileMacro(const char *filename, Option_t *opt,
                   if (current==sz-1) {
                      sz = 2*sz;
                      char *newline = new char[sz];
-                     strcpy(newline,line);
+                     memcpy(newline,line, current);
                      delete [] line;
                      line = newline;
                   }
@@ -3199,7 +3267,7 @@ int TSystem::CompileMacro(const char *filename, Option_t *opt,
       }
    }
 
-   if ( gInterpreter->IsLoaded(library)
+   if ( gInterpreter->IsLibraryLoaded(library)
         || strlen(GetLibraries(library,"D",kFALSE)) != 0 ) {
       // The library has already been built and loaded.
 
@@ -3285,6 +3353,36 @@ int TSystem::CompileMacro(const char *filename, Option_t *opt,
       linkDepLibraries = linkLibs & 0x1;
    }
 
+   // FIXME: Triggers clang false positive warning -Wunused-lambda-capture.
+   /*constexpr const*/ bool useCxxModules =
+#ifdef R__USE_CXXMODULES
+    true;
+#else
+    false;
+#endif
+
+   auto LoadLibrary = [useCxxModules, produceRootmap](const TString& lib) {
+      // We have no rootmap files or modules to construct `-l` flags enabling
+      // explicit linking. We have to resolve the dependencies by ourselves
+      // taking the job of the dyld.
+      // FIXME: This is a rare case where we have rootcling running with
+      // modules disabled. Remove this code once we fully switch to modules,
+      // or implement a special flag in rootcling which selective enables
+      // modules for dependent libraries and does not produce a module for
+      // the ACLiC library.
+      if (useCxxModules && !produceRootmap) {
+         using namespace std;
+         string deps = gInterpreter->GetSharedLibDeps(lib, /*tryDyld*/true);
+         istringstream iss(deps);
+         vector<string> libs {istream_iterator<std::string>{iss}, istream_iterator<string>{}};
+         // Skip the first element: it is a relative path to `lib`.
+         for (auto I = libs.begin() + 1, E = libs.end(); I != E; ++I)
+            if (gInterpreter->Load(I->c_str(), /*system*/false) < 0)
+               return false; // failure
+      }
+      return !gSystem->Load(lib);
+   };
+
    if (!recompile) {
       // The library already exist, let's just load it.
       if (loadLib) {
@@ -3299,7 +3397,7 @@ int TSystem::CompileMacro(const char *filename, Option_t *opt,
             gInterpreter->LoadLibraryMap(libmapfilename);
          }
 
-         return !gSystem->Load(library);
+         return LoadLibrary(library);
       }
       else return kTRUE;
    }
@@ -3393,7 +3491,7 @@ int TSystem::CompileMacro(const char *filename, Option_t *opt,
       lookup.Append(extensions[i]);
       name = Which(incPath,lookup);
       if (name) {
-         linkdefFile << "#pragma link C++ defined_in "<<name<<";"<< std::endl;
+         linkdefFile << "#pragma link C++ defined_in "<<gSystem->UnixPathName(name)<<";"<< std::endl;
          delete [] name;
       }
    }
@@ -3401,7 +3499,6 @@ int TSystem::CompileMacro(const char *filename, Option_t *opt,
    linkdefFile << std::endl;
    linkdefFile << "#endif" << std::endl;
    linkdefFile.close();
-
    // ======= Generate the list of rootmap files to be looked at
 
    TString mapfile;
@@ -3411,9 +3508,11 @@ int TSystem::CompileMacro(const char *filename, Option_t *opt,
    TString mapfileout = mapfile + ".out";
 
    Bool_t needLoadMap = kFALSE;
-   if (gInterpreter->GetSharedLibDeps(libname) !=0 ) {
-       gInterpreter->UnloadLibraryMap(libname);
-      needLoadMap = kTRUE;
+   if (!useCxxModules) {
+      if (gInterpreter->GetSharedLibDeps(libname) !=0 ) {
+         gInterpreter->UnloadLibraryMap(libname);
+         needLoadMap = kTRUE;
+      }
    }
 
    std::ofstream mapfileStream( mapfilein, std::ios::out );
@@ -3450,19 +3549,47 @@ int TSystem::CompileMacro(const char *filename, Option_t *opt,
    rcling += " -v0 \"--lib-list-prefix=";
    rcling += mapfile;
    rcling += "\" -f \"";
-   rcling.Append(dict).Append("\" -c -p ");
-   if (produceRootmap) {
+   rcling.Append(dict).Append("\" ");
+
+   if (produceRootmap && !useCxxModules) {
       rcling += " -rml " + libname + " -rmf \"" + libmapfilename + "\" ";
-   }
-   rcling.Append(GetIncludePath()).Append(" -D__ACLIC__ ");
-   if (produceRootmap) {
       rcling.Append("-DR__ACLIC_ROOTMAP ");
    }
+   rcling.Append(GetIncludePath()).Append(" -D__ACLIC__ ");
    if (gEnv) {
       TString fromConfig = gEnv->GetValue("ACLiC.IncludePaths","");
-      rcling.Append(fromConfig).Append(" \"");
+      rcling.Append(fromConfig);
    }
-   rcling.Append(filename_fullpath).Append("\" \"").Append(linkdef).Append("\"");;
+
+   // Create a modulemap
+   // FIXME: Merge the modulemap generation from cmake and here in rootcling.
+   if (useCxxModules && produceRootmap) {
+      rcling += " -cxxmodule ";
+      // TString moduleMapFileName = file_dirname + "/" + libname + ".modulemap";
+      TString moduleName = libname + "_ACLiC_dict";
+      if (moduleName.BeginsWith("lib"))
+          moduleName = moduleName.Remove(0, 3);
+      TString moduleMapName = moduleName + ".modulemap";
+      TString moduleMapFullPath = build_loc + "/" + moduleMapName;
+      // A modulemap may exist from previous runs, overwrite it.
+      if (verboseLevel > 3 && !AccessPathName(moduleMapFullPath))
+         ::Info("ACLiC", "File %s already exists!", moduleMapFullPath.Data());
+
+      std::string curDir = ROOT::FoundationUtils::GetCurrentDir();
+      std::string relative_path = ROOT::FoundationUtils::MakePathRelative(filename_fullpath.Data(), curDir);
+      std::ofstream moduleMapFile(moduleMapFullPath, std::ios::out);
+      moduleMapFile << "module \"" << moduleName << "\" {" << std::endl;
+      moduleMapFile << "  header \"" << relative_path << "\"" << std::endl;
+      moduleMapFile << "  export *" << std::endl;
+      moduleMapFile << "  link \"" << libname_ext << "\"" << std::endl;
+      moduleMapFile << "}" << std::endl;
+      moduleMapFile.close();
+      gInterpreter->RegisterPrebuiltModulePath(build_loc.Data(), moduleMapName.Data());
+      rcling.Append(" \"-fmodule-map-file=" + moduleMapFullPath + "\" ");
+   }
+
+   rcling.Append(" \"").Append(filename_fullpath).Append("\" ");
+   rcling.Append("\"").Append(linkdef).Append("\"");
 
    // ======= Run rootcling
    if (withInfo) {
@@ -3562,7 +3689,11 @@ int TSystem::CompileMacro(const char *filename, Option_t *opt,
       }
    }
 
+#ifdef _MSC_VER
+   linkLibraries.Prepend(linkLibrariesNoQuotes);
+#else
    linkLibraries.Prepend(librariesWithQuotes);
+#endif
 
    // ======= Generate the build command lines
    TString cmd = fMakeSharedLib;
@@ -3594,6 +3725,7 @@ int TSystem::CompileMacro(const char *filename, Option_t *opt,
    }
 #ifdef WIN32
    R__FixLink(cmd);
+   cmd.ReplaceAll("-std=", "-std:");
 #endif
 
    TString testcmd = fMakeExe;
@@ -3632,6 +3764,7 @@ int TSystem::CompileMacro(const char *filename, Option_t *opt,
 
 #ifdef WIN32
    R__FixLink(testcmd);
+   testcmd.ReplaceAll("-std=", "-std:");
 #endif
 
    // ======= Build the library
@@ -3664,8 +3797,10 @@ int TSystem::CompileMacro(const char *filename, Option_t *opt,
           gInterpreter->LoadLibraryMap(libmapfilename);
       }
       if (verboseLevel>3 && withInfo)  ::Info("ACLiC","loading the shared library");
-      if (loadLib) result = !gSystem->Load(library);
-      else result = kTRUE;
+      if (loadLib)
+         result = LoadLibrary(library);
+      else
+         result = kTRUE;
 
       if ( !result ) {
          if (verboseLevel>3 && withInfo) {
@@ -3968,6 +4103,9 @@ void TSystem::SetMakeSharedLib(const char *directives)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Add includePath to the already set include path.
+/// Note: This interface is mostly relevant for ACLiC and it does *not* inform
+/// gInterpreter for this include path. If the TInterpreter needs to know about
+/// the include path please use \c gInterpreter->AddIncludePath.
 
 void TSystem::AddIncludePath(const char *includePath)
 {
@@ -4072,18 +4210,46 @@ TString TSystem::SplitAclicMode(const char* filename, TString &aclicMode,
                                 TString &arguments, TString &io) const
 {
    char *fname = Strip(filename);
+   TString filenameCopy = fname;
+   filenameCopy = filenameCopy.Strip();
 
-   char *arg = strchr(fname, '(');
-   // special case for $(HOME)/aap.C(10)
-   while (arg && *arg && (arg > fname && *(arg-1) == '$') && *(arg+1))
-      arg = strchr(arg+1, '(');
-   if (arg && arg > fname) {
-      *arg = 0;
-      char *t = arg-1;
-      while (*t == ' ') {
-         *t = 0; t--;
+   if (filenameCopy.EndsWith(";")) {
+     filenameCopy.Remove(filenameCopy.Length() - 1);
+     filenameCopy = filenameCopy.Strip();
+   }
+   if (filenameCopy.EndsWith(")")) {
+      Ssiz_t posArgEnd = filenameCopy.Length() - 1;
+      // There is an argument; find its start!
+      int parenNestCount = 1;
+      bool inString = false;
+      Ssiz_t posArgBegin = posArgEnd - 1;
+      for (; parenNestCount && posArgBegin >= 0; --posArgBegin) {
+	 // Escaped if the previous character is a `\` - but not if it
+	 // itself is preceded by a `\`!
+	 if (posArgBegin > 0 && filenameCopy[posArgBegin] == '\\' &&
+	     (posArgBegin == 1 || filenameCopy[posArgBegin - 1] != '\\')) {
+	    // skip escape.
+	    --posArgBegin;
+	    continue;
+	 }
+	 switch (filenameCopy[posArgBegin]) {
+	 case ')':
+	    if (!inString)
+	       ++parenNestCount;
+	    break;
+	 case '(':
+	    if (!inString)
+	       --parenNestCount;
+	    break;
+	 case '"': inString = !inString; break;
+	 }
       }
-      arg++;
+      if (parenNestCount || inString) {
+	 Error("SplitAclicMode", "Cannot parse argument in %s", filename);
+      } else {
+	 arguments = filenameCopy(posArgBegin + 1, posArgEnd - 1);
+	 fname[posArgBegin + 1] = 0;
+      }
    }
 
    // strip off I/O redirect tokens from filename
@@ -4142,9 +4308,6 @@ TString TSystem::SplitAclicMode(const char* filename, TString &aclicMode,
    }
 
    TString resFilename = fname;
-   arguments = "(";
-   if (arg) arguments += arg;
-   else arguments = "";
 
    delete []fname;
    return resFilename;

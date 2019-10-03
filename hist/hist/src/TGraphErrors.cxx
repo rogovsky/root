@@ -313,12 +313,13 @@ TGraphErrors::TGraphErrors(const char *filename, const char *format, Option_t *o
       Int_t value_idx = 0 ;
 
       // Looping
+      char *rest;
       while (std::getline(infile, line, '\n')) {
          if (line != "") {
             if (line[line.size() - 1] == char(13)) {  // removing DOS CR character
                line.erase(line.end() - 1, line.end()) ;
             }
-            token = strtok(const_cast<char*>(line.c_str()), option) ;
+            token = R__STRTOK_R(const_cast<char *>(line.c_str()), option, &rest);
             while (token != NULL && value_idx < ntokensToBeSaved) {
                if (isTokenToBeSaved[token_idx]) {
                   token_str = TString(token) ;
@@ -331,7 +332,7 @@ TGraphErrors::TGraphErrors(const char *filename, const char *format, Option_t *o
                      value_idx++ ;
                   }
                }
-               token = strtok(NULL, option) ; //next token
+               token = R__STRTOK_R(NULL, option, &rest); // next token
                token_idx++ ;
             }
             if (!isLineToBeSkipped && value_idx > 1) { //i.e. 2,3 or 4
@@ -737,8 +738,13 @@ void TGraphErrors::SavePrimitive(std::ostream &out, Option_t *option /*= ""*/)
          out << "   gre->GetListOfFunctions()->Add(ptstats);" << std::endl;
          out << "   ptstats->SetParent(gre->GetListOfFunctions());" << std::endl;
       } else {
+         TString objname;
+         objname.Form("%s%d",obj->GetName(),frameNumber);
+         if (obj->InheritsFrom("TF1")) {
+            out << "   " << objname << "->SetParent(gre);\n";
+         }
          out << "   gre->GetListOfFunctions()->Add("
-             << Form("%s%d",obj->GetName(),frameNumber) << ");" << std::endl;
+             << objname << ");" << std::endl;
       }
    }
 

@@ -1,23 +1,12 @@
-if(NOT CMAKE_PROJECT_NAME STREQUAL ROOT)
-  cmake_minimum_required(VERSION 2.8 FATAL_ERROR)
-  project(RooFit)
-  find_package(ROOT REQUIRED)
-  include(${ROOT_USE_FILE})
-endif()
-
-if(mathmore OR ROOT_mathmore_FOUND)
-  set(ROOT_MATHMORE_LIBRARY MathMore)
-endif()
-
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/roofit/inc) 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/roofitcore/inc) 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/roostats/inc) 
+# Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.
+# All rights reserved.
+#
+# For the licensing terms see $ROOTSYS/LICENSE.
+# For the list of contributors see $ROOTSYS/README/CREDITS.
 
 add_subdirectory(roofitcore)
 add_subdirectory(roofit)
 add_subdirectory(roostats)
-if(xml OR ROOT_xml_FOUND)
+if(xml)
   add_subdirectory(histfactory)
 endif()
-
-

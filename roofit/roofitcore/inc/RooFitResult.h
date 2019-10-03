@@ -53,6 +53,8 @@ public:
 
   static RooFitResult* lastMinuitFit(const RooArgList& varList=RooArgList()) ;
 
+  static RooFitResult *prefitResult(const RooArgList &paramList);
+
   // Printing interface (human readable)
   virtual void printValue(std::ostream& os) const ;
   virtual void printName(std::ostream& os) const ;
@@ -149,7 +151,7 @@ public:
   // Generate random perturbations of the final parameters using the covariance matrix
   const RooArgList& randomizePars() const;
 
-  Bool_t isIdentical(const RooFitResult& other, Double_t tol=5e-5, Double_t tolCorr=1e-4, Bool_t verbose=kTRUE) const ;
+  Bool_t isIdentical(const RooFitResult& other, Double_t tol=1e-6, Double_t tolCorr=1e-4, Bool_t verbose=kTRUE) const ;
 
   void SetName(const char *name) ;
   void SetNameTitle(const char *name, const char* title) ;
@@ -170,6 +172,7 @@ protected:
   void fillCorrMatrix() ;
   void fillCorrMatrix(const std::vector<double>& globalCC, const TMatrixDSym& corrs, const TMatrixDSym& covs) ;
   void fillLegacyCorrMatrix() const ;
+  void fillPrefitCorrMatrix();
   void setStatusHistory(std::vector<std::pair<std::string,int> >& hist) { _statusHistory = hist ; }
 
   Double_t correlation(Int_t row, Int_t col) const;

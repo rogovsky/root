@@ -381,7 +381,7 @@ Int_t TAxis::FindBin(const char *label)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Find bin number with label.
-/// If the List of labels does not exist or the label doe not exist just return -1 .
+/// If the List of labels does not exist or the label does not exist just return -1 .
 /// Do not attempt to modify the axis. This is different than FindBin
 
 Int_t TAxis::FindFixBin(const char *label) const
@@ -543,7 +543,7 @@ void TAxis::GetCenter(Double_t *center) const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Return an array with the lod edge of all bins
+/// Return an array with the low edge of all bins
 
 void TAxis::GetLowEdge(Double_t *edge) const
 {
@@ -885,22 +885,23 @@ void TAxis::ChangeLabel(Int_t labNum, Double_t labAngle, Double_t labSize,
 ////////////////////////////////////////////////////////////////////////////////
 ///  Set the viewing range for the axis from bin first to last.
 ///  To set a range using the axis coordinates, use TAxis::SetRangeUser.
+///
+///  If first == last == 0 or if last < first or if the range specified does
+///  not intersect at all with the maximum available range [0, fNbins + 1],
+///  then the range is reset by removing the bit TAxis::kAxisRange. In this
+///  case the functions TAxis::GetFirst() and TAxis::GetLast() will return 1
+///  and fNbins.
+///
+///  If the range specified partially intersects [0, fNbins + 1], then the
+///  intersection range is set. For instance, if first == -2 and last == fNbins,
+///  then the set range is [0, fNbins] (fFirst = 0 and fLast = fNbins).
+///
+///  NOTE: for historical reasons, SetRange(0,0) resets the range even though Bin 0 is
+///       technically reserved for the underflow; in order to set the range of the axis
+///       so that it only includes the underflow, use SetRange(a,0), where a < 0
 
 void TAxis::SetRange(Int_t first, Int_t last)
 {
-   //  If first == last == 0 or if last < first or if the range specified does
-   //  not intersect at all with the maximum available range [0, fNbins + 1],
-   //  then the range is reset by removing the bit TAxis::kAxisRange. In this
-   //  case the functions TAxis::GetFirst() and TAxis::GetLast() will return 1
-   //  and fNbins.
-
-   //  If the range specified partially intersects [0, fNbins + 1], then the
-   //  intersection range is set. For instance, if first == -2 and last == fNbins,
-   //  then the set range is [0, fNbins] (fFirst = 0 and fLast = fNbins).
-   //
-   //  NOTE: for historical reasons, SetRange(0,0) resets the range even though Bin 0 is
-   //       technically reserved for the underflow; in order to set the range of the axis
-   //       so that it only includes the underflow, use SetRange(a,0), where a < 0
 
    Int_t nCells = fNbins + 1; // bins + overflow
 

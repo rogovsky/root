@@ -1,14 +1,17 @@
+#include <ROOT/TSeq.hxx>
 #include "TFile.h"
 #include "TTree.h"
 #include "TTreeReader.h"
 #include "TTreeReaderArray.h"
+#include "TSystem.h"
 
 #include "gtest/gtest.h"
 
 #include <fstream>
 
-TEST(TTreeReaderArray, Vector) {
-   TTree* tree = new TTree("TTreeReaderArrayTree", "In-memory test tree");
+TEST(TTreeReaderArray, Vector)
+{
+   TTree *tree = new TTree("TTreeReaderArrayTree", "In-memory test tree");
    std::vector<float> vecf{17.f, 18.f, 19.f, 20.f, 21.f};
    tree->Branch("vec", &vecf);
 
@@ -28,10 +31,10 @@ TEST(TTreeReaderArray, Vector) {
    EXPECT_FLOAT_EQ(17.f, vec[0]);
 }
 
-
-TEST(TTreeReaderArray, MultiReaders) {
+TEST(TTreeReaderArray, MultiReaders)
+{
    // See https://root.cern.ch/phpBB3/viewtopic.php?f=3&t=22790
-   TTree* tree = new TTree("TTreeReaderArrayTree", "In-memory test tree");
+   TTree *tree = new TTree("TTreeReaderArrayTree", "In-memory test tree");
    double Double[6] = {42.f, 43.f, 44.f, 45.f, 46.f, 47.f};
    tree->Branch("D", &Double, "D[4]/D");
 
@@ -64,5 +67,144 @@ TEST(TTreeReaderArray, MultiReaders) {
       EXPECT_DOUBLE_EQ(Double[i], trDouble3[i]);
       EXPECT_DOUBLE_EQ(Double[i], trDouble4[i]);
       EXPECT_DOUBLE_EQ(Double[i], trDouble5[i]);
+   }
+}
+
+void checkRV(TTreeReaderArray<bool> &rval, const std::vector<bool> &arr, std::string_view compType)
+{
+   EXPECT_EQ(rval.GetSize(), arr.size());
+   for (auto i : ROOT::TSeqI(rval.GetSize())) {
+      const auto bRead = rval[i];
+      const auto bExpected = arr[i];
+      EXPECT_EQ(bRead, bExpected) << "In the case of " << compType << " element " << i << " of the read collection is "
+                                  << std::boolalpha << bRead << " which differs from the expected one, which is "
+                                  << bExpected;
+   }
+}
+
+TEST(TTreeReaderArray, BoolCollections)
+{
+
+   // References
+   std::vector<bool> va_ref0{false, true, true};
+   std::vector<bool> a_ref0{true, false, false, false, true, true, false};
+   std::vector<bool> v_ref0{true, false, false, false, true, true};
+
+   std::vector<bool> va_ref1{false, true, false, false, true};
+   std::vector<bool> a_ref1{true, true, false, false, false, true, true};
+   std::vector<bool> v_ref1{true, false, false, true, true, true, true, false, false, true, true};
+
+   // Tree Setup
+   auto fileName = "TTreeReaderArray_BoolCollections.root";
+   TFile f(fileName, "recreate");
+   TTree t("t", "t");
+
+   int n;
+   bool va[5];
+   bool a[7];
+   std::vector<bool> v;
+
+   t.Branch("v", &v);
+   t.Branch("a", a, "a[7]/O");
+   t.Branch("n", &n);
+   t.Branch("va", va, "va[n]/O");
+
+   // Filling the tree
+   n = va_ref0.size();
+   std::copy(va_ref0.begin(), va_ref0.end(), va);
+   std::copy(a_ref0.begin(), a_ref0.end(), a);
+   v = v_ref0;
+   t.Fill();
+
+   n = va_ref1.size();
+   std::copy(va_ref1.begin(), va_ref1.end(), va);
+   std::copy(a_ref1.begin(), a_ref1.end(), a);
+   v = v_ref1;
+   t.Fill();
+
+   t.Write();
+   f.Close();
+
+   // Set up the ttree reader
+   TFile f2(fileName);
+   TTreeReader r("t", &f2);
+
+   TTreeReaderArray<bool> rv(r, "v");
+   TTreeReaderArray<bool> ra(r, "a");
+   TTreeReaderArray<bool> rva(r, "va");
+
+   // Loop by hand
+   r.Next();
+   checkRV(rv, v_ref0, "vector<bool> ev 0");
+   checkRV(ra, a_ref0, "fixed size array of bools ev 0");
+   checkRV(rva, va_ref0, "variable size array of bools ev 0");
+
+   r.Next();
+   checkRV(rv, v_ref1, "vector<bool> ev 1");
+   checkRV(ra, a_ref1, "fixed size array of bools ev 1");
+   checkRV(rva, va_ref1, "variable size array of bools ev 1");
+
+   gSystem->Unlink(fileName);
+}
+
+TEST(TTreeReaderArray, Double32_t)
+{
+   TTree t("t", "t");
+
+   int n;
+   Double32_t arr[64];
+   t.Branch("n", &n);
+   t.Branch("arr", arr, "arr[n]/d[0,0,10]");
+   t.Branch("arr2", arr, "arr2[n]/D");
+   std::vector<int> sizes{20, 30};
+   float globalIndex = 1.f;
+   for (auto ievt : {0, 1}) {
+      n = sizes[ievt];
+      for (auto inumb = 0; inumb < n; ++inumb) {
+         arr[inumb] = 1024 * globalIndex++;
+      }
+      t.Fill();
+   }
+   TTreeReader r(&t);
+   TTreeReaderArray<double> arrra(r, "arr");
+   TTreeReaderArray<double> arr2ra(r, "arr2");
+   while (r.Next()) {
+      const auto arr_size = arrra.GetSize();
+      EXPECT_EQ(arr_size, arr2ra.GetSize()) << "The size of the collections differ!";
+      for (auto i = 0U; i < arr_size; ++i) {
+         EXPECT_DOUBLE_EQ(arrra[i], arr2ra[i]) << "The content of the element at index " << i
+                                               << " in the collections differs!";
+      }
+   }
+}
+
+TEST(TTreeReaderArray, Float16_t)
+{
+   TTree t("t", "t");
+
+   int n;
+   Float16_t arr[64];
+   t.Branch("n", &n);
+   t.Branch("arr", arr, "arr[n]/f[0,0,10]");
+   t.Branch("arr2", arr, "arr2[n]/F");
+   std::vector<int> sizes{20, 30};
+   float globalIndex = 1.f;
+   for (auto ievt : {0, 1}) {
+      n = sizes[ievt];
+      for (auto inumb = 0; inumb < n; ++inumb) {
+         arr[inumb] = 1024 * globalIndex++;
+      }
+      t.Fill();
+   }
+   TTreeReader r(&t);
+   TTreeReaderArray<float> arrra(r, "arr");
+   TTreeReaderArray<float> arr2ra(r, "arr2");
+   while (r.Next()) {
+      const auto arr_size = arrra.GetSize();
+      EXPECT_EQ(arr_size, arr2ra.GetSize()) << "The size of the collections differ!";
+      for (auto i = 0U; i < arr_size; ++i) {
+         EXPECT_FLOAT_EQ(arrra[i], arr2ra[i]) << "The content of the element at index " << i
+                                              << " in the collections differs!";
+      }
    }
 }

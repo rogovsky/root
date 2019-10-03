@@ -1,16 +1,30 @@
+# Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.
+# All rights reserved.
+#
+# For the licensing terms see $ROOTSYS/LICENSE.
+# For the list of contributors see $ROOTSYS/README/CREDITS.
+
 ############################################################################
 # CMakeLists.txt file for building ROOT net/davix package
 # @author Pere Mato, CERN
 ############################################################################
 
-include_directories(${DAVIX_INCLUDE_DIRS})
-
-# Workaround for defects in davix 0.3.1: https://its.cern.ch/jira/browse/DMC-577
-ROOT_ADD_CXX_FLAG(CMAKE_CXX_FLAGS -Wno-ignored-qualifiers)
-ROOT_ADD_CXX_FLAG(CMAKE_CXX_FLAGS -Wno-unused-parameter)
-ROOT_ADD_CXX_FLAG(CMAKE_CXX_FLAGS -Wno-deprecated-declarations) # Davix getAllReplicas
-
 ROOT_STANDARD_LIBRARY_PACKAGE(RDAVIX
-                              LIBRARIES ${DAVIX_LIBRARIES} ${OPENSSL_LIBRARIES}
-                                        ${LIBXML2_LIBRARIES} ${SYSLIBS}
-                              DEPENDENCIES RIO Net BUILTINS DAVIX)
+  HEADERS
+    ROOT/RRawFileDavix.hxx
+    TDavixFile.h
+    TDavixSystem.h
+  SOURCES
+    src/RRawFileDavix
+    src/TDavixFile.cxx
+    src/TDavixSystem.cxx
+  LIBRARIES
+    Davix::Davix
+  DEPENDENCIES
+    Net
+    RIO
+)
+
+target_compile_options(RDAVIX PRIVATE -Wno-deprecated-declarations)
+
+ROOT_ADD_TEST_SUBDIRECTORY(test)

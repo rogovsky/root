@@ -23,37 +23,19 @@
 
 /*! \class TMVA::TActivationTanh
 \ingroup TMVA
-Tanh activation function for ANN. This really simple implementation
-uses TFormula and should probably be replaced with something more
-efficient later.
+Tanh activation function for ANN.
 */
 
 #include "TMVA/TActivationTanh.h"
 
 #include "TMVA/TActivation.h"
 
-#include "TFormula.h"
 #include "TMath.h"
 #include "TString.h"
 
 #include <iostream>
 
 ClassImp(TMVA::TActivationTanh);
-
-////////////////////////////////////////////////////////////////////////////////
-/// constructor for tanh sigmoid (normalized in [-1,1])
-
-TMVA::TActivationTanh::TActivationTanh()
-{
-   fFAST=kTRUE;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// destructor
-
-TMVA::TActivationTanh::~TActivationTanh()
-{
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// a fast tanh approximation
@@ -95,12 +77,24 @@ TString TMVA::TActivationTanh::GetExpression()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// writes the sigmoid activation function source code
+/// writes the Tanh sigmoid activation function source code
 
 void TMVA::TActivationTanh::MakeFunction( std::ostream& fout, const TString& fncName )
 {
-   fout << "double " << fncName << "(double x) const {" << std::endl;
-   fout << "   // hyperbolic tan" << std::endl;
-   fout << "   return tanh(x);" << std::endl;
-   fout << "}" << std::endl;
+   if (fFAST) {
+      fout << "double " << fncName << "(double x) const {" << std::endl;
+      fout << "   // fast hyperbolic tan approximation" << std::endl;
+      fout << "   if (x > 4.97) return 1;" << std::endl;
+      fout << "   if (x < -4.97) return -1;" << std::endl;
+      fout << "   float x2 = x * x;" << std::endl;
+      fout << "   float a = x * (135135.0f + x2 * (17325.0f + x2 * (378.0f + x2)));" << std::endl;
+      fout << "   float b = 135135.0f + x2 * (62370.0f + x2 * (3150.0f + x2 * 28.0f));" << std::endl;
+      fout << "   return a / b;" << std::endl;
+      fout << "}" << std::endl;
+   } else {
+      fout << "double " << fncName << "(double x) const {" << std::endl;
+      fout << "   // hyperbolic tan" << std::endl;
+      fout << "   return tanh(x);" << std::endl;
+      fout << "}" << std::endl;
+   }
 }

@@ -37,6 +37,8 @@ Use RooAbsCollection derived objects for public use
 
 #include "Riostream.h"
 #include "TBuffer.h"
+#include "TROOT.h"
+#include "ROOT/RMakeUnique.hxx"
 
 #include <algorithm>
 
@@ -363,9 +365,12 @@ void RooLinkedList::setHashTableSize(Int_t size)
 
 RooLinkedList::~RooLinkedList() 
 {
-  if (_htableName) {
-    delete _htableName ;
-    _htableName=0 ;
+   // Required since we overload TObject::Hash.
+   ROOT::CallRecursiveRemoveIfNeeded(*this);
+
+   if (_htableName) {
+      delete _htableName;
+      _htableName = 0;
   }
   if (_htableLink) {
     delete _htableLink ;
@@ -439,7 +444,8 @@ void RooLinkedList::Add(TObject* arg, Int_t refCount)
 
   _size++ ;
   _last->_refCount = refCount ;
-  
+
+  _at.push_back(_last);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -462,7 +468,11 @@ Bool_t RooLinkedList::Remove(TObject* arg)
   // Update first,last if necessary
   if (elem==_first) _first=elem->_next ;
   if (elem==_last) _last=elem->_prev ;
-  
+
+  // Remove from index array
+  auto at_elem_it = std::find(_at.begin(), _at.end(), elem);
+  _at.erase(at_elem_it);
+
   // Delete and shrink
   _size-- ;
   deleteElement(elem) ;	
@@ -487,13 +497,15 @@ TObject* RooLinkedList::At(Int_t index) const
   // Check range
   if (index<0 || index>=_size) return 0 ;
 
-  
-  // Walk list
-  RooLinkedListElem* ptr = _first;
-  while(index--) ptr = ptr->_next ;
-  
-  // Return arg
-  return ptr->_arg ;
+  return _at[index]->_arg;
+//
+//
+//  // Walk list
+//  RooLinkedListElem* ptr = _first;
+//  while(index--) ptr = ptr->_next ;
+//
+//  // Return arg
+//  return ptr->_arg ;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -561,6 +573,9 @@ void RooLinkedList::Clear(Option_t *)
     delete _htableLink ;
     _htableLink = new RooHashTable(hsize,RooHashTable::Pointer) ;       
   }
+
+  // empty index array
+  _at.clear();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -591,6 +606,9 @@ void RooLinkedList::Delete(Option_t *)
     delete _htableLink ;
     _htableLink = new RooHashTable(hsize,RooHashTable::Pointer) ;       
   }
+
+  // empty index array
+  _at.clear();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -721,25 +739,32 @@ void RooLinkedList::Print(const char* opt) const
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Create a TIterator for this list.
+/// \param forward Run in forward direction (default).
+/// \return Pointer to a TIterator. The caller owns the pointer.
 
-RooLinkedListIter RooLinkedList::iterator(Bool_t dir) const 
-{
-  return RooLinkedListIter(this,dir) ;
+TIterator* RooLinkedList::MakeIterator(Bool_t forward) const {
+  auto iterImpl = std::make_unique<RooLinkedListIterImpl>(this, forward);
+  return new RooLinkedListIter(std::move(iterImpl));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+/// Create an iterator for this list.
+/// \param forward Run in forward direction (default).
+/// \return RooLinkedListIter (subclass of TIterator) over this list
 
-RooFIter RooLinkedList::fwdIterator() const 
-{ 
-  return RooFIter(this) ; 
+RooLinkedListIter RooLinkedList::iterator(Bool_t forward) const {
+  auto iterImpl = std::make_unique<RooLinkedListIterImpl>(this, forward);
+  return RooLinkedListIter(std::move(iterImpl));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Return an iterator over this list
+/// Create a one-time-use forward iterator for this list.
+/// \return RooFIter that only supports next()
 
-TIterator* RooLinkedList::MakeIterator(Bool_t dir) const 
-{
-  return new RooLinkedListIter(this,dir) ;
+RooFIter RooLinkedList::fwdIterator() const {
+  auto iterImpl = std::make_unique<RooFIterForLinkedList>(this);
+  return RooFIter(std::move(iterImpl));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -748,6 +773,12 @@ void RooLinkedList::Sort(Bool_t ascend)
 {
   if (ascend) _first = mergesort_impl<true>(_first, _size, &_last);
   else _first = mergesort_impl<false>(_first, _size, &_last);
+
+  // rebuild index array
+  RooLinkedListElem* elem = _first;
+  for (auto it = _at.begin(); it != _at.end(); ++it, elem = elem->_next) {
+    *it = elem;
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -886,8 +917,8 @@ void RooLinkedList::Streamer(TBuffer &R__b)
       Add(arg) ;      
     }
 
-    if (v>1 ) {
-      R__b >> _name ;
+    if (v > 1 && v < 4) {
+       R__b >> _name;
     }
     
   } else {

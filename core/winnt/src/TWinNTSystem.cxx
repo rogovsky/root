@@ -30,7 +30,6 @@
 #include "TRegexp.h"
 #include "TException.h"
 #include "TEnv.h"
-#include "TSocket.h"
 #include "TApplication.h"
 #include "TWin32SplashThread.h"
 #include "Win32Constants.h"
@@ -815,7 +814,9 @@ namespace {
 
       // determine the fileopen.C file path:
       TString fileopen = "fileopen.C";
-      gSystem->PrependPathName(TROOT::GetMacroDir(), fileopen);
+      TString rootmacrodir = "macros";
+      sys->PrependPathName(getenv("ROOTSYS"), rootmacrodir);
+      sys->PrependPathName(rootmacrodir.Data(), fileopen);
 
       if (regROOTwrite) {
          // only write to registry if fileopen.C is readable
@@ -884,16 +885,17 @@ namespace {
    bool NeedSplash()
    {
       static bool once = true;
-      if (!once || gROOT->IsBatch() || !gApplication) return false;
-      TString arg = gSystem->BaseName(gApplication->Argv(0));
-      if ((arg != "root") && (arg != "rootn") &&
-          (arg != "root.exe") && (arg != "rootn.exe")) return false;
-      for(int i=1; i<gApplication->Argc(); i++) {
-         arg = gApplication->Argv(i);
+      TString arg;
+
+      if (!once || gROOT->IsBatch()) return false;
+      TString cmdline(::GetCommandLine());
+      Int_t i = 0, from = 0;
+      while (cmdline.Tokenize(arg, from, " ")) {
          arg.Strip(TString::kBoth);
-         if ((arg == "-l") || (arg == "-b")) {
-            return false;
-         }
+         if (i == 0 && ((arg != "root") && (arg != "rootn") &&
+             (arg != "root.exe") && (arg != "rootn.exe"))) return false;
+         else if ((arg == "-l") || (arg == "-b")) return false;
+         ++i;
       }
       if (once) {
          once = false;
@@ -991,7 +993,7 @@ fGUIThreadHandle(0), fGUIThreadId(0)
    char *buf = new char[MAX_MODULE_NAME32 + 1];
 
 #ifdef ROOTPREFIX
-   if (gSystem->Getenv("ROOTIGNOREPREFIX") {
+   if (gSystem->Getenv("ROOTIGNOREPREFIX")) {
 #endif
    // set ROOTSYS
    HMODULE hModCore = ::GetModuleHandle("libCore.dll");
@@ -1179,7 +1181,7 @@ const char *TWinNTSystem::BaseName(const char *name)
       char *cp;
       char *bslash = (char *)strrchr(&symbol[idx],'\\');
       char *rslash = (char *)strrchr(&symbol[idx],'/');
-      if (cp = std::max(rslash, bslash)) {
+      if (cp = (std::max)(rslash, bslash)) {
          //return StrDup(++cp);
          return ++cp;
       }
@@ -2088,6 +2090,8 @@ void *TWinNTSystem::OpenDirectory(const char *fdir)
       if (!(entry[strlen(dir)-1] == '/' || entry[strlen(dir)-1] == '\\' )) {
          strlcat(entry,"\\",nche);
       }
+      if (entry[strlen(dir)-1] == ' ')
+         entry[strlen(dir)-1] = '\0';
       strlcat(entry,"*",nche);
 
       HANDLE searchFile;
@@ -2178,7 +2182,7 @@ char *TWinNTSystem::GetWorkingDirectory(char driveletter) const
 const char *TWinNTSystem::HomeDirectory(const char *userName)
 {
    static char mydir[kMAXPATHLEN] = "./";
-   FillWithHomeDirectory(mydir);
+   FillWithHomeDirectory(userName, mydir);
    return mydir;
 }
 
@@ -2188,7 +2192,7 @@ const char *TWinNTSystem::HomeDirectory(const char *userName)
 std::string TWinNTSystem::GetHomeDirectory(const char *userName) const
 {
    char mydir[kMAXPATHLEN] = "./";
-   FillWithHomeDirectory(mydir); 
+   FillWithHomeDirectory(userName, mydir);
    return std::string(mydir); 
 }
 
@@ -2221,7 +2225,6 @@ void TWinNTSystem::FillWithHomeDirectory(const char *userName, char *mydir) cons
    // Make sure the drive letter is upper case
    if (mydir[1] == ':')
       mydir[0] = toupper(mydir[0]);
-   return mydir;
 }
 
 
@@ -2385,7 +2388,7 @@ const char *TWinNTSystem::DirName(const char *pathname)
       if (strchr(pathname, '/') || strchr(pathname, '\\')) {
          const char *rslash = strrchr(pathname, '/');
          const char *bslash = strrchr(pathname, '\\');
-         const char *r = std::max(rslash, bslash);
+         const char *r = (std::max)(rslash, bslash);
          const char *ptr = pathname;
          while (ptr <= r) {
             if (*ptr == ':') {
@@ -2412,18 +2415,19 @@ const char *TWinNTSystem::DirName(const char *pathname)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////
-/// Return the drive letter in pathname. DriveName of 'c:/user/root' is 'c'//
-///   Input:                                                               //
-///      pathname - the string containing file name                        //
-///   Return:                                                              //
-///     = Letter presenting the drive letter in the file name              //
-///     = The current drive if the pathname has no drive assigment         //
-///     = 0 if pathname is an empty string  or uses UNC syntax             //
-///   Note:                                                                //
-///      It doesn't chech whether pathname presents the 'real filename     //
-///      This subroutine looks for 'single letter' is follows with a ':'   //
-/////////////////////////////////////////////////////////////////////////////
+/// Return the drive letter in pathname. DriveName of 'c:/user/root' is 'c'
+///
+///   Input:
+///     - pathname - the string containing file name
+///
+///   Return:
+///     - Letter representing the drive letter in the file name
+///     - The current drive if the pathname has no drive assigment
+///     - 0 if pathname is an empty string  or uses UNC syntax
+///
+///   Note:
+///      It doesn't check whether pathname represents a 'real' filename.
+///      This subroutine looks for 'single letter' followed by a ':'.
 
 const char TWinNTSystem::DriveName(const char *pathname)
 {
@@ -2488,10 +2492,13 @@ Bool_t TWinNTSystem::IsAbsoluteFileName(const char *dir)
 
 const char *TWinNTSystem::UnixPathName(const char *name)
 {
-   static char temp[1024];
-   strlcpy(temp, name,1024);
+   const int kBufSize = 1024;
+   TTHREAD_TLS_ARRAY(char, kBufSize, temp);
+
+   strlcpy(temp, name, kBufSize);
    char *currentChar = temp;
 
+   // This can not change the size of the string.
    while (*currentChar != '\0') {
       if (*currentChar == '\\') *currentChar = '/';
       currentChar++;
@@ -2842,6 +2849,9 @@ int TWinNTSystem::Symlink(const char *from, const char *to)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Unlink, i.e. remove, a file or directory.
+///
+/// If the file is currently open by the current or another process Windows does not allow the file to be deleted and
+/// the operation is a no-op.
 
 int TWinNTSystem::Unlink(const char *name)
 {
@@ -2893,6 +2903,13 @@ Bool_t TWinNTSystem::ExpandPathName(TString &patbuf0)
 
    Int_t old_level = gErrorIgnoreLevel;
    gErrorIgnoreLevel = kFatal; // Explicitly remove all messages
+   if (patbuf0.BeginsWith("\\")) {
+      const char driveletter = DriveName(patbuf);
+      if (driveletter) {
+         patbuf0.Prepend(":");
+         patbuf0.Prepend(driveletter);
+      }
+   }
    TUrl urlpath(patbuf0, kTRUE);
    TString proto = urlpath.GetProtocol();
    gErrorIgnoreLevel = old_level;
@@ -3850,21 +3867,29 @@ void TWinNTSystem::Exit(int code, Bool_t mode)
 {
    // Insures that the files and sockets are closed before any library is unloaded
    // and before emptying CINT.
+   // FIXME: Unify with TROOT::ShutDown.
    if (gROOT) {
       gROOT->CloseFiles();
       if (gROOT->GetListOfBrowsers()) {
          // GetListOfBrowsers()->Delete() creates problems when a browser is
          // created on the stack, calling CloseWindow() solves the problem
-         //gROOT->GetListOfBrowsers()->Delete();
-         TBrowser *b;
-         TIter next(gROOT->GetListOfBrowsers());
-         while ((b = (TBrowser*) next()))
-            gROOT->ProcessLine(TString::Format("((TBrowser*)0x%lx)->GetBrowserImp()->GetMainFrame()->CloseWindow();",
-                                               (ULong_t)b));
+         if (gROOT->IsBatch())
+            gROOT->GetListOfBrowsers()->Delete();
+         else {
+            TBrowser *b;
+            TIter next(gROOT->GetListOfBrowsers());
+            while ((b = (TBrowser*) next()))
+               gROOT->ProcessLine(TString::Format("\
+                  if (((TBrowser*)0x%lx)->GetBrowserImp() &&\
+                      ((TBrowser*)0x%lx)->GetBrowserImp()->GetMainFrame()) \
+                     ((TBrowser*)0x%lx)->GetBrowserImp()->GetMainFrame()->CloseWindow();\
+                  else delete (TBrowser*)0x%lx", (ULong_t)b, (ULong_t)b, (ULong_t)b, (ULong_t)b));
+         }
       }
+      gROOT->EndOfProcessCleanups();
    }
    if (gInterpreter) {
-      gInterpreter->ResetGlobals();
+      gInterpreter->ShutDown();
    }
    gVirtualX->CloseDisplay();
 
@@ -4257,6 +4282,11 @@ const char *TWinNTSystem::GetLibraries(const char *regexp, const char *options,
             // Change .dll into .lib and remove the
             // path info if it not accessible.
             s = libs(index, end);
+            s.ToLower();
+            if ((s.Index("c:/windows/") != kNPOS)) {
+               start += end+1;
+               continue;
+            }
             if (s.Index(user_dll) != kNPOS) {
                s.ReplaceAll(".dll",".lib");
                if ( GetPathInfo( s, sbuf ) != 0 ) {
@@ -4270,7 +4300,9 @@ const char *TWinNTSystem::GetLibraries(const char *regexp, const char *options,
                }
             }
             if (!ntlibs.IsNull()) ntlibs.Append(" ");
-            ntlibs.Append(s);
+            if ((s.Index("python") == kNPOS) && (s.Index("cppyy") == kNPOS) &&
+                (s.Index("vcruntime") == kNPOS) && (s.Index(".pyd") == kNPOS))
+              ntlibs.Append(s);
          }
          start += end+1;
       }
@@ -5028,8 +5060,8 @@ int TWinNTSystem::GetSockOpt(int socket, int opt, int *val)
          if (sock == INVALID_SOCKET) {
             ::SysError("GetSockOpt", "INVALID_SOCKET");
          }
-         return -1;
          *val = flg; //  & O_NDELAY;  It is not been defined for WIN32
+         return -1;
       }
       break;
 #if 0

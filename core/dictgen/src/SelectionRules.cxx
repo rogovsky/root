@@ -17,7 +17,12 @@ The class representing the collection of selection rules.
 #include <iostream>
 #include <sstream>
 #include <algorithm>
+#ifndef WIN32
 #include <fnmatch.h>
+#else
+#include "Shlwapi.h"
+#define fnmatch(glob, path, dummy) PathMatchSpecA(path, glob);
+#endif
 #include "RtypesCore.h"
 #include "SelectionRules.h"
 #include "llvm/Support/raw_ostream.h"
@@ -263,40 +268,6 @@ void SelectionRules::Optimize(){
      return false;
    };
    fClassSelectionRules.remove_if(predicate);
-}
-
-void SelectionRules::SetDeep(bool deep)
-{
-
-   fIsDeep=deep;
-   if (!fIsDeep) return; // the adventure stops here
-   // if no selection rules, nothing to go deep into
-   if (fClassSelectionRules.empty()) return;
-   // Get index of the last selection rule
-   long count = fClassSelectionRules.rbegin()->GetIndex() + 1;
-   // Deep for classes
-   // Loop on rules. If name or pattern exist, add a {pattern,name}* rule to go deep
-   std::string patternString;
-   for (std::list<ClassSelectionRule>::iterator classRuleIt = fClassSelectionRules.begin();
-        classRuleIt != fClassSelectionRules.end(); classRuleIt++){
-       if (classRuleIt->HasAttributeWithName("pattern") &&
-           classRuleIt->GetAttributeValue("pattern",patternString)){
-          // If the pattern already does not end with *
-          if (patternString.find_last_of("*")!=patternString.size()-1){
-             ClassSelectionRule csr(count++, fInterp);
-             csr.SetAttributeValue("pattern", patternString+"*");
-             csr.SetSelected(BaseSelectionRule::kYes);
-             AddClassSelectionRule(csr);
-          }
-       }
-       if (classRuleIt->HasAttributeWithName("name") &&
-           classRuleIt->GetAttributeValue("name",patternString)){
-           ClassSelectionRule csr(count++, fInterp);
-           csr.SetAttributeValue("pattern", patternString+"*");
-           csr.SetSelected(BaseSelectionRule::kYes);
-           AddClassSelectionRule(csr);
-       }
-    }
 }
 
 const ClassSelectionRule *SelectionRules::IsDeclSelected(const clang::RecordDecl *D) const

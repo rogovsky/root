@@ -1,3 +1,9 @@
+# Copyright (C) 1995-2019, Rene Brun and Fons Rademakers.
+# All rights reserved.
+#
+# For the licensing terms see $ROOTSYS/LICENSE.
+# For the list of contributors see $ROOTSYS/README/CREDITS.
+
 ############################################################################
 # CMakeLists.txt file for building ROOT math/unurun package
 ############################################################################
@@ -41,6 +47,9 @@ else()
   elseif(ROOT_ARCHITECTURE MATCHES win32)
     set(UNR_CFLAGS "-MD -G5 -GX")
   endif()
+  if(CMAKE_OSX_SYSROOT)
+    set(UNR_CFLAGS "${UNR_CFLAGS} -isysroot ${CMAKE_OSX_SYSROOT}")
+  endif()
 
   #---configure unuran (required for creating the config.h used by unuran source files)----------------
   add_custom_command(OUTPUT ${UNR_UNTARDIR}/config.h
@@ -53,8 +62,11 @@ string(REPLACE -Wall "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
 if(${CMAKE_CXX_COMPILER_ID} MATCHES Clang)
   ROOT_ADD_C_FLAG(CMAKE_C_FLAGS -Wno-parentheses-equality)
 endif()
+if(${CMAKE_CXX_COMPILER_ID} MATCHES GNU)
+  ROOT_ADD_C_FLAG(CMAKE_C_FLAGS -Wno-maybe-uninitialized)
+endif()
 
-include_directories(BEFORE ${UNR_UNTARDIR} ${UNR_UNTARDIR}/src ${UNR_UNTARDIR}/src/utils)
+include_directories(BEFORE SYSTEM ${UNR_UNTARDIR} ${UNR_UNTARDIR}/src ${UNR_UNTARDIR}/src/utils)
 add_definitions(-DHAVE_CONFIG_H)
 set(unrsources ${UNR_UNTARDIR}/src/utils/*.c
                ${UNR_UNTARDIR}/src/methods/*.c
@@ -69,13 +81,34 @@ set(unrconfig ${UNR_UNTARDIR}/config.h)
 
 else()
 
-include_directories(${UNURAN_INCLUDE_DIRS})
+include_directories(SYSTEM ${UNURAN_INCLUDE_DIRS})
 set(unrsources)
 set(unrconfig)
 
 endif()
 
 ROOT_STANDARD_LIBRARY_PACKAGE(Unuran
-                              SOURCES *.cxx ${unrsources} ${unrconfig}
-                              LIBRARIES ${UNURAN_LIBRARIES}
-                              DEPENDENCIES Core Hist MathCore)
+  HEADERS
+    TUnuran.h
+    TUnuranBaseDist.h
+    TUnuranContDist.h
+    TUnuranDiscrDist.h
+    TUnuranEmpDist.h
+    TUnuranMultiContDist.h
+    TUnuranSampler.h
+  SOURCES
+    src/TUnuran.cxx
+    src/TUnuranContDist.cxx
+    src/TUnuranDiscrDist.cxx
+    src/TUnuranEmpDist.cxx
+    src/TUnuranMultiContDist.cxx
+    src/TUnuranSampler.cxx
+    ${unrconfig}
+    ${unrsources}
+  LIBRARIES
+    ${UNURAN_LIBRARIES}
+  DEPENDENCIES
+    Core
+    Hist
+    MathCore
+)

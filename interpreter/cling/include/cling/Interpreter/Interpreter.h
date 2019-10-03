@@ -40,6 +40,8 @@ namespace clang {
   class FunctionDecl;
   class GlobalDecl;
   class MacroInfo;
+  class Module;
+  class ModuleFileExtension;
   class NamedDecl;
   class Parser;
   class Preprocessor;
@@ -136,6 +138,10 @@ namespace cling {
       kNumExeResults
     };
 
+  public:
+    using ModuleFileExtensions =
+        std::vector<std::shared_ptr<clang::ModuleFileExtension>>;
+
   private:
 
     ///\brief Interpreter invocation options.
@@ -180,6 +186,10 @@ namespace cling {
     ///\brief Flag toggling the raw input on or off.
     ///
     bool m_RawInputEnabled;
+
+    ///\brief Whether to allow decl redefinition, i.e. enable the DefinitionShadower.
+    ///
+    bool m_RedefinitionAllowed;
 
     ///\brief Flag toggling the optimization level to be used.
     ///
@@ -282,9 +292,11 @@ namespace cling {
     ///\param[in] name - name of the function, used to find its Decl.
     ///\param[in] code - function definition, starting with 'extern "C"'.
     ///\param[in] withAccessControl - whether to enforce access restrictions.
+    ///\param[out] T - The cling::Transaction of the input
     const clang::FunctionDecl* DeclareCFunction(llvm::StringRef name,
                                                 llvm::StringRef code,
-                                                bool withAccessControl);
+                                                bool withAccessControl,
+                                                Transaction*& T);
 
     ///\brief Initialize runtime and C/C++ level overrides
     ///
@@ -300,8 +312,8 @@ namespace cling {
     ///\brief The target constructor to be called from both the delegating
     /// constructors. parentInterp might be nullptr.
     ///
-    Interpreter(int argc, const char* const *argv,
-                const char* llvmdir, bool noRuntime,
+    Interpreter(int argc, const char* const* argv, const char* llvmdir,
+                const ModuleFileExtensions& moduleExtensions, bool noRuntime,
                 const Interpreter* parentInterp);
 
   public:
@@ -312,9 +324,11 @@ namespace cling {
     ///\param[in] llvmdir - ???
     ///\param[in] noRuntime - flag to control the presence of runtime universe
     ///
-    Interpreter(int argc, const char* const *argv, const char* llvmdir = 0,
-                bool noRuntime = false) :
-      Interpreter(argc, argv, llvmdir, noRuntime, nullptr) { }
+    Interpreter(int argc, const char* const* argv, const char* llvmdir = 0,
+                const ModuleFileExtensions& moduleExtensions = {},
+                bool noRuntime = false)
+        : Interpreter(argc, argv, llvmdir, moduleExtensions, noRuntime,
+                      nullptr) {}
 
     ///\brief Constructor for child Interpreter.
     ///\param[in] parentInterpreter - the  parent interpreter of this interpreter
@@ -323,8 +337,10 @@ namespace cling {
     ///\param[in] llvmdir - ???
     ///\param[in] noRuntime - flag to control the presence of runtime universe
     ///
-    Interpreter(const Interpreter &parentInterpreter,int argc, const char* const *argv,
-                const char* llvmdir = 0, bool noRuntime = true);
+    Interpreter(const Interpreter& parentInterpreter, int argc,
+                const char* const* argv, const char* llvmdir = 0,
+                const ModuleFileExtensions& moduleExtensions = {},
+                bool noRuntime = true);
 
     virtual ~Interpreter();
 
@@ -405,6 +421,9 @@ namespace cling {
     void GetIncludePaths(llvm::SmallVectorImpl<std::string>& incpaths,
                          bool withSystem, bool withFlags);
 
+    ///\brief Call printValue( "(type*)" + obj ) and return string
+    std::string toString(const char* type, void* obj);
+
     ///\brief Prints the current include paths that are used.
     ///
     ///\param[in] S - stream to dump to or nullptr for default (cling::outs)
@@ -474,16 +493,23 @@ namespace cling {
     ///
     CompilationResult parse(const std::string& input,
                             Transaction** T = 0) const;
+    /// Loads a C++ Module with a given name by synthesizing an Import decl.
+    /// This routine checks if there is a modulemap in the current directory
+    /// and loads it.
+    ///
+    /// This is useful when we start up the interpreter and programatically,
+    /// later generate a modulemap.
+    ///
+    ///\returns true if the module was loaded.
+    ///
+    bool loadModule(const std::string& moduleName, bool complain = true);
 
-    ///\brief Looks for a already generated PCM for the given header file and
-    /// loads it.
+    /// Loads a C++ Module with a given name by synthesizing an Import decl.
+    /// This routine checks if there is a modulemap in the current directory
+    /// and loads it.
     ///
-    ///\param[in] headerFile - The header file for which a module should be
-    ///                        loaded.
-    ///
-    ///\returns Whether the operation was fully successful.
-    ///
-    CompilationResult loadModuleForHeader(const std::string& headerFile);
+    ///\returns true if the module was loaded or already visible.
+    bool loadModule(clang::Module* M, bool complain = true);
 
     ///\brief Parses input line, which doesn't contain statements. Code
     /// generation needed to make the module functional.
@@ -645,6 +671,9 @@ namespace cling {
     bool isRawInputEnabled() const { return m_RawInputEnabled; }
     void enableRawInput(bool raw = true) { m_RawInputEnabled = raw; }
 
+    bool isRedefinitionAllowed() const { return m_RedefinitionAllowed; }
+    void allowRedefinition(bool b = true) { m_RedefinitionAllowed = b; }
+
     int getDefaultOptLevel() const { return m_OptLevel; }
     void setDefaultOptLevel(int optLevel) { m_OptLevel = optLevel; }
 
@@ -691,6 +720,7 @@ namespace cling {
 
     const Transaction* getFirstTransaction() const;
     const Transaction* getLastTransaction() const;
+    const Transaction* getLastWrapperTransaction() const;
     const Transaction* getCurrentTransaction() const;
 
     ///\brief Returns the current or last Transaction.
@@ -763,10 +793,6 @@ namespace cling {
     ///\param[in] Arg - argument passed to the function.
     ///
     void AddAtExitFunc(void (*Func) (void*), void* Arg);
-
-    ///\brief Forwards to cling::IncrementalExecutor::addModule.
-    ///
-    void addModule(llvm::Module* module, int OptLevel);
 
     void GenerateAutoloadingMap(llvm::StringRef inFile, llvm::StringRef outFile,
                                 bool enableMacros = false, bool enableLogs = true);

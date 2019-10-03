@@ -27,6 +27,7 @@ namespace clang {
   class FunctionDecl;
   class IdentifierInfo;
   class NamedDecl;
+  class NamespaceDecl;
   class MacroDirective;
   class Preprocessor;
   struct PrintingPolicy;
@@ -62,11 +63,6 @@ namespace cling {
       kCCIHandleCXXStaticMemberVarInstantiation,
       kCCICompleteTentativeDefinition,
       kCCINumStates
-    };
-
-    ///\brief Sort of opaque handle for unloading a transaction from the JIT.
-    struct ExeUnloadHandle {
-      void* m_Opaque;
     };
 
     ///\brief Each declaration group came through different interface at
@@ -147,13 +143,14 @@ namespace cling {
     ///
     CompilationOptions m_Opts;
 
+    ///\brief If DefinitionShadower is enabled, the `__cling_N5xxx' namespace
+    /// in which to nest global definitions (if any).
+    ///
+    clang::NamespaceDecl* m_DefinitionShadowNS = nullptr;
+
     ///\brief The llvm Module containing the information that we will revert
     ///
-    std::unique_ptr<llvm::Module> m_Module;
-
-    ///\brief The JIT handle allowing a removal of the Transaction's symbols.
-    ///
-    ExeUnloadHandle m_ExeUnload;
+    std::shared_ptr<llvm::Module> m_Module;
 
     ///\brief The Executor to use m_ExeUnload on.
     ///
@@ -325,6 +322,11 @@ namespace cling {
       m_Opts = CO;
     }
 
+    clang::NamespaceDecl* getDefinitionShadowNS() const
+    { return m_DefinitionShadowNS; }
+
+    void setDefinitionShadowNS(clang::NamespaceDecl* NS);
+
     ///\brief Returns the first declaration of the transaction.
     ///
     clang::DeclGroupRef getFirstDecl() const {
@@ -459,19 +461,15 @@ namespace cling {
     ///
     void clear() {
       m_DeclQueue.clear();
+      m_DeserializedDeclQueue.clear();
       if (m_NestedTransactions)
         m_NestedTransactions->clear();
     }
 
-    llvm::Module* getModule() const { return m_Module.get(); }
-    void setModule(std::unique_ptr<llvm::Module> M) { m_Module.swap(M); }
+    std::shared_ptr<llvm::Module> getModule() const { return m_Module; }
+    void setModule(std::unique_ptr<llvm::Module> M) { m_Module = std::move(M); }
 
-    ExeUnloadHandle getExeUnloadHandle() const { return m_ExeUnload; }
     IncrementalExecutor* getExecutor() const { return m_Exe; }
-    void setExeUnloadHandle(IncrementalExecutor* Exe, ExeUnloadHandle H) {
-      m_Exe = Exe;
-      m_ExeUnload = H;
-    }
 
     clang::FunctionDecl* getWrapperFD() const { return m_WrapperFD; }
 

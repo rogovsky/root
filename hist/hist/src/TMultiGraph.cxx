@@ -41,14 +41,37 @@ ClassImp(TMultiGraph);
 
 /** \class TMultiGraph
     \ingroup Hist
-A TMultiGraph is a collection of TGraph (or derived) objects. It allows to
-manipulate a set of graphs as a single entity. In particular, when drawn,
-the X and Y axis ranges are automatically computed such as all the graphs
+     \brief A TMultiGraph is a collection of TGraph (or derived) objects.
+
+- [Introduction](#MG00)
+- [MultiGraphs' drawing](#MG01)
+    - [Setting drawing options](#MG01a)
+    - [Titles setting](#MG01b)
+    - [The option "3D"](#MG01c)
+    - [Legend drawing](#MG01d)
+    - [Automatic coloring](#MG01e)
+    - [Reverse axis](#MG01f)
+- [MultiGraphs' fitting](#MG02)
+    - [Fit box position](#MG02a)
+- [Axis' limits setting](#MG03)
+
+
+### <a name="MG00"></a> Introduction
+
+A TMultiGraph allows to manipulate a set of graphs as a single entity. In particular,
+when drawn, the X and Y axis ranges are automatically computed such as all the graphs
 will be visible.
 
 `TMultiGraph::Add` should be used to add a new graph to the list.
 
 The TMultiGraph owns the objects in the list.
+
+The number of graphs in a multigraph can be retrieve with:
+~~~ {.cpp}
+mg->GetListOfGraphs()->GetEntries();
+~~~
+
+### <a name="MG00"></a> MultiGraphs' Drawing
 
 The drawing options are the same as for TGraph.
 Like for TGraph, the painting is performed thanks to the TGraphPainter
@@ -63,6 +86,31 @@ Example:
      mg->Add(gr2,"cp");
      mg->Draw("a");
 ~~~
+
+#### <a name="MG01a"></a> Setting drawing options
+
+The drawing option for each TGraph may be specified as an optional
+second argument of the `Add` function.
+
+If a draw option is specified, it will be used to draw the graph,
+otherwise the graph will be drawn with the option specified in
+`TMultiGraph::Draw`
+
+#### <a name="MG01b"></a> Titles setting
+
+The global title and the axis titles can be modified the following way:
+
+~~~ {.cpp}
+   [...]
+   auto mg = new TMultiGraph;
+   mg->SetTitle("title;xaxis title; yaxis title");
+   mg->Add(g1);
+   mg->Add(g2);
+   mg->Draw("apl");
+~~~
+
+#### <a name="MG01c"></a> The option "3D"
+
 A special option `3D` allows to draw the graphs in a 3D space. See the
 following example:
 
@@ -77,10 +125,10 @@ Begin_Macro(source)
    auto gr3 = new TGraph(); gr3->SetLineColor(kGreen);
    auto gr4 = new TGraph(); gr4->SetLineColor(kOrange);
 
-   Double_t dx = 6.28/100;
+   Double_t dx = 6.28/1000;
    Double_t x  = -3.14;
 
-   for (int i=0; i<=100; i++) {
+   for (int i=0; i<=1000; i++) {
       x = x+dx;
       gr1->SetPoint(i,x,2.*TMath::Sin(x));
       gr2->SetPoint(i,x,TMath::Cos(x));
@@ -96,110 +144,14 @@ Begin_Macro(source)
    mg->SetTitle("Multi-graph Title; X-axis Title; Y-axis Title");
 
    mg->Draw("a fb l3d");
-}
-End_Macro
 
-
-The number of graphs in a multigraph can be retrieve with:
-~~~ {.cpp}
-mg->GetListOfGraphs()->GetSize();
-~~~
-
-The drawing option for each TGraph may be specified as an optional
-second argument of the `Add` function.
-
-If a draw option is specified, it will be used to draw the graph,
-otherwise the graph will be drawn with the option specified in
-`TMultiGraph::Draw`.
-
-The following example shows how to fit a TMultiGraph.
-
-Begin_Macro(source)
-{
-   auto c1 = new TCanvas("c1","c1",600,400);
-
-   Double_t px1[2] = {2.,4.};
-   Double_t dx1[2] = {0.1,0.1};
-   Double_t py1[2] = {2.1,4.0};
-   Double_t dy1[2] = {0.3,0.2};
-
-   Double_t px2[2] = {3.,5.};
-   Double_t dx2[2] = {0.1,0.1};
-   Double_t py2[2] = {3.2,4.8};
-   Double_t dy2[2] = {0.3,0.2};
-
-   gStyle->SetOptFit(0001);
-
-   auto g1 = new TGraphErrors(2,px1,py1,dx1,dy1);
-   g1->SetMarkerStyle(21);
-   g1->SetMarkerColor(2);
-
-   auto g2 = new TGraphErrors(2,px2,py2,dx2,dy2);
-   g2->SetMarkerStyle(22);
-   g2->SetMarkerColor(3);
-
-   auto g = new TMultiGraph();
-   g->Add(g1);
-   g->Add(g2);
-
-   g->Draw("AP");
-
-   g->Fit("pol1","FQ");
-}
-End_Macro
-
-
-The axis titles can be modified the following way:
-
-~~~ {.cpp}
-   [...]
-   auto mg = new TMultiGraph;
-   mg->SetTitle("title;xaxis title; yaxis title");
-   mg->Add(g1);
-   mg->Add(g2);
-   mg->Draw("apl");
-~~~
-
-When the graphs in a TMultiGraph are fitted, the fit parameters boxes
-overlap. The following example shows how to make them all visible.
-
-
-Begin_Macro(source)
-../../../tutorials/graphs/multigraph.C
-End_Macro
-
-
-The axis limits can be changed the like for TGraph. The same methods apply on
-the multigraph.
-Note the two differents ways to change limits on X and Y axis.
-
-Begin_Macro(source)
-{
-   auto c2 = new TCanvas("c2","c2",600,400);
-
-   TGraph *g[3];
-   Double_t x[10] = {0,1,2,3,4,5,6,7,8,9};
-   Double_t y[10] = {1,2,3,4,5,5,4,3,2,1};
-   auto mg = new TMultiGraph();
-   for (int i=0; i<3; i++) {
-      g[i] = new TGraph(10, x, y);
-      g[i]->SetMarkerStyle(20);
-      g[i]->SetMarkerColor(i+2);
-      for (int j=0; j<10; j++) y[j] = y[j]-1;
-      mg->Add(g[i]);
-   }
-   mg->Draw("APL");
-   mg->GetXaxis()->SetTitle("E_{#gamma} (GeV)");
-   mg->GetYaxis()->SetTitle("Coefficients");
-
-   // Change the axis limits
+   mg->GetHistogram()->GetXaxis()->SetRangeUser(0.,2.5);
    gPad->Modified();
-   mg->GetXaxis()->SetLimits(1.5,7.5);
-   mg->SetMinimum(0.);
-   mg->SetMaximum(10.);
+   gPad->Update();
 }
 End_Macro
 
+#### <a name="MG01d"></a> Legend drawing
 
 The method TPad::BuildLegend is able to extract the graphs inside a
 multigraph. The following example demonstrate this.
@@ -260,11 +212,143 @@ Begin_Macro(source)
 }
 End_Macro
 
+#### <a name="MG01e"></a> Automatic coloring
+
 Automatic coloring according to the current palette is available as shown in the
 following example:
 
 Begin_Macro(source)
 ../../../tutorials/graphs/multigraphpalettecolor.C
+End_Macro
+
+#### <a name="MG01f"></a> Reverse axis
+
+\since **ROOT version 6.19/02**
+
+When a TMultiGraph is drawn, the X-axis is drawn with increasing values from left to
+right and the Y-axis from bottom to top. The two options RX and RY allow to change
+this order. The option RX allows to draw the X-axis with increasing values from
+right to left and the RY option allows to draw the Y-axis with increasing values
+from top to bottom. The following example illustrate how to use these options.
+
+Begin_Macro(source)
+{
+   auto *c = new TCanvas();
+   c->Divide(2,1);
+
+   auto *g1 = new TGraphErrors();
+   g1->SetPoint(0,-4,-3);
+   g1->SetPoint(1,1,1);
+   g1->SetPoint(2,2,1);
+   g1->SetPoint(3,3,4);
+   g1->SetPoint(4,5,5);
+   g1->SetPointError(0,1.,2.);
+   g1->SetPointError(1,2,1);
+   g1->SetPointError(2,2,3);
+   g1->SetPointError(3,3,2);
+   g1->SetPointError(4,4,5);
+   g1->SetMarkerStyle(21);
+
+   auto *g2 = new TGraph();
+   g2->SetPoint(0,4,8);
+   g2->SetPoint(1,5,9);
+   g2->SetPoint(2,6,10);
+   g2->SetPoint(3,10,11);
+   g2->SetPoint(4,15,12);
+   g2->SetLineColor(kRed);
+   g2->SetLineWidth(5);
+
+   auto mg = new TMultiGraph();
+   mg->Add(g1,"P");
+   mg->Add(g2,"L");
+
+   c->cd(1); gPad->SetGrid(1,1);
+   mg->Draw("A");
+
+   c->cd(2); gPad->SetGrid(1,1);
+   mg->Draw("A RX RY");
+}
+End_Macro
+
+### <a name="MG02"></a> MultiGraphs' fitting
+
+The following example shows how to fit a TMultiGraph.
+
+Begin_Macro(source)
+{
+   auto c1 = new TCanvas("c1","c1",600,400);
+
+   Double_t px1[2] = {2.,4.};
+   Double_t dx1[2] = {0.1,0.1};
+   Double_t py1[2] = {2.1,4.0};
+   Double_t dy1[2] = {0.3,0.2};
+
+   Double_t px2[2] = {3.,5.};
+   Double_t dx2[2] = {0.1,0.1};
+   Double_t py2[2] = {3.2,4.8};
+   Double_t dy2[2] = {0.3,0.2};
+
+   gStyle->SetOptFit(0001);
+
+   auto g1 = new TGraphErrors(2,px1,py1,dx1,dy1);
+   g1->SetMarkerStyle(21);
+   g1->SetMarkerColor(2);
+
+   auto g2 = new TGraphErrors(2,px2,py2,dx2,dy2);
+   g2->SetMarkerStyle(22);
+   g2->SetMarkerColor(3);
+
+   auto g = new TMultiGraph();
+   g->Add(g1);
+   g->Add(g2);
+
+   g->Draw("AP");
+
+   g->Fit("pol1","FQ");
+}
+End_Macro
+
+#### <a name="MG02a"></a> Fit box position
+
+When the graphs in a TMultiGraph are fitted, the fit parameters boxes
+overlap. The following example shows how to make them all visible.
+
+
+Begin_Macro(source)
+../../../tutorials/graphs/multigraph.C
+End_Macro
+
+### <a name="MG03"></a> Axis' limits setting
+
+The axis limits can be changed the like for TGraph. The same methods apply on
+the multigraph.
+Note the two differents ways to change limits on X and Y axis.
+
+Begin_Macro(source)
+{
+   auto c2 = new TCanvas("c2","c2",600,400);
+
+   TGraph *g[3];
+   Double_t x[10] = {0,1,2,3,4,5,6,7,8,9};
+   Double_t y[10] = {1,2,3,4,5,5,4,3,2,1};
+   auto mg = new TMultiGraph();
+   for (int i=0; i<3; i++) {
+      g[i] = new TGraph(10, x, y);
+      g[i]->SetMarkerStyle(20);
+      g[i]->SetMarkerColor(i+2);
+      for (int j=0; j<10; j++) y[j] = y[j]-1;
+      mg->Add(g[i]);
+   }
+   mg->Draw("APL");
+   mg->GetXaxis()->SetTitle("E_{#gamma} (GeV)");
+   mg->GetYaxis()->SetTitle("Coefficients");
+
+   // Change the axis limits
+   gPad->Modified();
+   mg->GetXaxis()->SetLimits(1.5,7.5);
+   mg->SetMinimum(0.);
+   mg->SetMaximum(10.);
+}
 End_Macro
 */
 
@@ -477,13 +561,12 @@ TFitResultPtr TMultiGraph::Fit(const char *fname, Option_t *option, Option_t *, 
 {
    char *linear;
    linear= (char*)strstr(fname, "++");
-   TF1 *f1=0;
-   if (linear)
-      f1=new TF1(fname, fname, xmin, xmax);
-   else {
-      f1 = (TF1*)gROOT->GetFunction(fname);
-      if (!f1) { Printf("Unknown function: %s",fname); return -1; }
+   if (linear) {
+      TF1 f1(fname, fname, xmin, xmax);
+      return Fit(&f1,option,"",xmin,xmax);
    }
+   TF1 * f1 = (TF1*)gROOT->GetFunction(fname);
+   if (!f1) { Printf("Unknown function: %s",fname); return -1; }
 
    return Fit(f1,option,"",xmin,xmax);
 }
@@ -954,20 +1037,56 @@ Int_t TMultiGraph::IsInside(Double_t x, Double_t y) const
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Returns a pointer to the histogram used to draw the axis.
-/// Takes into account the two following cases.
+/// Takes into account following cases.
 ///
-///    1. option 'A' was specified in TMultiGraph::Draw. Return fHistogram
-///    2. user had called TPad::DrawFrame. return pointer to hframe histogram
+///    1. if `fHistogram` exists it is returned
+///    2. if `fHistogram` doesn't exists and `gPad` exists `gPad` is updated. That
+///       may trigger the creation of `fHistogram`. If `fHistogram` still does not
+///       exit but `hframe` does (if user called `TPad::DrawFrame`) the pointer to
+///       `hframe` histogram is returned
+///    3. after the two previous steps, if `fHistogram` still doesn't exist, then
+///       it is created.
 
-TH1F *TMultiGraph::GetHistogram() const
+TH1F *TMultiGraph::GetHistogram()
 {
    if (fHistogram) return fHistogram;
-   if (!gPad) return 0;
-   gPad->Modified();
-   gPad->Update();
-   if (fHistogram) return fHistogram;
-   TH1F *h1 = (TH1F*)gPad->FindObject("hframe");
-   return h1;
+
+   if (gPad) {
+      gPad->Modified();
+      gPad->Update();
+      if (fHistogram) return fHistogram;
+      TH1F *h1 = (TH1F*)gPad->FindObject("hframe");
+      if (h1) return h1;
+   }
+
+   Bool_t initialrangeset = kFALSE;
+   Double_t rwxmin = 0.,rwxmax = 0.,rwymin = 0.,rwymax = 0.;
+   TGraph *g;
+   Int_t npt = 100 ;
+   TIter   next(fGraphs);
+   while ((g = (TGraph*) next())) {
+      if (g->GetN() <= 0) continue;
+      if (initialrangeset) {
+         Double_t rx1,ry1,rx2,ry2;
+         g->ComputeRange(rx1, ry1, rx2, ry2);
+         if (rx1 < rwxmin) rwxmin = rx1;
+         if (ry1 < rwymin) rwymin = ry1;
+         if (rx2 > rwxmax) rwxmax = rx2;
+         if (ry2 > rwymax) rwymax = ry2;
+      } else {
+         g->ComputeRange(rwxmin, rwymin, rwxmax, rwymax);
+         initialrangeset = kTRUE;
+      }
+      if (g->GetN() > npt) npt = g->GetN();
+   }
+   fHistogram = new TH1F(GetName(),GetTitle(),npt,rwxmin,rwxmax);
+   if (!fHistogram) return 0;
+   fHistogram->SetMinimum(rwymin);
+   fHistogram->SetBit(TH1::kNoStats);
+   fHistogram->SetMaximum(rwymax);
+   fHistogram->GetYaxis()->SetLimits(rwymin,rwymax);
+   fHistogram->SetDirectory(0);
+   return fHistogram;
 }
 
 
@@ -998,9 +1117,8 @@ TList *TMultiGraph::GetListOfFunctions()
 /// Get x axis of the graph.
 /// This method returns a valid axis only after the TMultigraph has been drawn.
 
-TAxis *TMultiGraph::GetXaxis() const
+TAxis *TMultiGraph::GetXaxis()
 {
-   if (!gPad) return 0;
    TH1 *h = GetHistogram();
    if (!h) return 0;
    return h->GetXaxis();
@@ -1011,9 +1129,8 @@ TAxis *TMultiGraph::GetXaxis() const
 /// Get y axis of the graph.
 /// This method returns a valid axis only after the TMultigraph has been drawn.
 
-TAxis *TMultiGraph::GetYaxis() const
+TAxis *TMultiGraph::GetYaxis()
 {
-   if (!gPad) return 0;
    TH1 *h = GetHistogram();
    if (!h) return 0;
    return h->GetYaxis();
@@ -1041,9 +1158,9 @@ void TMultiGraph::Paint(Option_t *choptin)
    char *l3 = strstr(option,"PMC"); // Automatic Marker Color
    if (l1 || l2 || l3) {
       TString opt1 = option; opt1.ToLower();
-      if (l1) strncpy(l1,"   ",3);
-      if (l2) strncpy(l2,"   ",3);
-      if (l3) strncpy(l3,"   ",3);
+      if (l1) memcpy(l1,"   ",3);
+      if (l2) memcpy(l2,"   ",3);
+      if (l3) memcpy(l3,"   ",3);
       TObjOptLink *lnk = (TObjOptLink*)fGraphs->FirstLink();
       TGraph* gAti;
       Int_t ngraphs = fGraphs->GetSize();
@@ -1074,6 +1191,13 @@ void TMultiGraph::Paint(Option_t *choptin)
    if (l) {
       chopt.ReplaceAll("PADS","");
       PaintPads(chopt.Data());
+      return;
+   }
+
+   char *lrx = (char *)strstr(chopt.Data(), "RX"); // Reverse graphs along X axis
+   char *lry = (char *)strstr(chopt.Data(), "RY"); // Reverse graphs along Y axis
+   if (lrx || lry) {
+      PaintReverse(chopt.Data());
       return;
    }
 
@@ -1221,7 +1345,7 @@ void TMultiGraph::Paint(Option_t *choptin)
       fHistogram->Paint("0");
    }
 
-   TGraph *gfit = 0;
+   TGraph *gfit = nullptr;
    if (fGraphs) {
       TObjOptLink *lnk = (TObjOptLink*)fGraphs->FirstLink();
       TObject *obj = 0;
@@ -1251,7 +1375,7 @@ void TMultiGraph::Paint(Option_t *choptin)
    }
 
    TObject *f;
-   TF1 *fit = 0;
+   TF1 *fit = nullptr;
    if (fFunctions) {
       TIter   next(fFunctions);
       while ((f = (TObject*) next())) {
@@ -1264,7 +1388,7 @@ void TMultiGraph::Paint(Option_t *choptin)
       }
    }
 
-   if (fit) gfit->PaintStats(fit);
+   if (gfit && fit) gfit->PaintStats(fit);
 }
 
 
@@ -1349,10 +1473,12 @@ void TMultiGraph::PaintPolyLine3D(Option_t *option)
    }
 
    Int_t ndiv = fGraphs->GetSize();
-   TH2F* frame = new TH2F("frame","", ndiv, 0., (Double_t)(ndiv), 1, rwxmin, rwxmax);
+
+   TH2F* frame = new TH2F("frame","", ndiv, 0., (Double_t)(ndiv), npt, rwxmin, rwxmax);
    if (fHistogram) {
       frame->SetTitle(fHistogram->GetTitle());
       frame->GetYaxis()->SetTitle(fHistogram->GetXaxis()->GetTitle());
+      frame->GetYaxis()->SetRange(fHistogram->GetXaxis()->GetFirst(), fHistogram->GetXaxis()->GetLast());
       frame->GetZaxis()->SetTitle(fHistogram->GetYaxis()->GetTitle());
    }
 
@@ -1365,20 +1491,27 @@ void TMultiGraph::PaintPolyLine3D(Option_t *option)
    }
 
    frame->SetStats(kFALSE);
-   frame->SetMinimum(rwymin);
-   for (i = 1; i<=ndiv; i++) frame->SetBinContent(i,1,rwymin);
-   frame->SetMaximum(rwymax);
+   if (fMinimum != -1111) frame->SetMinimum(fMinimum);
+   else                   frame->SetMinimum(rwymin);
+   if (fMaximum != -1111) frame->SetMaximum(fMaximum);
+   else                   frame->SetMaximum(rwymax);
 
    l = (char*)strstr(option,"A");
-   if (l) frame->Paint("lego0,fb,bb");
+   if (l) frame->Paint("lego9,fb,bb");
    l = (char*)strstr(option,"BB");
-   if (!l) frame->Paint("lego0,fb,a,same");
+   if (!l) frame->Paint("lego9,fb,a,same");
 
    Double_t *x, *y;
    Double_t xyz1[3], xyz2[3];
 
+   Double_t xl = frame->GetYaxis()->GetBinLowEdge(frame->GetYaxis()->GetFirst());
+   Double_t xu = frame->GetYaxis()->GetBinUpEdge(frame->GetYaxis()->GetLast());
+   Double_t yl = frame->GetMinimum();
+   Double_t yu = frame->GetMaximum();
+   Double_t xc[2],yc[2];
    next.Reset();
    Int_t j = ndiv;
+
    while ((g = (TGraph*) next())) {
       npt = g->GetN();
       x   = g->GetX();
@@ -1388,20 +1521,62 @@ void TMultiGraph::PaintPolyLine3D(Option_t *option)
       gPad->SetLineStyle(g->GetLineStyle());
       gPad->TAttLine::Modify();
       for (i=0; i<npt-1; i++) {
-         xyz1[0] = j-0.5;
-         xyz1[1] = x[i];
-         xyz1[2] = y[i];
-         xyz2[0] = j-0.5;
-         xyz2[1] = x[i+1];
-         xyz2[2] = y[i+1];
-         gPad->PaintLine3D(xyz1, xyz2);
+         xc[0] = x[i];
+         xc[1] = x[i+1];
+         yc[0] = y[i];
+         yc[1] = y[i+1];
+         if (gPad->Clip(&xc[0], &yc[0], xl, yl, xu, yu)<2) {
+            xyz1[0] = j-0.5;
+            xyz1[1] = xc[0];
+            xyz1[2] = yc[0];
+            xyz2[0] = j-0.5;
+            xyz2[1] = xc[1];
+            xyz2[2] = yc[1];
+            gPad->PaintLine3D(xyz1, xyz2);
+         }
       }
       j--;
    }
 
    l = (char*)strstr(option,"FB");
-   if (!l) frame->Paint("lego0,bb,a,same");
+   if (!l) frame->Paint("lego9,bb,a,same");
    delete frame;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// Paint all the graphs of this multigraph reverting values along X and/or Y axis.
+/// New graphs are created.
+
+void TMultiGraph::PaintReverse(Option_t *option)
+{
+   auto *h = GetHistogram();
+   TH1F *hg = nullptr;
+   TGraph *fg = nullptr;
+   if (!h)
+      return;
+   TString mgopt = option;
+   mgopt.ToLower();
+
+   TIter next(fGraphs);
+   TGraph *g;
+   Bool_t first = kTRUE;
+   TString gopt;
+   while ((g = (TGraph *)next())) {
+      gopt = GetGraphDrawOption(g);
+      gopt.Append(mgopt);
+      if (first) {
+         fg = g;
+         hg = fg->GetHistogram();
+         fg->SetHistogram(h);
+         fg->Paint(gopt.Data());
+         first = kFALSE;
+      } else {
+         g->Paint(gopt.ReplaceAll("a", "").Data());
+      }
+   }
+   if (fg)
+      fg->SetHistogram(hg);
 }
 
 
@@ -1496,6 +1671,7 @@ void TMultiGraph::SetMinimum(Double_t minimum)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Get iterator over internal graphs list.
+
 TIter TMultiGraph::begin() const
 {
   return TIter(fGraphs);

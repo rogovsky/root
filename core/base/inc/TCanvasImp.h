@@ -38,10 +38,11 @@ protected:
    TCanvasImp& operator=(const TCanvasImp& ci)
      {if(this!=&ci) fCanvas=ci.fCanvas; return *this;}
 
-   virtual void   Lock() { }
+   virtual void   Lock();
    virtual void   Unlock() { }
    virtual Bool_t IsLocked() { return kFALSE; }
 
+   virtual Bool_t IsWeb() const { return kFALSE; }
    virtual Bool_t PerformUpdate() { return kFALSE; }
    virtual TVirtualPadPainter *CreatePadPainter() { return 0; }
 

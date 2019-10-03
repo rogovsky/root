@@ -42,7 +42,7 @@ static const char kNoStdInc[] = "-nostdinc";
 
 #define PREFIX(NAME, VALUE) const char *const NAME[] = VALUE;
 #define OPTION(PREFIX, NAME, ID, KIND, GROUP, ALIAS, ALIASARGS, FLAGS, PARAM, \
-               HELPTEXT, METAVAR)
+               HELPTEXT, METAVAR, VALUES)
 #include "cling/Interpreter/ClingOptions.inc"
 #undef OPTION
 #undef PREFIX
@@ -50,9 +50,9 @@ static const char kNoStdInc[] = "-nostdinc";
   static const OptTable::Info ClingInfoTable[] = {
 #define PREFIX(NAME, VALUE)
 #define OPTION(PREFIX, NAME, ID, KIND, GROUP, ALIAS, ALIASARGS, FLAGS, PARAM, \
-               HELPTEXT, METAVAR)   \
+               HELPTEXT, METAVAR, VALUES)   \
   { PREFIX, NAME, HELPTEXT, METAVAR, OPT_##ID, Option::KIND##Class, PARAM, \
-    FLAGS, OPT_##GROUP, OPT_##ALIAS, ALIASARGS },
+    FLAGS, OPT_##GROUP, OPT_##ALIAS, ALIASARGS, VALUES },
 #include "cling/Interpreter/ClingOptions.inc"
 #undef OPTION
 #undef PREFIX
@@ -82,6 +82,9 @@ static const char kNoStdInc[] = "-nostdinc";
         Opts.MetaString = ".";
       }
     }
+
+    if (const Arg* OverlayFileArg = Args.getLastArg(OPT_overlay_EQ))
+      Opts.OverlayFile = OverlayFileArg->getValue();
   }
 
   static void Extend(std::vector<std::string>& A, std::vector<std::string> B) {
@@ -97,10 +100,10 @@ static const char kNoStdInc[] = "-nostdinc";
   }
 }
 
-CompilerOptions::CompilerOptions(int argc, const char* const* argv) :
-  Language(false), ResourceDir(false), SysRoot(false), NoBuiltinInc(false),
-  NoCXXInc(false), StdVersion(false), StdLib(false), HasOutput(false),
-  Verbose(false) {
+CompilerOptions::CompilerOptions(int argc, const char* const* argv)
+    : Language(false), ResourceDir(false), SysRoot(false), NoBuiltinInc(false),
+      NoCXXInc(false), StdVersion(false), StdLib(false), HasOutput(false),
+      Verbose(false), CxxModules(false), CUDA(false) {
   if (argc && argv) {
     // Preserve what's already in Remaining, the user might want to push args
     // to clang while still using main's argc, argv
@@ -126,7 +129,9 @@ void CompilerOptions::Parse(int argc, const char* const argv[],
       // case options::OPT_d_Flag:
       case options::OPT_E:
       case options::OPT_o: HasOutput = true; break;
-      case options::OPT_x: Language = true; break;
+      case options::OPT_x: Language = true;
+                           CUDA = llvm::StringRef(arg->getValue()) == "cuda";
+                           break;
       case options::OPT_resource_dir: ResourceDir = true; break;
       case options::OPT_isysroot: SysRoot = true; break;
       case options::OPT_std_EQ: StdVersion = true; break;
@@ -136,6 +141,14 @@ void CompilerOptions::Parse(int argc, const char* const argv[],
       // case options::OPT_nostdinc:
       case options::OPT_nostdincxx: NoCXXInc = true; break;
       case options::OPT_v: Verbose = true; break;
+      case options::OPT_fmodules: CxxModules = true; break;
+      case options::OPT_fmodule_name_EQ: LLVM_FALLTHROUGH;
+      case options::OPT_fmodule_name: ModuleName = arg->getValue(); break;
+      case options::OPT_fmodules_cache_path: CachePath = arg->getValue(); break;
+      case options::OPT_cuda_path_EQ: CUDAPath = arg->getValue(); break;
+      case options::OPT_cuda_gpu_arch_EQ: CUDAGpuArch = arg->getValue(); break;
+      case options::OPT_Xcuda_fatbinary: CUDAFatbinaryArgs.push_back(arg->getValue());
+                                         break;
 
       default:
         if (Inputs && arg->getOption().getKind() == Option::InputClass)
@@ -154,7 +167,7 @@ bool CompilerOptions::DefaultLanguage(const LangOptions* LangOpts) const {
   // Also don't set up the defaults when language is explicitly set; unless
   // the language was set to generate a PCH, in which case definitely do.
   if (Language)
-    return HasOutput || (LangOpts && LangOpts->CompilingPCH);
+    return HasOutput || (LangOpts && LangOpts->CompilingPCH) || CUDA;
 
   return true;
 }
@@ -178,6 +191,7 @@ InvocationOptions::InvocationOptions(int argc, const char* const* argv) :
         // pass -v to clang as well
         if (arg->getOption().getID() != OPT_v)
           break;
+        /* Falls through. */
       case Option::UnknownClass:
       case Option::InputClass:
         // prune "-" we need to control where it appears when invoking clang

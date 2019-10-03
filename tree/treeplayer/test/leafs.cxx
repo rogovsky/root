@@ -1,3 +1,4 @@
+#include "ROOT/RMakeUnique.hxx"
 #include "TFile.h"
 #include "TInterpreter.h"
 #include "TTree.h"
@@ -8,6 +9,8 @@
 #include "gtest/gtest.h"
 
 #include "data.h"
+
+#include "RErrorIgnoreRAII.hxx"
 
 #include <fstream>
 
@@ -26,7 +29,7 @@ TEST(TTreeReaderLeafs, LeafListCaseA) {
    unsigned long long ULL = 11;
    bool Bool = true;
 
-   TTree* tree = new TTree("T", "In-memory test tree");
+   auto tree = std::make_unique<TTree>("T", "In-memory test tree");
    tree->Branch("C", &str, "C/C");
    tree->Branch("B", &SChar, "B/B");
    tree->Branch("b", &UChar, "b/b");
@@ -44,7 +47,7 @@ TEST(TTreeReaderLeafs, LeafListCaseA) {
    tree->Fill();
    tree->Fill();
 
-   TTreeReader TR(tree);
+   TTreeReader TR(tree.get());
    //TTreeReaderValue<const char*> trStr(TR, "C");
    TTreeReaderValue<signed char> trSChar(TR, "B");
    TTreeReaderValue<unsigned char> trUChar(TR, "b");
@@ -83,7 +86,7 @@ std::unique_ptr<TTree> CreateTree() {
       return {};
 
    Data data;
-   std::unique_ptr<TTree> tree(new TTree("T", "test tree"));
+   auto tree = std::make_unique<TTree>("T", "test tree");
    tree->Branch("Data", &data);
    data.fArray = new double[4]{12., 13., 14., 15.};
    data.fSize = 4;
@@ -142,7 +145,7 @@ TEST(TTreeReaderLeafs, LeafList) {
 
 TEST(TTreeReaderLeafs, TArrayD) {
    // https://root-forum.cern.ch/t/tarrayd-in-ttreereadervalue/24495
-   TTree* tree = new TTree("TTreeReaderLeafsTArrayD", "In-memory test tree");
+   auto tree = std::make_unique<TTree>("TTreeReaderLeafsTArrayD", "In-memory test tree");
    TArrayD arrD(7);
    for (int i = 0; i < arrD.GetSize(); ++i)
       arrD.SetAt(i + 2., i);
@@ -154,7 +157,7 @@ TEST(TTreeReaderLeafs, TArrayD) {
 
    tree->ResetBranchAddresses();
 
-   TTreeReader tr(tree);
+   TTreeReader tr(tree.get());
    TTreeReaderValue<TArrayD> arr(tr, "arrD");
 
    tr.SetEntry(1);
@@ -162,4 +165,67 @@ TEST(TTreeReaderLeafs, TArrayD) {
    EXPECT_EQ(7, arr->GetSize());
    EXPECT_DOUBLE_EQ(4., (*arr)[2]);
    EXPECT_DOUBLE_EQ(2., (*arr)[0]);
+}
+
+TEST(TTreeReaderLeafs, ArrayWithReaderValue)
+{
+   // reading a float[] with a TTreeReaderValue should cause an error
+
+   auto tree = std::make_unique<TTree>("arraywithreadervaluetree", "test tree");
+   std::vector<double> arr = {42., 84.};
+   tree->Branch("arr", arr.data(), "arr[2]/D");
+   tree->Fill();
+   tree->ResetBranchAddresses();
+
+   TTreeReader tr(tree.get());
+   TTreeReaderValue<double> valueOfArr(tr, "arr");
+   {
+      RErrorIgnoreRAII errorIgnRAII;
+      tr.Next();
+      *valueOfArr;
+   }
+   EXPECT_FALSE(valueOfArr.IsValid());
+}
+
+
+TEST(TTreeReaderLeafs, NamesWithDots)
+{
+   gInterpreter->ProcessLine(".L data.h+");
+
+   TTree tree("t", "t");
+   V v;
+   v.a = 64;
+   tree.Branch("v", &v, "a/I");
+   W w;
+   w.v.a = 132;
+   tree.Branch("w", &w);
+   tree.Fill();
+
+   TTreeReader tr(&tree);
+   TTreeReaderValue<int> rv(tr, "v.a");
+   tr.Next();
+   EXPECT_EQ(*rv, 64) << "The wrong leaf has been read!";
+}
+
+// This is ROOT-9743
+struct Event {
+   float bla = 3.14f;
+   int truth_type = 1;
+};
+
+TEST(TTreeReaderLeafs, MultipleReaders) {
+   TTree t("t","t");
+   Event event;
+   t.Branch ("event", &event, "bla/F:truth_type/I");
+   t.Fill();
+
+   TTreeReader r(&t);
+   TTreeReaderValue<int> v1(r, "event.truth_type");
+   TTreeReaderValue<int> v2(r, "event.truth_type");
+   TTreeReaderValue<int> v3(r, "event.truth_type");
+
+   r.Next();
+   EXPECT_EQ(*v1, 1) << "Wrong value read for rv1!";
+   EXPECT_EQ(*v2, 1) << "Wrong value read for rv2!";
+   EXPECT_EQ(*v3, 1) << "Wrong value read for rv3!";
 }

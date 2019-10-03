@@ -132,6 +132,7 @@ void TGeoNodeCache::BuildIdArray()
    Int_t ifree  = 1;
    Int_t nodeid = 0;
    gGeoManager->GetTopNode()->FillIdArray(ifree, nodeid, fNodeIdArray);
+   gGeoManager->CdTop();
    fIdBranch[0] = 0;
 }
 
@@ -446,7 +447,7 @@ void TGeoNodeCache::MasterToLocalBomb(const Double_t *master, Double_t *local) c
 
 ClassImp(TGeoCacheState);
 
-/** \class TGeoCacheState -
+/** \class TGeoCacheState
 \ingroup Geometry_classes
 
 Class storing the state of the cache at a given moment

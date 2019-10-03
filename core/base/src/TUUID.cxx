@@ -119,12 +119,18 @@ system clock catches up.
 #ifdef R__WIN32
 #include "Windows4Root.h"
 #include <Iphlpapi.h>
+#include <process.h>
+#define getpid() _getpid()
+#define srandom(seed) srand(seed)
+#define random() rand()
 #else
 #include <unistd.h>
 #include <sys/time.h>
 #if defined(R__LINUX) && !defined(R__WINGCC)
 #include <sys/sysinfo.h>
 #endif
+#include <ifaddrs.h>
+#include <netinet/in.h>
 #endif
 #include <chrono>
 
@@ -152,17 +158,9 @@ TUUID::TUUID()
          system_clock::time_point today = system_clock::now();
          seed = (UInt_t)(system_clock::to_time_t ( today )) + ::getpid();
       }
-#ifdef R__WIN32
-      srand(seed);
-#else
       srandom(seed);
-#endif
       GetCurrentTime(time_last_ptr);
-#ifdef R__WIN32
-      clockseq = 1+(UShort_t)(65536*rand()/(RAND_MAX+1.0));
-#else
       clockseq = 1+(UShort_t)(65536*random()/(RAND_MAX+1.0));
-#endif
       firstTime = kFALSE;
    }
 
@@ -421,9 +419,34 @@ void TUUID::GetNodeIdentifier()
    if (gSystem) {
 #ifndef R__WIN32
       if (!adr) {
-         TInetAddress addr = gSystem->GetHostByName(gSystem->HostName());
-         if (addr.IsValid())
-            adr = addr.GetAddress();
+         UInt_t addr = 0;
+
+         struct ifaddrs *ifAddrStruct = nullptr;
+         struct ifaddrs *ifa = nullptr;
+
+         if (getifaddrs(&ifAddrStruct) != 0) {
+            adr = 1;
+         } else {
+            for (ifa = ifAddrStruct; ifa != NULL; ifa = ifa->ifa_next) {
+               if (!ifa->ifa_addr) {
+                  continue;
+               }
+               if (ifa->ifa_addr->sa_family != AF_INET) { // check only IP4
+                  continue;
+               }
+               if (strncmp(ifa->ifa_name,"lo",2) == 0) { // skip loop back.
+                  continue;
+               }
+               addr = ntohl(((struct sockaddr_in *)ifa->ifa_addr)->sin_addr.s_addr);
+               break;
+            }
+         }
+
+         if (ifAddrStruct != nullptr)
+            freeifaddrs(ifAddrStruct);
+
+         if (addr)
+            adr = addr;
          else
             adr = 1;  // illegal address
       }

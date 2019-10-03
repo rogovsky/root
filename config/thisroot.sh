@@ -51,39 +51,39 @@ fi
 
 if [ -n "${old_rootsys}" ] ; then
    if [ -n "${PATH}" ]; then
-      drop_from_path "$PATH" ${old_rootsys}/bin
+      drop_from_path "$PATH" "${old_rootsys}/bin"
       PATH=$newpath
    fi
    if [ -n "${LD_LIBRARY_PATH}" ]; then
-      drop_from_path $LD_LIBRARY_PATH ${old_rootsys}/lib
+      drop_from_path "$LD_LIBRARY_PATH" "${old_rootsys}/lib"
       LD_LIBRARY_PATH=$newpath
    fi
    if [ -n "${DYLD_LIBRARY_PATH}" ]; then
-      drop_from_path $DYLD_LIBRARY_PATH ${old_rootsys}/lib
+      drop_from_path "$DYLD_LIBRARY_PATH" "${old_rootsys}/lib"
       DYLD_LIBRARY_PATH=$newpath
    fi
    if [ -n "${SHLIB_PATH}" ]; then
-      drop_from_path $SHLIB_PATH ${old_rootsys}/lib
+      drop_from_path "$SHLIB_PATH" "${old_rootsys}/lib"
       SHLIB_PATH=$newpath
    fi
    if [ -n "${LIBPATH}" ]; then
-      drop_from_path $LIBPATH ${old_rootsys}/lib
+      drop_from_path "$LIBPATH" "${old_rootsys}/lib"
       LIBPATH=$newpath
    fi
    if [ -n "${PYTHONPATH}" ]; then
-      drop_from_path $PYTHONPATH ${old_rootsys}/lib
+      drop_from_path "$PYTHONPATH" "${old_rootsys}/lib"
       PYTHONPATH=$newpath
    fi
    if [ -n "${MANPATH}" ]; then
-      drop_from_path $MANPATH ${old_rootsys}/man
+      drop_from_path "$MANPATH" "${old_rootsys}/man"
       MANPATH=$newpath
    fi
    if [ -n "${CMAKE_PREFIX_PATH}" ]; then
-      drop_from_path $CMAKE_PREFIX_PATH ${old_rootsys}
+      drop_from_path "$CMAKE_PREFIX_PATH" "${old_rootsys}"
       CMAKE_PREFIX_PATH=$newpath
    fi
    if [ -n "${JUPYTER_PATH}" ]; then
-      drop_from_path $JUPYTER_PATH ${old_rootsys}/etc/notebook
+      drop_from_path "$JUPYTER_PATH" "${old_rootsys}/etc/notebook"
       JUPYTER_PATH=$newpath
    fi
 
@@ -91,10 +91,12 @@ fi
 
 if [ -z "${MANPATH}" ]; then
    # Grab the default man path before setting the path to avoid duplicates
-   if `which manpath > /dev/null 2>&1` ; then
+   if command -v manpath >/dev/null; then
       default_manpath=`manpath`
-   else
+   elif command -v man >/dev/null; then
       default_manpath=`man -w 2> /dev/null`
+   else
+      default_manpath=""
    fi
 fi
 
@@ -152,10 +154,13 @@ else
    JUPYTER_PATH=$ROOTSYS/etc/notebook:$JUPYTER_PATH; export JUPYTER_PATH
 fi
 
+# Prevent Cppyy from checking the PCH (and avoid warning)
+export CLING_STANDARD_PCH=none
+
 if [ "x`root-config --arch | grep -v win32gcc | grep -i win32`" != "x" ]; then
   ROOTSYS="`cygpath -w $ROOTSYS`"
 fi
 
 unset old_rootsys
 unset thisroot
-
+unset -f drop_from_path

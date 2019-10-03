@@ -24,6 +24,8 @@
 
 #include "TObject.h"
 
+#include <memory>
+
 class TVirtualMutex;
 
 // Global mutex set in TThread::Init
@@ -101,15 +103,22 @@ public:
 #define R__LOCKGUARD_NAMED(name,mutex) TLockGuard _NAME2_(R__guard,name)(mutex)
 #define R__LOCKGUARD_UNLOCK(name) _NAME2_(R__guard,name).UnLock()
 #else
-#define R__LOCKGUARD(mutex)  if (mutex) { }
-#define R__LOCKGUARD_NAMED(name,mutex) if (mutex) { }
-#define R__LOCKGUARD2(mutex) if (mutex) { }
+#define R__LOCKGUARD(mutex)  (void)(mutex); { }
+#define R__LOCKGUARD_NAMED(name,mutex) (void)(mutex); { }
+#define R__LOCKGUARD2(mutex) (void)(mutex); { }
 #define R__LOCKGUARD_UNLOCK(name) { }
 #endif
 
 #ifdef R__USE_IMT
-#define R__LOCKGUARD_IMT(mutex)  if (ROOT::Internal::IsParBranchProcessingEnabled()) R__LOCKGUARD(mutex)
-#define R__LOCKGUARD_IMT2(mutex) if (ROOT::Internal::IsParBranchProcessingEnabled()) R__LOCKGUARD2(mutex)
+#define R__LOCKGUARD_IMT(mutex)  R__LOCKGUARD(ROOT::Internal::IsParBranchProcessingEnabled() ? mutex : nullptr)
+#define R__LOCKGUARD_IMT2(mutex)                                                   \
+   if (gGlobalMutex && !mutex && ROOT::Internal::IsParBranchProcessingEnabled()) { \
+      gGlobalMutex->Lock();                                                        \
+      if (!mutex)                                                                  \
+         mutex = gGlobalMutex->Factory(kTRUE);                                     \
+      gGlobalMutex->UnLock();                                                      \
+   }                                                                               \
+   R__LOCKGUARD_IMT(mutex)
 #else
 #define R__LOCKGUARD_IMT(mutex)  { }
 #define R__LOCKGUARD_IMT2(mutex) { }

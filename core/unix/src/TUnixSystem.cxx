@@ -18,7 +18,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "RConfigure.h"
-#include "RConfig.h"
+#include <ROOT/RConfig.hxx>
 #include "TUnixSystem.h"
 #include "TROOT.h"
 #include "TError.h"
@@ -28,7 +28,6 @@
 #include "TException.h"
 #include "Demangle.h"
 #include "TEnv.h"
-#include "TSocket.h"
 #include "Getline.h"
 #include "TInterpreter.h"
 #include "TApplication.h"
@@ -66,11 +65,6 @@
 #endif
 #if defined(R__AIX) || defined(R__SOLARIS)
 #   include <sys/select.h>
-#endif
-#if defined(R__LINUX) || defined(R__HURD)
-#   ifndef SIGSYS
-#      define SIGSYS  SIGUNUSED       // SIGSYS does not exist in linux ??
-#   endif
 #endif
 #if defined(R__MACOSX)
 #   include <mach-o/dyld.h>
@@ -505,19 +499,6 @@ static void DylibAdded(const struct mach_header *mh, intptr_t /* vmaddr_slide */
 #ifdef ROOTPREFIX
    if (gSystem->Getenv("ROOTIGNOREPREFIX")) {
 #endif
-#if TARGET_OS_IPHONE || TARGET_IPHONE_SIMULATOR
-   // first loaded is the app so set ROOTSYS to app bundle
-   if (i == 1) {
-      char respath[kMAXPATHLEN];
-      if (!realpath(lib, respath)) {
-         if (!gSystem->Getenv("ROOTSYS"))
-            ::SysError("TUnixSystem::DylibAdded", "error getting realpath of %s", gSystem->BaseName(lib));
-      } else {
-         TString rs = gSystem->DirName(respath);
-         gSystem->Setenv("ROOTSYS", rs);
-      }
-   }
-#else
    if (lib.EndsWith("libCore.dylib") || lib.EndsWith("libCore.so") ||
        lib.Index(sovers) != kNPOS    || lib.Index(dyvers) != kNPOS) {
       char respath[kMAXPATHLEN];
@@ -529,7 +510,6 @@ static void DylibAdded(const struct mach_header *mh, intptr_t /* vmaddr_slide */
          gSystem->Setenv("ROOTSYS", gSystem->DirName(rs));
       }
    }
-#endif
 #ifdef ROOTPREFIX
    }
 #endif
@@ -609,6 +589,7 @@ Bool_t TUnixSystem::Init()
    UnixSignal(kSigUrgent,                SigHandler);
    UnixSignal(kSigFloatingException,     SigHandler);
    UnixSignal(kSigWindowChanged,         SigHandler);
+   UnixSignal(kSigUser2,                 SigHandler);
 
 #if defined(R__MACOSX)
    // trap loading of all dylibs to register dylib name,
@@ -689,18 +670,25 @@ void TUnixSystem::SetDisplay()
                memset(&addr.sin_zero[0], 0, sizeof(addr.sin_zero));
                struct sockaddr *sa = (struct sockaddr *) &addr;    // input
 
-               char hbuf[NI_MAXHOST];
+               char hbuf[NI_MAXHOST + 4];
                if (getnameinfo(sa, sizeof(struct sockaddr), hbuf, sizeof(hbuf), nullptr, 0, NI_NAMEREQD) == 0) {
-                  char disp[64];
-                  snprintf(disp, sizeof(disp), "%s:0.0", hbuf);
-                  Setenv("DISPLAY", disp);
+                  assert( strlen(hbuf) < NI_MAXHOST );
+                  strcat(hbuf, ":0.0");
+                  Setenv("DISPLAY", hbuf);
                   Warning("SetDisplay", "DISPLAY not set, setting it to %s",
-                          disp);
+                          hbuf);
                }
             }
 #endif
          }
       }
+#ifndef R__HAS_COCOA
+      if (!gROOT->IsBatch() && !getenv("DISPLAY")) {
+         Error("SetDisplay", "Can't figure out DISPLAY, set it manually\n"
+            "In case you run a remote ssh session, restart your ssh session with:\n"
+            "=========>  ssh -Y");
+      }
+#endif
    }
 }
 
@@ -2149,11 +2137,7 @@ void TUnixSystem::Exit(int code, Bool_t mode)
 {
    // Insures that the files and sockets are closed before any library is unloaded
    // and before emptying CINT.
-   if (gROOT) {
-      gROOT->EndOfProcessCleanups();
-   } else if (gInterpreter) {
-      gInterpreter->ResetGlobals();
-   }
+   TROOT::ShutDown();
 
    if (mode)
       ::exit(code);
@@ -3656,6 +3640,10 @@ void TUnixSystem::DispatchSignals(ESignals sig)
    case kSigWindowChanged:
       Gl_windowchanged();
       break;
+   case kSigUser2:
+      Break("TUnixSystem::DispatchSignals", "%s: printing stacktrace", UnixSigname(sig));
+      StackTrace();
+      // Intentional fall-through; pass the signal to handlers (or terminate):
    default:
       fSignals->Set(sig);
       fSigcnt++;
@@ -4074,8 +4062,6 @@ int TUnixSystem::UnixFSstat(const char *path, Long_t *id, Long_t *bsize,
          *id = 0x6969;
       else if (!strcmp(statfsbuf.f_fstypename, MOUNT_MSDOS))
          *id = 0x4d44;
-      else if (!strcmp(statfsbuf.f_fstypename, MOUNT_PROCFS))
-         *id = 0x9fa0;
       else if (!strcmp(statfsbuf.f_fstypename, MOUNT_EXT2FS))
          *id = 0xef53;
       else if (!strcmp(statfsbuf.f_fstypename, MOUNT_CD9660))
