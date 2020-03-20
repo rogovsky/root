@@ -4,7 +4,7 @@
 # For the licensing terms see $ROOTSYS/LICENSE.
 # For the list of contributors see $ROOTSYS/README/CREDITS.
 
-#---Check for installed packages depending on the build options/components eamnbled -
+#---Check for installed packages depending on the build options/components enabled --
 include(ExternalProject)
 include(FindPackageHandleStandardArgs)
 
@@ -224,6 +224,34 @@ if(builtin_lzma)
   endif()
 endif()
 
+#---Check for ZSTD-------------------------------------------------------------------
+if(NOT builtin_zstd)
+  message(STATUS "Looking for ZSTD")
+  foreach(suffix FOUND INCLUDE_DIR LIBRARY LIBRARIES LIBRARY_DEBUG LIBRARY_RELEASE)
+    unset(ZSTD_${suffix} CACHE)
+  endforeach()
+  if(fail-on-missing)
+    find_package(ZSTD REQUIRED)
+    if(ZSTD_VERSION VERSION_LESS 1.0.0)
+      message(FATAL "Version of installed ZSTD is too old: ${ZSTD_VERSION}. Please install newer version (>1.0.0)")
+    endif()
+  else()
+    find_package(ZSTD)
+    if(NOT ZSTD_FOUND)
+      message(STATUS "ZSTD not found. Switching on builtin_zstd option")
+      set(builtin_zstd ON CACHE BOOL "Enabled because ZSTD not found (${builtin_zstd_description})" FORCE)
+    elseif(ZSTD_FOUND AND ZSTD_VERSION VERSION_LESS 1.0.0)
+      message(STATUS "Version of installed ZSTD is too old: ${ZSTD_VERSION}. Switching on builtin_zstd option")
+      set(builtin_zstd ON CACHE BOOL "Enabled because ZSTD not found (${builtin_zstd_description})" FORCE)
+    endif()
+  endif()
+endif()
+
+if(builtin_zstd)
+  list(APPEND ROOT_BUILTINS ZSTD)
+  add_subdirectory(builtins/zstd)
+endif()
+
 #---Check for xxHash-----------------------------------------------------------------
 if(NOT builtin_xxhash)
   message(STATUS "Looking for xxHash")
@@ -429,7 +457,7 @@ if(mathmore OR builtin_gsl)
         message(FATAL_ERROR "GSL package not found and 'mathmore' component if required ('fail-on-missing' enabled). "
                             "Alternatively, you can enable the option 'builtin_gsl' to build the GSL libraries internally.")
       else()
-        message(STATUS "GSL not found. Set variable GSL_DIR to point to your GSL installation")
+        message(STATUS "GSL not found. Set variable GSL_ROOT_DIR to point to your GSL installation")
         message(STATUS "               Alternatively, you can also enable the option 'builtin_gsl' to build the GSL libraries internally'")
         message(STATUS "               For the time being switching OFF 'mathmore' option")
         set(mathmore OFF CACHE BOOL "Disable because builtin_gsl disabled and external GSL not found (${mathmore_description})" FORCE)
@@ -461,22 +489,6 @@ if(mathmore OR builtin_gsl)
     )
     set(GSL_TARGET GSL)
     set(mathmore ON CACHE BOOL "Enabled because builtin_gls requested (${mathmore_description})" FORCE)
-  endif()
-endif()
-
-#---Check for Python installation-------------------------------------------------------
-
-message(STATUS "Looking for python")
-# Python is required by header and manpage generation
-find_package(PythonInterp ${python_version} REQUIRED)
-
-if(python)
-  find_package(PythonLibs ${python_version} REQUIRED)
-
-  if(NOT "${PYTHONLIBS_VERSION_STRING}" MATCHES "${PYTHON_VERSION_STRING}")
-    message(FATAL_ERROR "Version mismatch between Python interpreter (${PYTHON_VERSION_STRING})"
-    " and libraries (${PYTHONLIBS_VERSION_STRING}).\nROOT cannot work with this configuration. "
-    "Please specify only PYTHON_EXECUTABLE to CMake with an absolute path to ensure matching versions are found.")
   endif()
 endif()
 
@@ -736,7 +748,7 @@ endif()
 #---Check for fitsio-------------------------------------------------------------------
 if(fitsio OR builtin_cfitsio)
   if(builtin_cfitsio)
-    set(cfitsio_version 3.280)
+    set(cfitsio_version 3.450)
     string(REPLACE "." "" cfitsio_version_no_dots ${cfitsio_version})
     message(STATUS "Downloading and building CFITSIO version ${cfitsio_version}")
     set(CFITSIO_LIBRARIES ${CMAKE_BINARY_DIR}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}cfitsio${CMAKE_STATIC_LIBRARY_SUFFIX})
@@ -765,13 +777,20 @@ if(fitsio OR builtin_cfitsio)
         CFITSIO
         # ftp://heasarc.gsfc.nasa.gov/software/fitsio/c/cfitsio${cfitsio_version_no_dots}.tar.gz
         URL ${lcgpackages}/cfitsio${cfitsio_version_no_dots}.tar.gz
-        URL_HASH SHA256=de8ce3f14c2f940fadf365fcc4a4f66553dd9045ee27da249f6e2c53e95362b3
+        URL_HASH SHA256=bf6012dbe668ecb22c399c4b7b2814557ee282c74a7d5dc704eb17c30d9fb92e
         INSTALL_DIR ${CMAKE_BINARY_DIR}
         CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix <INSTALL_DIR>
         LOG_DOWNLOAD 1 LOG_CONFIGURE 1 LOG_BUILD 1 LOG_INSTALL 1
         BUILD_IN_SOURCE 1
         BUILD_BYPRODUCTS ${CFITSIO_LIBRARIES}
       )
+      # We need to know which CURL_LIBRARIES were used in CFITSIO ExternalProject build
+      # and which ${CURL_LIBRARIES} should be used after for linking in ROOT together with CFITSIO.
+      # (curl is not strictly required in CFITSIO CMakeList.txt).
+      find_package(CURL)
+      if(CURL_FOUND)
+        set(CFITSIO_LIBRARIES ${CFITSIO_LIBRARIES} ${CURL_LIBRARIES})
+      endif()
       set(CFITSIO_INCLUDE_DIR ${CMAKE_BINARY_DIR}/include)
     endif()
     set(fitsio ON CACHE BOOL "Enabled because builtin_cfitsio requested (${fitsio_description})" FORCE)
@@ -1094,15 +1113,16 @@ if(imt AND NOT builtin_tbb)
   else()
     find_package(TBB 2018)
     if(NOT TBB_FOUND)
-      message(WARNING "TBB not found, enabling 'builtin_tbb' option")
+      message(STATUS "TBB not found, enabling 'builtin_tbb' option")
       set(builtin_tbb ON CACHE BOOL "Enabled because imt is enabled, but TBB was not found" FORCE)
     endif()
   endif()
+  set(TBB_CXXFLAGS "-DTBB_SUPPRESS_DEPRECATED_MESSAGES=1")
 endif()
 
 if(builtin_tbb)
-  set(tbb_builtin_version 2019_U8)
-  set(tbb_sha256 7b1fd8caea14be72ae4175896510bf99c809cd7031306a1917565e6de7382fba)
+  set(tbb_builtin_version 2019_U9)
+  set(tbb_sha256 15652f5328cf00c576f065e5cd3eaf3317422fe82afb67a9bcec0dc065bd2abe)
   if(CMAKE_CXX_COMPILER_ID MATCHES Clang)
     set(_tbb_compiler compiler=clang)
   elseif(CMAKE_CXX_COMPILER_ID STREQUAL Intel)
@@ -1163,6 +1183,7 @@ if(builtin_tbb)
     install(DIRECTORY ${CMAKE_BINARY_DIR}/lib/ DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT libraries FILES_MATCHING PATTERN "libtbb*")
   endif()
   set(TBB_INCLUDE_DIRS ${CMAKE_BINARY_DIR}/include)
+  set(TBB_CXXFLAGS "-DTBB_SUPPRESS_DEPRECATED_MESSAGES=1")
   set(TBB_TARGET TBB)
 endif()
 
@@ -1196,9 +1217,14 @@ if(vc AND NOT Vc_FOUND)
   set(Vc_LIBNAME "${CMAKE_STATIC_LIBRARY_PREFIX}Vc${CMAKE_STATIC_LIBRARY_SUFFIX}")
   set(Vc_LIBRARY "${Vc_ROOTDIR}/lib/${Vc_LIBNAME}")
 
+  if(UNIX)
+    set(VC_PATCH_COMMAND patch -p1 < ${CMAKE_SOURCE_DIR}/cmake/patches/vc-bit-scan-forward.patch)
+  endif()
+
   ExternalProject_Add(VC
     URL     ${Vc_SRC_URI}
     URL_HASH SHA256=68e609a735326dc3625e98bd85258e1329fb2a26ce17f32c432723b750a4119f
+    PATCH_COMMAND ${VC_PATCH_COMMAND}
     BUILD_IN_SOURCE 0
     BUILD_BYPRODUCTS ${Vc_LIBRARY}
     LOG_DOWNLOAD 1 LOG_CONFIGURE 1 LOG_BUILD 1 LOG_INSTALL 1
@@ -1399,32 +1425,54 @@ if (vecgeom)
 endif()
 
 #---Check for CUDA-----------------------------------------------------------------------
-
+# if tmva-gpu is off and cuda is on cuda is searched but not used in tmva
+#  if cuda is off but tmva-gpu is on cuda is searched and activated if found !
+#
 if(cuda OR tmva-gpu)
   find_package(CUDA)
-
   if(CUDA_FOUND)
     if(NOT DEFINED CMAKE_CUDA_STANDARD)
       set(CMAKE_CUDA_STANDARD ${CMAKE_CXX_STANDARD})
     endif()
-
     enable_language(CUDA)
+    set(cuda ON CACHE BOOL "Found Cuda for TMVA GPU" FORCE)
+    ###
+    ### look for package CuDNN
+    if (cudnn)
+      if (fail-on-missing)
+        find_package(CuDNN REQUIRED)
+      else()
+        find_package(CuDNN)
+      endif()
+      if (CUDNN_FOUND)
+        message(STATUS "CuDNN library found: " ${CUDNN_LIBRARIES})
+	### set tmva-cudnn flag only if tmva-gpu is on!
+        if (tmva-gpu)
+          set(tmva-cudnn ON)
+        endif()
+      else()
+        message(STATUS "CuDNN library not found")
+        set(cudnn OFF CACHE BOOL "Disabled because cudnn is not found" FORCE)
+      endif()
+    endif()
   elseif(fail-on-missing)
     message(FATAL_ERROR "CUDA not found. Ensure that the installation of CUDA is in the CMAKE_PREFIX_PATH")
   endif()
-
+else()
+  if (cudnn)
+    message(STATUS "Cannot select cudnn without selecting cuda or tmva-gpu. Option is ignored")
+    set(cudnn OFF)
+  endif()
 endif()
-
+#
 #---TMVA and its dependencies------------------------------------------------------------
 if (tmva AND NOT mlp)
   message(FATAL_ERROR "The 'tmva' option requires 'mlp', please enable mlp with -Dmlp=ON")
 endif()
-
 if(tmva)
   if(tmva-cpu AND imt)
     message(STATUS "Looking for BLAS for optional parts of TMVA")
     find_package(BLAS)
-
     if(NOT BLAS_FOUND)
       if (GSL_FOUND)
         message(STATUS "Using GSL CBLAS for optional parts of TMVA")
@@ -1435,14 +1483,10 @@ if(tmva)
   else()
     set(tmva-cpu OFF CACHE BOOL "Disabled because 'imt' is disabled (${tmva-cpu_description})" FORCE)
   endif()
-
   if(tmva-gpu AND NOT CUDA_FOUND)
     set(tmva-gpu OFF CACHE BOOL "Disabled because cuda not found" FORCE)
   endif()
-
-  if(python AND tmva-pymva)
-    message(STATUS "Looking for Numpy")
-    find_package(NumPy)
+  if(tmva-pymva)
     if(fail-on-missing AND NOT NUMPY_FOUND)
       message(FATAL_ERROR "TMVA: numpy python package not found and tmva-pymva component required"
                           " (python executable: ${PYTHON_EXECUTABLE})")
@@ -1451,7 +1495,6 @@ if(tmva)
       set(tmva-pymva OFF CACHE BOOL "Disabled because Numpy was not found (${tmva-pymva_description})" FORCE)
     endif()
   endif()
-
   if(tmva-rmva AND NOT R_FOUND)
     set(tmva-rmva  OFF CACHE BOOL "Disabled because R was not found (${tmva-rmva_description})"  FORCE)
   endif()
@@ -1460,6 +1503,23 @@ else()
   set(tmva-gpu   OFF CACHE BOOL "Disabled because 'tmva' is disabled (${tmva-gpu_description})"   FORCE)
   set(tmva-pymva OFF CACHE BOOL "Disabled because 'tmva' is disabled (${tmva-pymva_description})" FORCE)
   set(tmva-rmva  OFF CACHE BOOL "Disabled because 'tmva' is disabled (${tmva-rmva_description})"  FORCE)
+endif()
+
+#---Check for MPI---------------------------------------------------------------------
+if (mpi)
+  message(STATUS "Looking for MPI")
+  find_package(MPI)
+  if(NOT MPI_FOUND)
+    if(fail-on-missing)
+      message(FATAL_ERROR "MPI not found. Ensure that the installation of MPI is in the CMAKE_PREFIX_PATH."
+        " Example: CMAKE_PREFIX_PATH=<MPI_install_path> (e.g. \"/usr/local/mpich\")")
+    else()
+      message(STATUS "MPI not found. Ensure that the installation of MPI is in the CMAKE_PREFIX_PATH")
+      message(STATUS "     Example: CMAKE_PREFIX_PATH=<MPI_install_path> (e.g. \"/usr/local/mpich\")")
+      message(STATUS "     For the time being switching OFF 'mpi' option")
+      set(mpi OFF CACHE BOOL "Disabled because MPI not found (${mpi_description})" FORCE)
+    endif()
+  endif()
 endif()
 
 #---Download googletest--------------------------------------------------------------
@@ -1548,9 +1608,41 @@ if(webgui)
   ExternalProject_Add(
      OPENUI5
      URL ${CMAKE_SOURCE_DIR}/gui/webdisplay/res/openui5.tar.gz
-     URL_HASH SHA256=71a9f362bddae82122ff532887f7bb73b9e3915088a85a2afb7a6412ca7af71c
+     URL_HASH SHA256=b264661fb397906714b8253fc3a32ecb6ac0da575cc01ce61636354e6bfccf3c
      CONFIGURE_COMMAND ""
      BUILD_COMMAND ""
      INSTALL_COMMAND ""
      SOURCE_DIR ${CMAKE_BINARY_DIR}/ui5/distribution)
+  install(DIRECTORY ${CMAKE_BINARY_DIR}/ui5/distribution/ DESTINATION ${CMAKE_INSTALL_OPENUI5DIR}/distribution/ COMPONENT libraries FILES_MATCHING PATTERN "*")
+endif()
+
+#------------------------------------------------------------------------------------
+# Check if we need libatomic to use atomic operations in the C++ code. On ARM systems
+# we generally do. First just test if CMake is able to compile a test executable
+# using atomic operations without the help of a library. Only if it can't do we start
+# looking for libatomic for the build.
+#
+include(CheckCXXSourceCompiles)
+check_cxx_source_compiles("
+#include <atomic>
+#include <cstdint>
+int main() {
+   std::atomic<int> a1;
+   int a1val = a1.load();
+   (void)a1val;
+   std::atomic<uint64_t> a2;
+   uint64_t a2val = a2.load(std::memory_order_relaxed);
+   (void)a2val;
+   return 0;
+}
+" ROOT_HAVE_CXX_ATOMICS_WITHOUT_LIB)
+set(ROOT_ATOMIC_LIBS)
+if(NOT ROOT_HAVE_CXX_ATOMICS_WITHOUT_LIB)
+  find_library(ROOT_ATOMIC_LIB NAMES atomic
+    HINTS ENV LD_LIBRARY_PATH
+    DOC "Path to the atomic library to use during the build")
+  mark_as_advanced(ROOT_ATOMIC_LIB)
+  if(ROOT_ATOMIC_LIB)
+    set(ROOT_ATOMIC_LIBS ${ROOT_ATOMIC_LIB})
+  endif()
 endif()

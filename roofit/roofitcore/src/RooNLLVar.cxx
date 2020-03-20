@@ -43,6 +43,7 @@ In extended mode, a
 #include "RooRealSumPdf.h"
 #include "RooRealVar.h"
 #include "RooProdPdf.h"
+#include "RooHelpers.h"
 
 #include "Math/Util.h"
 
@@ -75,8 +76,8 @@ RooNLLVar::RooNLLVar(const char *name, const char* title, RooAbsPdf& pdf, RooAbs
   RooAbsOptTestStatistic(name,title,pdf,indata,
 			 *(const RooArgSet*)RooCmdConfig::decodeObjOnTheFly("RooNLLVar::RooNLLVar","ProjectedObservables",0,&_emptySet
 									    ,arg1,arg2,arg3,arg4,arg5,arg6,arg7,arg8,arg9),
-			 RooCmdConfig::decodeStringOnTheFly("RooNLLVar::RooNLLVar","RangeWithName",0,"",arg1,arg2,arg3,arg4,arg5,arg6,arg7,arg8,arg9),
-			 RooCmdConfig::decodeStringOnTheFly("RooNLLVar::RooNLLVar","AddCoefRange",0,"",arg1,arg2,arg3,arg4,arg5,arg6,arg7,arg8,arg9),
+			 RooCmdConfig::decodeStringOnTheFly("RooNLLVar::RooNLLVar","RangeWithName",0,"",arg1,arg2,arg3,arg4,arg5,arg6,arg7,arg8,arg9).c_str(),
+			 RooCmdConfig::decodeStringOnTheFly("RooNLLVar::RooNLLVar","AddCoefRange",0,"",arg1,arg2,arg3,arg4,arg5,arg6,arg7,arg8,arg9).c_str(),
 			 RooCmdConfig::decodeIntOnTheFly("RooNLLVar::RooNLLVar","NumCPU",0,1,arg1,arg2,arg3,arg4,arg5,arg6,arg7,arg8,arg9),
 			 RooFit::BulkPartition,
 			 RooCmdConfig::decodeIntOnTheFly("RooNLLVar::RooNLLVar","Verbose",0,1,arg1,arg2,arg3,arg4,arg5,arg6,arg7,arg8,arg9),
@@ -239,13 +240,6 @@ void RooNLLVar::applyWeightSquared(Bool_t flag)
       ((RooNLLVar*)_gofArray[i])->applyWeightSquared(flag);
   }
 }
-
-class BatchInterfaceAccessor {
-  public:
-    static void clearBatchMemory(RooAbsReal* theReal) {
-      theReal->clearBatchMemory();
-    }
-};
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -463,7 +457,7 @@ std::tuple<double, double, double> RooNLLVar::computeBatched(std::size_t stepSiz
     assert(_dataClone->valid());
     pdfClone->getValV(_normSet);
     try {
-      pdfClone->checkBatchComputation(evtNo, _normSet);
+      RooHelpers::BatchInterfaceAccessor::checkBatchComputation(*pdfClone, evtNo, _normSet);
     } catch (std::exception& e) {
       std::cerr << "ERROR when checking batch computation for event " << evtNo << ":\n"
           << e.what() << std::endl;
@@ -473,8 +467,8 @@ std::tuple<double, double, double> RooNLLVar::computeBatched(std::size_t stepSiz
 
 
   // Compute sum of event weights. First check if we need squared weights
-  const RooSpan<const double> eventWeights = _dataClone->getWeightBatch(firstEvent, lastEvent);
-  //Make it obvious for the optimiser that the switch will never change while looping
+  const RooSpan<const double> eventWeights = _dataClone->getWeightBatch(firstEvent, lastEvent-firstEvent);
+  //Capture member for lambda:
   const bool retrieveSquaredWeights = _weightSq;
   auto retrieveWeight = [&eventWeights, retrieveSquaredWeights](std::size_t i) {
     if (retrieveSquaredWeights)
@@ -484,20 +478,21 @@ std::tuple<double, double, double> RooNLLVar::computeBatched(std::size_t stepSiz
   };
 
   //Sum the event weights
-  ROOT::Math::KahanSum<double, 4u> kahanWeight;
-  if (eventWeights.size() == 1) {
-    kahanWeight.Add( (lastEvent - firstEvent) * retrieveWeight(0));
+  double sumOfWeights;
+  if (eventWeights.empty()) {
+    sumOfWeights = (lastEvent - firstEvent) * _dataClone->weight();
   } else {
+    ROOT::Math::KahanSum<double, 4u> kahanWeight;
     for (std::size_t i = 0; i < eventWeights.size(); ++i) {
       kahanWeight.AddIndexed(retrieveWeight(i), i);
     }
+    sumOfWeights = kahanWeight.Sum();
   }
-
 
   //Sum the probabilities
   ROOT::Math::KahanSum<double, 4u> kahanProb;
-  if (eventWeights.size() == 1) {
-    const double weight = retrieveWeight(0);
+  if (eventWeights.empty()) {
+    const double weight = _dataClone->weight();
     for (std::size_t i = 0; i < results.size(); ++i) {
       kahanProb.AddIndexed(-weight * results[i], i);
     }
@@ -508,7 +503,7 @@ std::tuple<double, double, double> RooNLLVar::computeBatched(std::size_t stepSiz
   }
 
 
-  return std::tuple<double, double, double>{kahanProb.Sum(), kahanProb.Carry(), kahanWeight.Sum()};
+  return std::tuple<double, double, double>{kahanProb.Sum(), kahanProb.Carry(), sumOfWeights};
 }
 
 

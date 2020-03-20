@@ -16,6 +16,7 @@
 
 #pragma link C++ class ROOT::Experimental::RAttrMap+;
 #pragma link C++ class ROOT::Experimental::RAttrMap::Value_t+;
+#pragma link C++ class ROOT::Experimental::RAttrMap::NoValue_t+;
 #pragma link C++ class ROOT::Experimental::RAttrMap::BoolValue_t+;
 #pragma link C++ class ROOT::Experimental::RAttrMap::IntValue_t+;
 #pragma link C++ class ROOT::Experimental::RAttrMap::DoubleValue_t+;
@@ -26,13 +27,15 @@
 #pragma link C++ class ROOT::Experimental::RStyle::Block_t+;
 
 #pragma link C++ class ROOT::Experimental::RDrawable+;
+#pragma link C++ class ROOT::Experimental::RDisplayItem+;
+#pragma link C++ class ROOT::Experimental::RDrawableDisplayItem+;
+#pragma link C++ class ROOT::Experimental::RObjectDisplayItem+;
 
 #pragma link C++ class ROOT::Experimental::Internal::RIOSharedBase+;
 #pragma link C++ class ROOT::Experimental::Internal::RIOShared<TObject>+;
 #pragma link C++ class ROOT::Experimental::Internal::RIOShared<ROOT::Experimental::RDrawable>+;
 
 
-#pragma link C++ class ROOT::Experimental::RPadDisplayItem+;
 #pragma link C++ class ROOT::Experimental::Detail::RMenuItem+;
 #pragma link C++ class std::vector<ROOT::Experimental::Detail::RMenuItem*>+;
 #pragma link C++ class ROOT::Experimental::Detail::RCheckedMenuItem+;
@@ -56,18 +59,23 @@
 #pragma link C++ class ROOT::Experimental::RPadLength::CoordSysBase<ROOT::Experimental::RPadLength::Pixel>+;
 #pragma link C++ class ROOT::Experimental::RPadLength::CoordSysBase<ROOT::Experimental::RPadLength::Normal>+;
 #pragma link C++ class ROOT::Experimental::RPadLength::CoordSysBase<ROOT::Experimental::RPadLength::User>+;
-#pragma link C++ class ROOT::Experimental::RDisplayItem+;
-#pragma link C++ class ROOT::Experimental::RDrawableDisplayItem+;
 #pragma link C++ class ROOT::Experimental::RPalette+;
+#pragma link C++ struct ROOT::Experimental::RPalette::OrdinalAndColor+;
+#pragma link C++ class ROOT::Experimental::RPaletteDrawable+;
+#pragma link C++ class ROOT::Experimental::RPadBaseDisplayItem+;
+#pragma link C++ class ROOT::Experimental::RPadDisplayItem+;
+#pragma link C++ class ROOT::Experimental::RCanvasDisplayItem+;
 
 #pragma read sourceClass="ROOT::Experimental::RCanvas" targetClass="ROOT::Experimental::RCanvas" source="" target="" code="{ newObj->ResolveSharedPtrs() ; }"
 
 #pragma link C++ class ROOT::Experimental::RColor+;
+#pragma link C++ class ROOT::Experimental::RAttrColor+;
 #pragma link C++ class ROOT::Experimental::RAttrFill+;
 #pragma link C++ class ROOT::Experimental::RAttrLine+;
 #pragma link C++ class ROOT::Experimental::RAttrBox+;
 #pragma link C++ class ROOT::Experimental::RAttrMarker+;
 #pragma link C++ class ROOT::Experimental::RAttrText+;
-
+#pragma link C++ class ROOT::Experimental::RAttrAxis+;
+#pragma link C++ class ROOT::Experimental::RAttrMargins+;
 
 #endif

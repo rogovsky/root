@@ -7,19 +7,19 @@
 #------------------------------------------------------------------------------
 
 set(CLING_DEPEND_LIBS
-  clangAnalysis
-  clangAST
-  clangBasic
   clangCodeGen
   clangDriver
-  clangEdit
   clangFrontend
-  clangLex
   clangParse
+  clangSema
+  clangAnalysis
+  clangEdit
   clangRewrite
   clangRewriteFrontend
-  clangSema
   clangSerialization
+  clangAST
+  clangBasic
+  clangLex
   CACHE STRING "Dependency Clang libraries for Cling"
 )
 
@@ -74,6 +74,7 @@ add_cling_library(clingInterpreter OBJECT
   DeclExtractor.cpp
   DefinitionShadower.cpp
   DeclUnloader.cpp
+  DeviceKernelInliner.cpp
   DynamicLibraryManager.cpp
   DynamicLookup.cpp
   DynamicExprInfo.cpp
@@ -108,6 +109,7 @@ add_cling_library(clingInterpreter OBJECT
 
 if (UNIX)
   set_source_files_properties(Exception.cpp COMPILE_FLAGS "-fexceptions -frtti")
+  set_source_files_properties(Interpreter.cpp COMPILE_FLAGS "-fexceptions")
 
   # Remove all -I from CMAKE_CXX_FLAGS
   string(REPLACE ";" " " __flags "${CMAKE_CXX_FLAGS}")

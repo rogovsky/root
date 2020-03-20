@@ -34,8 +34,10 @@
 #include "TPadPainter.h"
 #include "TVirtualGL.h"
 #include "TVirtualPS.h"
-#include "TObjectSpy.h"
+#include "TVirtualX.h"
 #include "TAxis.h"
+#include "TH1.h"
+#include "TGraph.h"
 #include "TView.h"
 
 #include "TVirtualMutex.h"
@@ -796,8 +798,7 @@ void TCanvas::Close(Option_t *option)
       gROOT->GetListOfCanvases()->Remove(this);
 
       // Close actual window on screen
-      if (fCanvasImp)
-         SafeDelete(fCanvasImp);
+      SafeDelete(fCanvasImp);
    }
 
    if (cansave == this) {
@@ -969,7 +970,46 @@ void TCanvas::DrawEventStatus(Int_t event, Int_t px, Int_t py, TObject *selected
    else
       snprintf(atext, kTMAX, "%d,%d", px, py);
    fCanvasImp->SetStatusText(atext,2);
+
+   // Show date/time if TimeDisplay is selected
+   TAxis *xaxis = NULL;
+   if ( selected->InheritsFrom("TH1") )
+      xaxis = ((TH1*)selected)->GetXaxis();
+   else if ( selected->InheritsFrom("TGraph") )
+      xaxis = ((TGraph*)selected)->GetXaxis();
+   else if ( selected->InheritsFrom("TAxis") )
+      xaxis = (TAxis*)selected;
+   if ( xaxis != NULL && xaxis->GetTimeDisplay()) {
+      TString objinfo = selected->GetObjectInfo(px,py);
+      // check if user has overwritten GetObjectInfo and altered
+      // the default text from TObject::GetObjectInfo "x=.. y=.."
+      if (objinfo.Contains("x=") && objinfo.Contains("y=") ) {
+         UInt_t toff = 0;
+         TString time_format(xaxis->GetTimeFormat());
+         // TimeFormat may contain offset: %F2000-01-01 00:00:00
+         Int_t idF = time_format.Index("%F");
+         if (idF>=0) {
+            Int_t lnF = time_format.Length();
+            // minimal check for correct format
+            if (lnF - idF == 21) {
+               time_format = time_format(idF+2, lnF);
+               TDatime dtoff(time_format);
+               toff = dtoff.Convert();
+            }
+         } else {
+            toff = (UInt_t)gStyle->GetTimeOffset();
+         }
+         TDatime dt((UInt_t)gPad->AbsPixeltoX(px) + toff);
+         snprintf(atext, kTMAX, "%s, y=%g",
+            dt.AsSQLString(),gPad->AbsPixeltoY(py));
+         fCanvasImp->SetStatusText(atext,3);
+         gPad = savepad;
+         return;
+      }
+   }
+   // default
    fCanvasImp->SetStatusText(selected->GetObjectInfo(px,py),3);
+
    gPad = savepad;
 }
 

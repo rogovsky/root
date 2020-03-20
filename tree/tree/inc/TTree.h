@@ -118,6 +118,7 @@ protected:
    TArrayI        fIndex;                 ///<  Index of sorted values
    TVirtualIndex *fTreeIndex;             ///<  Pointer to the tree Index (if any)
    TList         *fFriends;               ///<  pointer to list of friend elements
+   TList         *fExternalFriends;       ///<! List of TFriendsElement pointing to us and need to be notified of LoadTree.  Content not owned.
    TVirtualPerfStats *fPerfStats;         ///<! pointer to the current perf stats object
    TList         *fUserInfo;              ///<  pointer to a list of user objects associated to this Tree
    TVirtualTreePlayer *fPlayer;           ///<! Pointer to current Tree player
@@ -315,6 +316,42 @@ public:
 #endif
    void AddAllocationCount(UInt_t count) { fAllocationCount += count; }
    virtual Long64_t        AutoSave(Option_t* option = "");
+
+   /// Add a new branch, and infer the data type from the type of `obj` being passed.
+   ///
+   /// \note This and the next overload should cover most cases for creating a branch. Try to use these two whenever
+   /// possible, unless e.g. type conversions are needed.
+   ///
+   /// \param[in] name Name of the branch to be created.
+   /// \param[in] obj Address of the object to be added. Make sure to pass a pointer to the actual type/class that
+   /// should be stored in the tree (no pointers to base classes). When calling Fill(), the current value of the type/object will be saved.
+   /// \param[in] bufsize The buffer size in bytes for this branch. When the buffer is full, it is compressed and written to disc.
+   /// The default value of 32000 bytes and should be ok for most simple types. Larger buffers (e.g. 256000) if your Tree is not split and each entry is large (Megabytes).
+   /// A small value for bufsize is beneficial if entries in the Tree are accessed randomly and the Tree is in split mode.
+   /// \param[in] splitlevel If T is a class or struct and splitlevel > 0, the members of the object are serialised as separate branches.
+   /// \return Pointer to the TBranch that was created. The branch is owned by the tree.
+   template <class T> TBranch *Branch(const char* name, T* obj, Int_t bufsize = 32000, Int_t splitlevel = 99)
+   {
+      return BranchImpRef(name, TClass::GetClass<T>(), TDataType::GetType(typeid(T)), obj, bufsize, splitlevel);
+   }
+
+   /// Add a new branch, and infer the data type from the array `addobj` being passed.
+   ///
+   /// \note This and the previous overload should cover most cases for creating a branch. Try to use these two whenever
+   /// possible, unless e.g. type conversions are needed.
+   ///
+   /// \param[in] name Name of the branch to be created.
+   /// \param[in] obj Array of the objects to be added. When calling Fill(), the current value of the type/object will be saved.
+   /// \param[in] bufsize he buffer size in bytes for this branch. When the buffer is full, it is compressed and written to disc.
+   /// The default value of 32000 bytes and should be ok for most simple types. Larger buffers (e.g. 256000) if your Tree is not split and each entry is large (Megabytes).
+   /// A small value for bufsize is beneficial if entries in the Tree are accessed randomly and the Tree is in split mode.
+   /// \param[in] splitlevel If T is a class or struct and splitlevel > 0, the members of the object are serialised as separate branches.
+   /// \return Pointer to the TBranch that was created. The branch is owned by the tree.
+   template <class T> TBranch *Branch(const char* name, T** addobj, Int_t bufsize = 32000, Int_t splitlevel = 99)
+   {
+      return BranchImp(name, TClass::GetClass<T>(), addobj, bufsize, splitlevel);
+   }
+
    virtual Int_t           Branch(TCollection* list, Int_t bufsize = 32000, Int_t splitlevel = 99, const char* name = "");
    virtual Int_t           Branch(TList* list, Int_t bufsize = 32000, Int_t splitlevel = 99);
    virtual Int_t           Branch(const char* folder, Int_t bufsize = 32000, Int_t splitlevel = 99);
@@ -344,16 +381,6 @@ public:
    {
       // See BranchImp for details
       return BranchImp(name, classname, TClass::GetClass<T>(), addobj, bufsize, splitlevel);
-   }
-   template <class T> TBranch *Branch(const char* name, T** addobj, Int_t bufsize = 32000, Int_t splitlevel = 99)
-   {
-      // See BranchImp for details
-      return BranchImp(name, TClass::GetClass<T>(), addobj, bufsize, splitlevel);
-   }
-   template <class T> TBranch *Branch(const char* name, T* obj, Int_t bufsize = 32000, Int_t splitlevel = 99)
-   {
-      // See BranchImp for details
-      return BranchImpRef(name, TClass::GetClass<T>(), TDataType::GetType(typeid(T)), obj, bufsize, splitlevel);
    }
    template <typename T, std::size_t N> TBranch *Branch(const char* name, std::array<T, N> *obj, Int_t bufsize = 32000, Int_t splitlevel = 99)
    {
@@ -520,8 +547,10 @@ public:
    virtual Long64_t        ReadFile(const char* filename, const char* branchDescriptor = "", char delimiter = ' ');
    virtual Long64_t        ReadStream(std::istream& inputStream, const char* branchDescriptor = "", char delimiter = ' ');
    virtual void            Refresh();
-   virtual void            RecursiveRemove(TObject *obj);
+   virtual void            RegisterExternalFriend(TFriendElement *);
+   virtual void            RemoveExternalFriend(TFriendElement *fe) { if (fExternalFriends) fExternalFriends->Remove((TObject*)fe); }
    virtual void            RemoveFriend(TTree*);
+   virtual void            RecursiveRemove(TObject *obj);
    virtual void            Reset(Option_t* option = "");
    virtual void            ResetAfterMerge(TFileMergeInfo *);
    virtual void            ResetBranchAddress(TBranch *);

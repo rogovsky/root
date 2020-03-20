@@ -12,7 +12,7 @@
 /// \date 2018-03-18
 /// \warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback
 /// is welcome!
-/// \authors Olivier couet, Iliana Betsou
+/// \authors Olivier Couet, Iliana Betsou
 
 #include <ROOT/RCanvas.hxx>
 #include <ROOT/RColor.hxx>
@@ -41,6 +41,10 @@ void line()
    canvas->Draw<RLine>()->SetP1({0.1_normal, 0.1_normal}).SetP2({0.1_normal,0.9_normal});
    canvas->Draw<RLine>()->SetP1({0.0_normal, 1.0_normal}).SetP2({1.0_normal,0.0_normal});
 
-   // canvas->Show();
+   canvas->SetSize(900, 700);
+
+   // requires Chrome browser, runs in headless mode
    canvas->SaveAs("line.png");
+
+   // canvas->Show();
 }

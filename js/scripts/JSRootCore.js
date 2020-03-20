@@ -95,17 +95,17 @@
 
    "use strict";
 
-   JSROOT.version = "dev 1/10/2019";
+   JSROOT.version = "dev 11/03/2020";
 
    JSROOT.source_dir = "";
    JSROOT.source_min = false;
    JSROOT.source_fullpath = ""; // full name of source script
    JSROOT.bower_dir = null;     // when specified, use standard libs from bower location
    JSROOT.nocache = false;      // when specified, used as extra URL parameter to load JSROOT scripts
-   JSROOT.wrong_http_response_handling = false; // wehn configured, try to handle wrong content-length response from server
+   JSROOT.wrong_http_response_handling = false; // when configured, try to handle wrong content-length response from server
    JSROOT.sources = ['core'];   // indicates which major sources were loaded
 
-   JSROOT.id_counter = 1;
+   JSROOT.id_counter = 1;       // avoid id value 0, starts from 1
    if (JSROOT.BatchMode === undefined)
       JSROOT.BatchMode = false; // when true, disables all kind of interactive features
 
@@ -168,7 +168,7 @@
          FrameNDC: { fX1NDC: 0.07, fY1NDC: 0.12, fX2NDC: 0.95, fY2NDC: 0.88 },
          Palette: 57,
          Latex: 2,    // 0 - never, 1 - only latex symbols, 2 - normal TLatex processing (default), 3 - use MathJax for complex case, 4 - use MathJax always
-         // MathJax : 0,  // depricated, will be supported till JSROOT 6.0, use Latex variable  0 - never, 1 - only for complex cases, 2 - always
+         // MathJax : 0,  // deprecated, will be supported till JSROOT 6.0, use Latex variable  0 - never, 1 - only for complex cases, 2 - always
          ProgressBox: true,  // show progress box
          Embed3DinSVG: 2,  // 0 - no embed, only 3D plot, 1 - overlay over SVG (IE/WebKit), 2 - embed into SVG (only Firefox)
          ImageSVG: !JSROOT.nodejs, // when producing SVG images, use <image> elements to insert 3D drawings from three.js,
@@ -663,6 +663,8 @@
       var pos = url.indexOf("?"), nquotes;
       if (pos<0) return dflt;
       url = decodeURI(url.slice(pos+1));
+      pos = url.lastIndexOf("#");
+      if (pos>=0) url = url.substr(0,pos);
 
       while (url.length>0) {
 
@@ -2161,6 +2163,13 @@
       return m;
    }
 
+   /** @summary Add methods for specified type.
+    * Will be automatically applied when decoding JSON string
+    * @private */
+   JSROOT.registerMethods = function(typename, m) {
+      JSROOT.methodsCache[typename] = m;
+   }
+
    /** @summary Returns true if object represents basic ROOT collections
     * @private */
    JSROOT.IsRootCollection = function(lst, typename) {
@@ -2181,7 +2190,7 @@
     * @private
     */
    JSROOT.addMethods = function(obj, typename) {
-      this.extend(obj, JSROOT.getMethods(typename || obj._typename, obj));
+      this.extend(obj, this.getMethods(typename || obj._typename, obj));
    }
 
    JSROOT.lastFFormat = "";
@@ -2282,6 +2291,7 @@
 
       if (arg.openui5src) JSROOT.openui5src = arg.openui5src;
       if (arg.openui5libs) JSROOT.openui5libs = arg.openui5libs;
+      if (arg.openui5theme) JSROOT.openui5theme = arg.openui5theme;
       JSROOT.AssertPrerequisites("2d;" + (arg && arg.prereq ? arg.prereq : ""), function() {
          if (arg && arg.prereq) delete arg.prereq;
          JSROOT.ConnectWebWindow(arg);

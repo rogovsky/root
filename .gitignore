@@ -25,9 +25,11 @@ CMakeLists.txt.user
 .settings/*
 .cproject
 .project
+.externalToolBuilders
 
 # Vim
 *.swp
 
 # Other Stuff
 tags
+*.d

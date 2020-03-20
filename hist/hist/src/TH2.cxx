@@ -701,6 +701,13 @@ void TH2::DoFitSlices(bool onX,
    if (lastbin < 0 || lastbin > nbins + 1) lastbin = nbins + 1;
    if (lastbin < firstbin) {firstbin = 0; lastbin = nbins + 1;}
    TString opt = option;
+   TString proj_opt = "e";
+   Int_t i1 = opt.Index("[");
+   Int_t i2 = opt.Index("]");
+   if (i1>=0 && i2>i1) {
+      proj_opt += opt(i1,i2-i1+1);
+      opt.Remove(i1, i2-i1+1);
+   }
    opt.ToLower();
    Int_t ngroup = 1;
    if (opt.Contains("g2")) {ngroup = 2; opt.ReplaceAll("g2","");}
@@ -767,9 +774,9 @@ void TH2::DoFitSlices(bool onX,
    for (bin=firstbin;bin+ngroup-1<=lastbin;bin += nstep) {
       TH1D *hp;
       if (onX)
-         hp= ProjectionX("_temp",bin,bin+ngroup-1,"e");
+         hp= ProjectionX("_temp",bin,bin+ngroup-1,proj_opt);
       else
-         hp= ProjectionY("_temp",bin,bin+ngroup-1,"e");
+         hp= ProjectionY("_temp",bin,bin+ngroup-1,proj_opt);
       if (hp == 0) continue;
       nentries = Long64_t(hp->GetEntries());
       if (nentries == 0 || nentries < cut) {delete hp; continue;}
@@ -2345,13 +2352,10 @@ TH1D* TH2::QuantilesY( Double_t prob, const char * name) const
 TH1D* TH2::DoQuantiles(bool onX, const char * name, Double_t prob) const
 {
    const TAxis *outAxis = 0;
-   const TAxis *inAxis = 0;
    if ( onX )   {
       outAxis = GetXaxis();
-      inAxis = GetYaxis();
    }  else {
       outAxis = GetYaxis();
-      inAxis = GetXaxis();
    }
 
    // build first name of returned histogram
@@ -2391,7 +2395,7 @@ TH1D* TH2::DoQuantiles(bool onX, const char * name, Double_t prob) const
   pp[0] = prob;
 
   TH1D * slice = 0;
-  for (int ibin = inAxis->GetFirst() ; ibin <= inAxis->GetLast() ; ++ibin) {
+  for (int ibin = outAxis->GetFirst() ; ibin <= outAxis->GetLast() ; ++ibin) {
     Double_t qq[1];
     // do a projection on the opposite axis
     slice = DoProjection(!onX, "tmp",ibin,ibin,"");

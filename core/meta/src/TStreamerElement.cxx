@@ -25,14 +25,10 @@
 #include "TBaseClass.h"
 #include "TDataMember.h"
 #include "TDataType.h"
-#include "TMethod.h"
-#include "TMethodCall.h"
 #include "TRealData.h"
-#include "TFolder.h"
 #include "TRef.h"
 #include "TInterpreter.h"
 #include "TError.h"
-#include "TDataType.h"
 #include "TVirtualMutex.h"
 #include "TVirtualCollectionProxy.h"
 #include <iostream>
@@ -266,6 +262,9 @@ Bool_t TStreamerElement::CannotSplit() const
    if (GetTitle()[0] != 0 && strspn(GetTitle(),"||") == 2) return kTRUE;
    TClass *cl = GetClassPointer();
    if (!cl) return kFALSE;  //basic type
+
+   static TClassRef clonesArray("TClonesArray");
+   if (IsaPointer() && cl != clonesArray && !cl->GetCollectionProxy()) return kTRUE;
 
    switch(fType) {
       case TVirtualStreamerInfo::kAny    +TVirtualStreamerInfo::kOffsetL:

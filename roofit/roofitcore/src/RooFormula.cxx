@@ -85,7 +85,10 @@ RooFormula::RooFormula() : TNamed()
 /// \param[in] formula Formula to be evaluated. Parameters/observables are identified by name
 /// or ordinal position in `varList`.
 /// \param[in] varList List of variables to be passed to the formula.
-RooFormula::RooFormula(const char* name, const char* formula, const RooArgList& varList) :
+/// \param[in] checkVariables Check that the variables being passed in the `varList` are used in
+/// the formula expression.
+RooFormula::RooFormula(const char* name, const char* formula, const RooArgList& varList,
+    bool checkVariables) :
   TNamed(name, formula), _tFormula{nullptr}
 {
   _origList.add(varList);
@@ -101,7 +104,7 @@ RooFormula::RooFormula(const char* name, const char* formula, const RooArgList& 
 
 
   if (!processedFormula.empty())
-    _tFormula = std::make_unique<TFormula>(name, processedFormula.c_str());
+    _tFormula = std::make_unique<TFormula>(name, processedFormula.c_str(), false);
 
   if (!_tFormula || !_tFormula->IsValid()) {
     coutF(InputArguments) << "RooFormula '" << GetName() << "' did not compile."
@@ -111,7 +114,7 @@ RooFormula::RooFormula(const char* name, const char* formula, const RooArgList& 
   }
 
   RooArgList useList = usedVariables();
-  if (_origList.size() != useList.size()) {
+  if (checkVariables && _origList.size() != useList.size()) {
     coutI(InputArguments) << "The formula " << GetName() << " claims to use the variables " << _origList
         << " but only " << useList << " seem to be in use."
         << "\n  inputs:         " << formula
@@ -287,7 +290,7 @@ std::vector<bool> RooFormula::findCategoryServers(const RooAbsCollection& collec
 Bool_t RooFormula::reCompile(const char* newFormula)
 {
   std::string processed = processFormula(newFormula);
-  auto newTF = std::make_unique<TFormula>(GetName(), processed.c_str());
+  auto newTF = std::make_unique<TFormula>(GetName(), processed.c_str(), false);
 
   if (!newTF->IsValid()) {
     coutE(InputArguments) << __func__ << ": new equation doesn't compile, formula unchanged" << endl;
