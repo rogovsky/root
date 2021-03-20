@@ -13,7 +13,6 @@
 
 #include "TAxis.h"
 #include "TBrowser.h"
-#include "TBuffer.h"
 #include "TError.h"
 #include "TClass.h"
 #include "TF1.h"
@@ -1156,6 +1155,7 @@ void THnBase::ResetBase(Option_t * /*option = ""*/)
    fTsumw2 = -1.;
    if (fIntegralStatus != kNoInt) {
       delete [] fIntegral;
+      fIntegral = nullptr;
       fIntegralStatus = kNoInt;
    }
 }
@@ -1168,6 +1168,7 @@ Double_t THnBase::ComputeIntegral()
    // delete old integral
    if (fIntegralStatus != kNoInt) {
       delete [] fIntegral;
+      fIntegral = nullptr;
       fIntegralStatus = kNoInt;
    }
 

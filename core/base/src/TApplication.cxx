@@ -20,7 +20,6 @@ TApplication (see TRint).
 */
 
 #include "RConfigure.h"
-#include "Riostream.h"
 #include "TApplication.h"
 #include "TException.h"
 #include "TGuiFactory.h"
@@ -37,7 +36,6 @@ TApplication (see TRint).
 #include "TVirtualPad.h"
 #include "TEnv.h"
 #include "TColor.h"
-#include "TClassTable.h"
 #include "TPluginManager.h"
 #include "TClassTable.h"
 #include "TBrowser.h"
@@ -48,12 +46,14 @@ TApplication (see TRint).
 #include "TDataMember.h"
 #include "TApplicationCommandLineOptionsHelp.h"
 #include "TPRegexp.h"
-#include <stdlib.h>
+#include <cstdlib>
+#include <iostream>
+#include <fstream>
 
-TApplication *gApplication = 0;
+TApplication *gApplication = nullptr;
 Bool_t TApplication::fgGraphNeeded = kFALSE;
 Bool_t TApplication::fgGraphInit = kFALSE;
-TList *TApplication::fgApplications = 0;  // List of available applications
+TList *TApplication::fgApplications = nullptr;  // List of available applications
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -446,11 +446,12 @@ void TApplication::GetOptions(Int_t *argc, char **argv)
 
          if (fFiles) {
             for (auto f: *fFiles) {
-               TObjString* file = dynamic_cast<TObjString*>(f);
+               TObjString *file = dynamic_cast<TObjString *>(f);
                if (!file) {
                   if (!dynamic_cast<TNamed*>(f)) {
                      Error("GetOptions()", "Inconsistent file entry (not a TObjString)!");
-                     f->Dump();
+                     if (f)
+                        f->Dump();
                   } // else we did not find the file.
                   continue;
                }
@@ -1223,7 +1224,7 @@ Int_t TApplication::ParseRemoteLine(const char *ln,
             script = tkn;
             script.Insert(0, "\"");
             script += "\"";
-            isScript = kFALSE;
+            // isScript = kFALSE; // [clang-tidy] never read
             break;
          }
       }

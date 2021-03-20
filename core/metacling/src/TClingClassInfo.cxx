@@ -79,7 +79,7 @@ TClingClassInfo::TClingClassInfo(cling::Interpreter *interp, Bool_t all)
    fType = 0;
 }
 
-TClingClassInfo::TClingClassInfo(cling::Interpreter *interp, const char *name)
+TClingClassInfo::TClingClassInfo(cling::Interpreter *interp, const char *name, bool intantiateTemplate /* = true */)
    : TClingDeclInfo(nullptr), fInterp(interp), fFirstTime(true), fDescend(false), fIterAll(kTRUE), fIsIter(false),
      fType(0), fTitle(""), fOffsetCache(0)
 {
@@ -88,14 +88,14 @@ TClingClassInfo::TClingClassInfo(cling::Interpreter *interp, const char *name)
    const Decl *decl = lh.findScope(name,
                                    gDebug > 5 ? cling::LookupHelper::WithDiagnostics
                                    : cling::LookupHelper::NoDiagnostics,
-                                   &type, /* intantiateTemplate= */ true );
+                                   &type, intantiateTemplate);
    if (!decl) {
       std::string buf = TClassEdit::InsertStd(name);
       if (buf != name) {
          decl = lh.findScope(buf,
                              gDebug > 5 ? cling::LookupHelper::WithDiagnostics
                              : cling::LookupHelper::NoDiagnostics,
-                             &type, /* intantiateTemplate= */ true );
+                             &type, intantiateTemplate);
       }
    }
    if (!decl && type) {
@@ -135,6 +135,7 @@ void TClingClassInfo::AddBaseOffsetValue(const clang::Decl* decl, ptrdiff_t offs
    // determined by the parameter decl.
 
    OffsetPtrFunc_t executableFunc = 0;
+   std::unique_lock<std::mutex> lock(fOffsetCacheMutex);
    fOffsetCache[decl] = std::make_pair(offset, executableFunc);
 }
 
@@ -145,6 +146,10 @@ long TClingClassInfo::ClassProperty() const
    }
    long property = 0L;
    const RecordDecl *RD = llvm::dyn_cast<RecordDecl>(GetDecl());
+
+   // isAbstract and other calls can trigger deserialization
+   cling::Interpreter::PushTransactionRAII RAII(fInterp);
+
    if (!RD) {
       // We are an enum or namespace.
       // The cint interface always returns 0L for these guys.
@@ -157,6 +162,8 @@ long TClingClassInfo::ClassProperty() const
    // We now have a class or a struct.
    const CXXRecordDecl *CRD =
       llvm::dyn_cast<CXXRecordDecl>(GetDecl());
+   if (!CRD)
+      return property;
    property |= kClassIsValid;
    if (CRD->isAbstract()) {
       property |= kClassIsAbstract;
@@ -570,7 +577,7 @@ int TClingClassInfo::GetMethodNArg(const char *method, const char *proto,
    TClingMethodInfo mi = GetMethod(method, proto, objectIsConst, 0, mode);
    int clang_val = -1;
    if (mi.IsValid()) {
-      unsigned num_params = mi.GetMethodDecl()->getNumParams();
+      unsigned num_params = mi.GetTargetFunctionDecl()->getNumParams();
       clang_val = static_cast<int>(num_params);
    }
    return clang_val;
@@ -607,7 +614,7 @@ ptrdiff_t TClingClassInfo::GetBaseOffset(TClingClassInfo* base, void* address, b
 {
 
    {
-      R__READ_LOCKGUARD(ROOT::gCoreMutex);
+      std::unique_lock<std::mutex> lock(fOffsetCacheMutex);
 
       // Check for the offset in the cache.
       auto iter = fOffsetCache.find(base->GetDecl());
@@ -833,7 +840,7 @@ EDataType TClingClassInfo::GetUnderlyingType() const
    if (auto ED = llvm::dyn_cast<EnumDecl>(GetDecl())) {
       R__LOCKGUARD(gInterpreterMutex);
       auto Ty = ED->getIntegerType().getTypePtrOrNull();
-      if (auto BTy = llvm::dyn_cast<BuiltinType>(Ty)) {
+      if (auto BTy = llvm::dyn_cast_or_null<BuiltinType>(Ty)) {
          switch (BTy->getKind()) {
          case BuiltinType::Bool:
             return kBool_t;
@@ -1279,13 +1286,14 @@ long TClingClassInfo::Property() const
    // Note: Now we have class, struct, union only.
    const CXXRecordDecl *CRD =
       llvm::dyn_cast<CXXRecordDecl>(GetDecl());
+   if (!CRD)
+      return property;
+
    if (CRD->isClass()) {
       property |= kIsClass;
-   }
-   else if (CRD->isStruct()) {
+   } else if (CRD->isStruct()) {
       property |= kIsStruct;
-   }
-   else if (CRD->isUnion()) {
+   } else if (CRD->isUnion()) {
       property |= kIsUnion;
    }
    if (CRD->hasDefinition() && CRD->isAbstract()) {
@@ -1436,6 +1444,6 @@ const char *TClingClassInfo::TmpltName() const
       // Note: This does *not* include the template arguments!
       buf = ND->getNameAsString();
    }
-   return buf.c_str();
+   return buf.c_str();  // NOLINT
 }
 

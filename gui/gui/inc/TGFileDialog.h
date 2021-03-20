@@ -2,7 +2,7 @@
 // Author: Fons Rademakers   20/01/98
 
 /*************************************************************************
- * Copyright (C) 1995-2000, Rene Brun and Fons Rademakers.               *
+ * Copyright (C) 1995-2021, Rene Brun and Fons Rademakers.               *
  * All rights reserved.                                                  *
  *                                                                       *
  * For the licensing terms see $ROOTSYS/LICENSE.                         *
@@ -13,30 +13,15 @@
 #ifndef ROOT_TGFileDialog
 #define ROOT_TGFileDialog
 
-//////////////////////////////////////////////////////////////////////////
-//                                                                      //
-// TGFileDialog                                                         //
-//                                                                      //
-// This class creates a file selection dialog. It contains a combo box  //
-// to select the desired directory. A listview with the different       //
-// files in the current directory and a combo box with which you can    //
-// select a filter (on file extensions).                                //
-// When creating a file dialog one passes a pointer to a TGFileInfo     //
-// object. In this object you can set the fFileTypes and fIniDir to     //
-// specify the list of file types for the filter combo box and the      //
-// initial directory. When the TGFileDialog ctor returns the selected   //
-// file name can be found in the TGFileInfo::fFilename field and the    //
-// selected directory in TGFileInfo::fIniDir. The fFilename and         //
-// fIniDir are deleted by the TGFileInfo dtor.                          //
-//                                                                      //
-//////////////////////////////////////////////////////////////////////////
 
 #include "TGFrame.h"
 
 
 enum EFileDialogMode {
    kFDOpen,
-   kFDSave
+   kFDSave,
+   kDOpen,
+   kDSave
 };
 
 
@@ -54,8 +39,8 @@ class TGFSComboBox;
 class TGFileInfo {
 
 private:
-   TGFileInfo(const TGFileInfo&) = delete;              // not implemented
-   TGFileInfo& operator=(const TGFileInfo&) = delete;   // not implemented
+   TGFileInfo(const TGFileInfo&) = delete;
+   TGFileInfo& operator=(const TGFileInfo&) = delete;
 
 public:
    char         *fFilename{nullptr};            // selected file name
@@ -99,14 +84,15 @@ protected:
    TGListView        *fFv;       // file list view
    TGFileContainer   *fFc;       // file list view container (containing the files)
    TGFileInfo        *fFileInfo; // file info passed to this dialog
+   EFileDialogMode    fDlgType;  // the dialog type passed
 
 private:
-   TGFileDialog(const TGFileDialog&);              // not implemented
-   TGFileDialog& operator=(const TGFileDialog&);   // not implemented
+   TGFileDialog(const TGFileDialog&) = delete;
+   TGFileDialog& operator=(const TGFileDialog&) = delete;
 
 public:
-   TGFileDialog(const TGWindow *p = 0, const TGWindow *main = 0,
-                EFileDialogMode dlg_type = kFDOpen, TGFileInfo *file_info = 0);
+   TGFileDialog(const TGWindow *p = nullptr, const TGWindow *main = nullptr,
+                EFileDialogMode dlg_type = kFDOpen, TGFileInfo *file_info = nullptr);
    virtual ~TGFileDialog();
 
    virtual Bool_t ProcessMessage(Long_t msg, Long_t parm1, Long_t parm2);

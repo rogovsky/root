@@ -18,12 +18,13 @@ See TBranch structure in TTree.
 
 #include "TLeaf.h"
 #include "TBranch.h"
+#include "TBuffer.h"
 #include "TTree.h"
 #include "TVirtualPad.h"
 #include "TBrowser.h"
-#include "TClass.h"
+#include "strlcpy.h"
 
-#include <ctype.h>
+#include <cctype>
 
 ClassImp(TLeaf);
 
@@ -194,6 +195,19 @@ Int_t *TLeaf::GenerateOffsetArrayBase(Int_t base, Int_t events) const
    return retval;
 }
 
+
+////////////////////////////////////////////////////////////////////////////////
+/// Return the full name (including the parent's branch names) of the leaf.
+
+TString TLeaf::GetFullName() const
+{
+   TString branchname = GetBranch()->GetFullName();
+   if (branchname.Length() && (branchname[branchname.Length()-1] == '.'))
+      return branchname + GetName();
+   else
+      return branchname + "." + GetName();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Return a pointer to the counter of this leaf (if any) or store the number of elements that the leaf contains in
 /// countval.
@@ -221,7 +235,7 @@ TLeaf* TLeaf::GetLeafCounter(Int_t& countval) const
    bleft++;
    Int_t nch = strlen(bleft);
    char* countname = new char[nch+1];
-   strcpy(countname, bleft);
+   strlcpy(countname, bleft, nch+1);
    char* bright = (char*) strchr(countname, ']');
    if (!bright) {
       delete[] countname;
@@ -257,7 +271,7 @@ TLeaf* TLeaf::GetLeafCounter(Int_t& countval) const
       strcpy(withdot, GetName());
       char* lastdot = strrchr(withdot, '.');
       strcpy(lastdot, countname);
-      leaf = (TLeaf*) pTree->GetListOfLeaves()->FindObject(countname);
+      leaf = (TLeaf*) pTree->GetListOfLeaves()->FindObject(withdot);
       delete[] withdot;
       withdot = 0;
    }

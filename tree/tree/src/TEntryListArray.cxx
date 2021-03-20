@@ -71,8 +71,7 @@ TEntryListArray's:
 #include "TEntryListArray.h"
 #include "TEntryListBlock.h"
 #include "TTree.h"
-#include "TFile.h"
-#include "TSystem.h"
+#include "TList.h"
 #include <iostream>
 
 ClassImp(TEntryListArray);
@@ -490,7 +489,7 @@ void TEntryListArray::Print(const Option_t* option) const
 
 Bool_t TEntryListArray::Remove(Long64_t entry, TTree *tree, Long64_t subentry)
 {
-   Bool_t result = 0;
+   Bool_t result = kFALSE;
 
    if (tree) {
       Long64_t localentry = tree->LoadTree(entry);
@@ -525,7 +524,7 @@ Bool_t TEntryListArray::Remove(Long64_t entry, TTree *tree, Long64_t subentry)
    } else if (subentry == -1) {
       return TEntryList::Remove(entry);
    }
-   return 0;
+   return kFALSE;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -533,7 +532,7 @@ Bool_t TEntryListArray::Remove(Long64_t entry, TTree *tree, Long64_t subentry)
 
 Bool_t TEntryListArray::RemoveSubList(TEntryListArray *e, TTree *tree)
 {
-   if (!e) return 0;
+   if (!e) return kFALSE;
    if (tree) {
       SetTree(tree->GetTree());
       TEntryListArray *currentArray = dynamic_cast<TEntryListArray*>(fCurrent);
@@ -542,17 +541,16 @@ Bool_t TEntryListArray::RemoveSubList(TEntryListArray *e, TTree *tree)
       }
    }
 
-   if (!fSubLists->Remove(e)) {
-      return 0;
+   if (!fSubLists || !fSubLists->Remove(e)) {
+      return kFALSE;
    }
    // fSubLists->Sort(); --> for TObjArray
    delete e;
-   e = 0;
    if (!fSubLists->GetEntries()) {
       delete fSubLists;
-      fSubLists = 0;
+      fSubLists = nullptr;
    }
-   return 1;
+   return kTRUE;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

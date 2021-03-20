@@ -14,7 +14,6 @@
 #include "ROOT/REveBox.hxx"
 #include "ROOT/REveProjectionManager.hxx"
 #include <ROOT/REveRenderData.hxx>
-#include "json.hpp"
 
 using namespace ROOT::Experimental;
 
@@ -159,6 +158,7 @@ REveBoxProjected::~REveBoxProjected()
 
 void REveBoxProjected::ComputeBBox()
 {
+   BBoxInit();
    for (auto &pnt: fPoints)
       BBoxCheckPoint(pnt.fX, pnt.fY, fDepth);
 }

@@ -2,7 +2,7 @@
 // Author: Guy Barrand   30/05/2001
 
 /*************************************************************************
- * Copyright (C) 2001, Guy Barrand.                                      *
+ * Copyright (C) 1995-2021, Rene Brun and Fons Rademakers.               *
  * All rights reserved.                                                  *
  *                                                                       *
  * For the licensing terms see $ROOTSYS/LICENSE.                         *
@@ -12,16 +12,6 @@
 #ifndef ROOT_TGApplication
 #define ROOT_TGApplication
 
-
-//////////////////////////////////////////////////////////////////////////
-//                                                                      //
-// TGApplication                                                        //
-//                                                                      //
-// This class initialize the ROOT GUI toolkit.                          //
-// This class must be instantiated exactly once in any given            //
-// application.                                                         //
-//                                                                      //
-//////////////////////////////////////////////////////////////////////////
 
 #include "TApplication.h"
 

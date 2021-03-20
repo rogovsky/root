@@ -24,8 +24,6 @@
 //                                                                      //
 //////////////////////////////////////////////////////////////////////////
 
-#include <vector>
-
 #include "TNamed.h"
 #include "TAttLine.h"
 #include "TAttFill.h"
@@ -33,6 +31,8 @@
 #include "TAttMarker.h"
 #include "GuiTypes.h"
 
+#include <vector>
+#include <utility>
 
 // WM Atoms are initialized in TGClient
 R__EXTERN Atom_t gWM_DELETE_WINDOW;
@@ -59,7 +59,7 @@ public:
    TVirtualX(const char *name, const char *title);
    virtual ~TVirtualX() { }
 
-   virtual Bool_t    Init(void *display=0);
+   virtual Bool_t    Init(void *display = nullptr);
    virtual void      ClearWindow();
    virtual void      ClosePixmap();
    virtual void      CloseWindow();
